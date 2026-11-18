@@ -1,17 +1,26 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from 'react'
+import {
+    HiOutlineCurrencyDollar,
+    HiOutlineGift,
+    HiOutlinePencil,
     HiOutlinePlus,
     HiOutlineRefresh,
     HiOutlineSearch,
+    HiOutlineStop,
     HiOutlineTag,
 } from 'react-icons/hi'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import { type ColumnDef } from '@/components/shared/DataTable'
-import SdDataTable from '../components/SdDataTable'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import FormDialog from '@/components/shared/FormDialog'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
@@ -28,6 +37,18 @@ import {
     listProducts,
     type SdProductRecord,
 } from '../services/productCatalogService'
+import SdDataTable from '../components/SdDataTable'
+import {
+    PricingBasePriceEditor,
+    PricingConditionIdentityCell,
+    PricingProductCell,
+    PricingProductHero,
+    PricingScopeCell,
+    PricingStatusCell,
+    PricingValidityCell,
+    PricingValueCell,
+    PRICING_CUSTOMER_LABEL,
+} from '../components/PricingConditionsTableCells'
 import {
     createPricingCondition,
     expirePricingCondition,
@@ -36,10 +57,10 @@ import {
     updatePricingCondition,
     type PricingCustomerType,
     type PricingRecord,
-    type PricingStatus,
     type PricingSummary,
     type PricingTab,
 } from '../services/pricingConditionService'
+import { formatSdMoney } from '../components/SdDataTableCells'
 
 const ROUTE_PATH = '/modules/sd/pricing-conditions'
 const SEARCH_DEBOUNCE_MS = 350
@@ -50,20 +71,6 @@ const TABS: { value: PricingTab; label: string }[] = [
     { value: 'TIER_DISCOUNT', label: 'Volume & Tier Discounts' },
     { value: 'PROMO', label: 'Promos & Campaigns' },
 ]
-
-const STATUS_META: Record<PricingStatus, { label: string; tone: StatusTone }> =
-    {
-        ACTIVE: { label: 'Active', tone: 'success' },
-        SCHEDULED: { label: 'Scheduled', tone: 'info' },
-        EXPIRED: { label: 'Expired', tone: 'default' },
-        INACTIVE: { label: 'Inactive', tone: 'warning' },
-    }
-
-const CUSTOMER_LABEL: Record<PricingCustomerType, string> = {
-    ALL: 'All customers',
-    RETAIL: 'Retail',
-    B2B: 'B2B / Wholesale',
-}
 
 type Option<T extends string> = { value: T; label: string }
 
@@ -79,8 +86,8 @@ const VALUE_TYPE_OPTIONS: Option<'PERCENT_OFF' | 'FIXED_PRICE'>[] = [
 ]
 
 const CUSTOMER_OPTIONS: Option<PricingCustomerType>[] = (
-    Object.keys(CUSTOMER_LABEL) as PricingCustomerType[]
-).map((value) => ({ value, label: CUSTOMER_LABEL[value] }))
+    Object.keys(PRICING_CUSTOMER_LABEL) as PricingCustomerType[]
+).map((value) => ({ value, label: PRICING_CUSTOMER_LABEL[value] }))
 
 const notify = (type: 'success' | 'danger', title: string, message: string) =>
     toast.push(
@@ -89,22 +96,6 @@ const notify = (type: 'success' | 'danger', title: string, message: string) =>
         </Notification>,
         { placement: 'top-end' },
     )
-
-const formatPhp = (amount: number) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-    }).format(amount)
-
-const formatDate = (value: string | null) =>
-    value
-        ? new Date(value).toLocaleDateString('en-PH', { dateStyle: 'medium' })
-        : '—'
-
-const formatValue = (record: PricingRecord) =>
-    record.valueType === 'PERCENT_OFF'
-        ? `-${record.value}%`
-        : formatPhp(record.value)
 
 const toDateInput = (value: string | null) => (value ? value.slice(0, 10) : '')
 const todayInput = () => new Date().toISOString().slice(0, 10)
@@ -121,9 +112,6 @@ type FormState = {
     promoCode: string
     validFrom: string
     validTo: string
-    previewBasePrice: number
-    previewDiscountedPrice: number
-    showPreview: boolean
 }
 
 const emptyForm = (recordType: PricingTab): FormState => ({
@@ -138,16 +126,7 @@ const emptyForm = (recordType: PricingTab): FormState => ({
     promoCode: '',
     validFrom: todayInput(),
     validTo: '',
-    // Preview state for base → discounted price
-    previewBasePrice: 0,
-    previewDiscountedPrice: 0,
 })
-
-type FormPreview = {
-    basePrice: number
-    discountedPrice: number
-    showPreview: boolean
-}
 
 const formFromRecord = (record: PricingRecord): FormState => ({
     recordType: record.kind,
@@ -164,25 +143,54 @@ const formFromRecord = (record: PricingRecord): FormState => ({
     validTo: toDateInput(record.validTo),
 })
 
-const StatCard = ({
+const SummaryStat = ({
     label,
     value,
+    hint,
     active,
+    icon,
+    delayMs,
     onClick,
 }: {
     label: string
     value: number | string
+    hint: string
     active: boolean
+    icon: ReactNode
+    delayMs: number
     onClick: () => void
 }) => (
-    <Card
+    <AdaptiveCard
         clickable
-        className={active ? 'ring-2 ring-primary' : undefined}
+        className={[
+            'transition-all duration-200',
+            'animate-mm-row-in motion-reduce:animate-none',
+            delayMs ? `[animation-delay:${delayMs}ms]` : '',
+            active
+                ? 'ring-2 ring-primary shadow-md'
+                : 'hover:-translate-y-0.5 hover:shadow-md',
+        ]
+            .filter(Boolean)
+            .join(' ')}
         onClick={onClick}
     >
-        <div className="text-sm text-gray-500">{label}</div>
-        <div className="mt-1 text-xl font-bold sm:text-2xl">{value}</div>
-    </Card>
+        <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    {label}
+                </div>
+                <div className="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-gray-100">
+                    {value}
+                </div>
+                <div className="mt-1 text-[11px] text-gray-500">{hint}</div>
+            </div>
+            <span
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light animate-mm-icon-pop motion-reduce:animate-none ${delayMs ? `[animation-delay:${delayMs + 80}ms]` : ''}`}
+            >
+                {icon}
+            </span>
+        </div>
+    </AdaptiveCard>
 )
 
 const PricingConditionsDashboard = () => {
@@ -243,40 +251,6 @@ const PricingConditionsDashboard = () => {
         return () => window.clearTimeout(timer)
     }, [searchInput, search])
 
-    // Live preview: base → discounted price for PERCENT_OFF when product is selected
-    useEffect(() => {
-        let cancelled = false
-        const computePreview = async () => {
-            if (form.valueType !== 'PERCENT_OFF' || form.productId === ALL_PRODUCTS) {
-                setPreviewBasePrice(0)
-                setPreviewDiscountedPrice(0)
-                setShowPreview(false)
-                return
-            }
-            // Find the selected product's catalog price
-            const product = products.find((p) => p.id === form.productId)
-            if (!product) {
-                setPreviewBasePrice(0)
-                setPreviewDiscountedPrice(0)
-                setShowPreview(false)
-                return
-            }
-            const basePrice = product.price
-            const percent = Number(form.value) || 0
-            // applyPercentOff: round(base * (1 - percent/100), 2)
-            const discountedPrice = Math.round(basePrice * (1 - percent / 100) * 100) / 100
-            if (!cancelled) {
-                setPreviewBasePrice(basePrice)
-                setPreviewDiscountedPrice(discountedPrice)
-                setShowPreview(true)
-            }
-        }
-        computePreview()
-        return () => {
-            cancelled = true
-        }
-    }, [form.productId, form.valueType, form.value, products])
-
     const selectTab = (next: PricingTab) => {
         setTab(next)
         setPage(1)
@@ -333,6 +307,33 @@ const PricingConditionsDashboard = () => {
         ],
         [products, form.recordType],
     )
+
+    const selectedProduct = useMemo(() => {
+        if (!form.productId) return null
+        return products.find((p) => p.id === form.productId) ?? null
+    }, [form.productId, products])
+
+    const baseCurrentPrice = useMemo(() => {
+        if (form.recordType !== 'BASE_PRICE') return null
+        if (selectedProduct) return selectedProduct.price
+        if (editing?.kind === 'BASE_PRICE') return editing.value
+        return null
+    }, [editing, form.recordType, selectedProduct])
+
+    const preview = useMemo(() => {
+        if (
+            form.recordType === 'BASE_PRICE' ||
+            form.valueType !== 'PERCENT_OFF' ||
+            !selectedProduct
+        ) {
+            return null
+        }
+        const percent = Number(form.value)
+        if (!Number.isFinite(percent) || percent <= 0) return null
+        const discounted =
+            Math.round(selectedProduct.price * (1 - percent / 100) * 100) / 100
+        return { base: selectedProduct.price, discounted }
+    }, [form.recordType, form.value, form.valueType, selectedProduct])
 
     const save = async () => {
         setFormError(null)
@@ -427,104 +428,78 @@ const PricingConditionsDashboard = () => {
         [fetchList],
     )
 
-    const columns = useMemo<ColumnDef<PricingRecord>[]>(
-        () => [
+    const columns = useMemo<ColumnDef<PricingRecord>[]>(() => {
+        const base: ColumnDef<PricingRecord>[] = [
             {
-                header: 'Condition Code',
-                id: 'conditionCode',
+                header: 'Condition',
+                id: 'condition',
+                size: 220,
+                minSize: 180,
                 cell: ({ row }) => (
-                    <span className="font-mono font-semibold">
-                        {row.original.conditionCode}
-                    </span>
+                    <PricingConditionIdentityCell record={row.original} />
                 ),
             },
             {
-                header: 'Condition Name',
-                id: 'name',
-                cell: ({ row }) => {
-                    const r = row.original
-                    const detail = [
-                        r.kind === 'TIER_DISCOUNT' && r.minQuantity
-                            ? `${r.minQuantity}+ items`
-                            : null,
-                        r.kind !== 'BASE_PRICE' && r.customerType !== 'ALL'
-                            ? CUSTOMER_LABEL[r.customerType]
-                            : null,
-                        r.promoCode ? `Code ${r.promoCode}` : null,
-                    ].filter(Boolean)
-                    return (
-                        <div className="min-w-[10rem]">
-                            <div className="font-semibold">{r.name}</div>
-                            {detail.length ? (
-                                <div className="text-xs text-gray-500">
-                                    {detail.join(' · ')}
-                                </div>
-                            ) : null}
-                        </div>
-                    )
-                },
-            },
-            {
-                header: 'Target SKU / Product',
+                header: tab === 'BASE_PRICE' ? 'Product' : 'Applies to',
                 id: 'product',
-                cell: ({ row }) =>
-                    row.original.productId ? (
-                        <div className="min-w-[10rem]">
-                            <div className="font-mono text-xs text-gray-500">
-                                {row.original.sku}
-                            </div>
-                            <div>{row.original.productName}</div>
-                        </div>
-                    ) : (
-                        <span className="text-gray-500">All products</span>
-                    ),
-            },
-            {
-                header: 'Value',
-                id: 'value',
+                size: 200,
+                minSize: 160,
                 cell: ({ row }) => (
-                    <span
-                        className={
-                            row.original.valueType === 'PERCENT_OFF'
-                                ? 'whitespace-nowrap font-semibold text-emerald-600'
-                                : 'whitespace-nowrap font-semibold'
-                        }
-                    >
-                        {formatValue(row.original)}
-                    </span>
+                    <PricingProductCell record={row.original} />
                 ),
             },
             {
-                header: 'Valid From / To',
+                header: tab === 'BASE_PRICE' ? 'Selling price' : 'Offer',
+                id: 'value',
+                size: 120,
+                cell: ({ row }) => <PricingValueCell record={row.original} />,
+            },
+        ]
+
+        if (tab !== 'BASE_PRICE') {
+            base.push({
+                header: 'Scope',
+                id: 'scope',
+                size: 180,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => <PricingScopeCell record={row.original} />,
+            })
+        }
+
+        base.push(
+            {
+                header: tab === 'BASE_PRICE' ? 'Last updated' : 'Validity',
                 id: 'validity',
+                size: 150,
+                meta: { className: 'hidden sm:table-cell' },
                 cell: ({ row }) => (
-                    <span className="whitespace-nowrap text-sm">
-                        {formatDate(row.original.validFrom)} –{' '}
-                        {row.original.validTo
-                            ? formatDate(row.original.validTo)
-                            : 'No end'}
-                    </span>
+                    <PricingValidityCell record={row.original} />
                 ),
             },
             {
                 header: 'Status',
                 id: 'status',
+                size: 100,
                 cell: ({ row }) => (
-                    <StatusBadge tone={STATUS_META[row.original.status].tone}>
-                        {STATUS_META[row.original.status].label}
-                    </StatusBadge>
+                    <PricingStatusCell status={row.original.status} />
                 ),
             },
             {
                 header: '',
                 id: 'actions',
+                size: 140,
                 cell: ({ row }) => {
                     const r = row.original
                     if (!canUpdate) return null
                     return (
                         <div className="flex justify-end gap-2">
                             {r.status !== 'EXPIRED' ? (
-                                <Button size="xs" onClick={() => openEdit(r)}>
+                                <Button
+                                    size="xs"
+                                    className="whitespace-nowrap"
+                                    icon={<HiOutlinePencil />}
+                                    onClick={() => openEdit(r)}
+                                >
                                     Edit
                                 </Button>
                             ) : null}
@@ -532,19 +507,22 @@ const PricingConditionsDashboard = () => {
                             r.status !== 'EXPIRED' ? (
                                 <Button
                                     size="xs"
+                                    className="whitespace-nowrap"
+                                    icon={<HiOutlineStop />}
                                     loading={expiringId === r.id}
                                     onClick={() => void expire(r)}
                                 >
-                                    End now
+                                    End
                                 </Button>
                             ) : null}
                         </div>
                     )
                 },
             },
-        ],
-        [canUpdate, expiringId, expire, openEdit],
-    )
+        )
+
+        return base
+    }, [canUpdate, expire, expiringId, openEdit, tab])
 
     const isBase = form.recordType === 'BASE_PRICE'
 
@@ -553,7 +531,7 @@ const PricingConditionsDashboard = () => {
             <PageHeader
                 breadcrumbs={parentBreadcrumbs}
                 title="Pricing Conditions & Rules"
-                description="Define base prices, quantity tier discounts, and promo overrides."
+                description="Base catalog prices, volume tiers, and promo overrides used when SD resolves unit price."
                 icon={<HiOutlineTag />}
                 actions={
                     <div className="flex gap-2">
@@ -585,23 +563,32 @@ const PricingConditionsDashboard = () => {
                 </Alert>
             ) : null}
 
-            <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <StatCard
-                    label="Total Base Prices"
+            <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <SummaryStat
+                    label="Base prices"
                     value={summary?.basePrices ?? 0}
+                    hint="PR00 catalog selling prices"
                     active={tab === 'BASE_PRICE'}
+                    delayMs={0}
+                    icon={<HiOutlineCurrencyDollar className="text-xl" />}
                     onClick={() => selectTab('BASE_PRICE')}
                 />
-                <StatCard
-                    label="Active Tier Discounts"
+                <SummaryStat
+                    label="Active tier discounts"
                     value={summary?.activeTierDiscounts ?? 0}
+                    hint="Quantity / volume rules in force"
                     active={tab === 'TIER_DISCOUNT'}
+                    delayMs={60}
+                    icon={<HiOutlineTag className="text-xl" />}
                     onClick={() => selectTab('TIER_DISCOUNT')}
                 />
-                <StatCard
-                    label="Active Promos"
+                <SummaryStat
+                    label="Active promos"
                     value={summary?.activePromos ?? 0}
+                    hint="Campaigns & promo codes in force"
                     active={tab === 'PROMO'}
+                    delayMs={120}
+                    icon={<HiOutlineGift className="text-xl" />}
                     onClick={() => selectTab('PROMO')}
                 />
             </div>
@@ -624,23 +611,19 @@ const PricingConditionsDashboard = () => {
                     <Input
                         className="md:max-w-md"
                         prefix={<HiOutlineSearch className="text-lg" />}
-                        placeholder="Search SKU, product name or condition code..."
+                        placeholder="Search SKU, product name or condition code…"
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
-                    {tab !== 'BASE_PRICE' ? (
-                        <p className="text-xs text-gray-500">
-                            Saved as pricing records. Checkout, POS and
-                            quotations still charge the base price.
-                        </p>
-                    ) : (
-                        <p className="text-xs text-gray-500">
-                            PR00 is the Product Catalog selling price.
-                        </p>
-                    )}
+                    <p className="text-xs text-gray-500">
+                        {tab === 'BASE_PRICE'
+                            ? 'PR00 is the Product Catalog selling price.'
+                            : 'Retail order create resolves active tiers/promos against catalog base.'}
+                    </p>
                 </div>
 
                 <SdDataTable
+                    key={`${tab}:${page}:${search}`}
                     columns={columns}
                     data={rows}
                     loading={loading && rows.length === 0}
@@ -657,20 +640,24 @@ const PricingConditionsDashboard = () => {
             <FormDialog
                 isOpen={dialogOpen}
                 onClose={() => setDialogOpen(false)}
-                icon={<HiOutlineTag />}
+                icon={isBase ? <HiOutlineCurrencyDollar /> : <HiOutlineTag />}
                 title={
                     editing
-                        ? `Edit ${editing.conditionCode}`
-                        : 'Add Price Record'
+                        ? isBase
+                            ? 'Edit base price (PR00)'
+                            : `Edit ${editing.conditionCode}`
+                        : isBase
+                          ? 'Set base price (PR00)'
+                          : 'Add Price Record'
                 }
                 description={
                     isBase
-                        ? 'Sets the selling price in the Product Catalog (PR00).'
+                        ? 'Change the Product Catalog selling price for this SKU.'
                         : 'Quantity tier or promo pricing record.'
                 }
                 size="lg"
                 onSubmit={save}
-                confirmText="Save"
+                confirmText={isBase ? 'Save base price' : 'Save'}
                 confirmLoading={saving}
             >
                 {formError ? (
@@ -678,179 +665,244 @@ const PricingConditionsDashboard = () => {
                         {formError}
                     </Alert>
                 ) : null}
-                <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
-                    <FormItem label="Record type" className="md:col-span-2">
-                        <Select<Option<PricingTab>>
-                            isSearchable={false}
-                            isDisabled={Boolean(editing)}
-                            options={RECORD_TYPE_OPTIONS}
-                            value={RECORD_TYPE_OPTIONS.find(
-                                (o) => o.value === form.recordType,
-                            )}
-                            onChange={(o) => o && changeRecordType(o.value)}
-                        />
-                    </FormItem>
 
-                    <FormItem
-                        label={isBase ? 'Product' : 'Target product'}
-                        className="md:col-span-2"
-                    >
-                        <Select<Option<string>>
-                            isDisabled={isBase && Boolean(editing)}
-                            placeholder="Search SKU or product..."
-                            options={productOptions}
-                            value={
-                                productOptions.find(
-                                    (o) => o.value === form.productId,
-                                ) ?? null
-                            }
-                            onChange={(o) =>
-                                setField('productId', o?.value ?? ALL_PRODUCTS)
-                            }
-                        />
-                    </FormItem>
-
-                    {!isBase ? (
-                        <>
-                            <FormItem label="Condition name">
-                                <Input
-                                    placeholder={
-                                        form.recordType === 'TIER_DISCOUNT'
-                                            ? 'Wholesale 10+ Tier'
-                                            : '11.11 Sale'
+                {isBase ? (
+                    <div className="space-y-4">
+                        {!editing ? (
+                            <FormItem label="Product">
+                                <Select<Option<string>>
+                                    placeholder="Search SKU or product…"
+                                    options={productOptions}
+                                    value={
+                                        productOptions.find(
+                                            (o) => o.value === form.productId,
+                                        ) ?? null
                                     }
-                                    value={form.name}
-                                    onChange={(e) =>
-                                        setField('name', e.target.value)
-                                    }
-                                />
-                            </FormItem>
-                            <FormItem label="Condition code">
-                                <Input
-                                    placeholder="Auto (DISC01 / PROMO01)"
-                                    disabled={Boolean(editing)}
-                                    value={form.conditionCode}
-                                    onChange={(e) =>
+                                    onChange={(o) =>
                                         setField(
-                                            'conditionCode',
-                                            e.target.value.toUpperCase(),
+                                            'productId',
+                                            o?.value ?? ALL_PRODUCTS,
                                         )
                                     }
                                 />
                             </FormItem>
-                            {form.recordType === 'TIER_DISCOUNT' ? (
-                                <FormItem label="Minimum quantity">
-                                    <Input
-                                        type="number"
-                                        min={1}
-                                        value={form.minQuantity}
-                                        onChange={(e) =>
-                                            setField(
-                                                'minQuantity',
-                                                e.target.value,
-                                            )
-                                        }
-                                    />
-                                </FormItem>
-                            ) : (
-                                <FormItem label="Promo code (optional)">
-                                    <Input
-                                        placeholder="SALE1111"
-                                        value={form.promoCode}
-                                        onChange={(e) =>
-                                            setField(
-                                                'promoCode',
-                                                e.target.value,
-                                            )
-                                        }
-                                    />
-                                </FormItem>
-                            )}
-                            <FormItem label="Customers">
-                                <Select<Option<PricingCustomerType>>
+                        ) : null}
+
+                        {form.productId &&
+                        (selectedProduct ||
+                            (editing?.kind === 'BASE_PRICE' &&
+                                editing.productId === form.productId)) ? (
+                            <PricingProductHero
+                                sku={
+                                    selectedProduct?.sku ??
+                                    editing?.sku ??
+                                    '—'
+                                }
+                                name={
+                                    selectedProduct?.name ??
+                                    editing?.productName ??
+                                    '—'
+                                }
+                                imageUrl={selectedProduct?.imageUrl}
+                                currentPrice={baseCurrentPrice}
+                                badge="PR00"
+                            />
+                        ) : (
+                            <div className="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 dark:border-gray-600">
+                                Select a product to set its catalog selling
+                                price.
+                            </div>
+                        )}
+
+                        <PricingBasePriceEditor
+                            value={form.value}
+                            currentPrice={baseCurrentPrice}
+                            onChange={(next) => setField('value', next)}
+                        />
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+                        {!editing ? (
+                            <FormItem
+                                label="Record type"
+                                className="md:col-span-2"
+                            >
+                                <Select<Option<PricingTab>>
                                     isSearchable={false}
-                                    options={CUSTOMER_OPTIONS}
-                                    value={CUSTOMER_OPTIONS.find(
-                                        (o) => o.value === form.customerType,
+                                    options={RECORD_TYPE_OPTIONS}
+                                    value={RECORD_TYPE_OPTIONS.find(
+                                        (o) => o.value === form.recordType,
                                     )}
                                     onChange={(o) =>
-                                        o && setField('customerType', o.value)
+                                        o && changeRecordType(o.value)
                                     }
                                 />
                             </FormItem>
-<FormItem label="Discount type">
-    <Select<Option<'PERCENT_OFF' | 'FIXED_PRICE'>>
-        isSearchable={false}
-        options={VALUE_TYPE_OPTIONS}
-        value={VALUE_TYPE_OPTIONS.find(
-            (o) => o.value === form.valueType,
-        )}
-        onChange={(o) =>
-            o && setField('valueType', o.value)
-        }
-    />
-</FormItem>
+                        ) : null}
 
-                    {form.showPreview && form.valueType === 'PERCENT_OFF' && form.productId !== ALL_PRODUCTS && form.productId ? (
-                        <FormItem label="Price preview">
-                            <div className="flex items-center space-x-2">
-                                <span className="text-sm text-gray-600">Base:</span>
-                                <span className="font-medium">{formatPhp(form.previewBasePrice)}</span>
-                                <span className="text-xs text-gray-400"> → </span>
-                                <span className="font-medium line-through text-gray-500">
-                                    {form.productId ? formatPhp(products.find((p) => p.id === form.productId)?.price ?? 0) : '0'}
-                                </span>
-                                <span className="text-xs text-gray-400"> = </span>
-                                <span className="font-medium text-green-600">
-                                    {formatPhp(form.previewDiscountedPrice)}
-                                </span>
-                            </div>
+                        <FormItem
+                            label="Target product"
+                            className="md:col-span-2"
+                        >
+                            <Select<Option<string>>
+                                placeholder="Search SKU or product…"
+                                options={productOptions}
+                                value={
+                                    productOptions.find(
+                                        (o) => o.value === form.productId,
+                                    ) ?? null
+                                }
+                                onChange={(o) =>
+                                    setField(
+                                        'productId',
+                                        o?.value ?? ALL_PRODUCTS,
+                                    )
+                                }
+                            />
                         </FormItem>
-                    ) : null}
-                        </>
-                    ) : null}
 
-                    <FormItem
-                        label={
-                            isBase
-                                ? 'Selling price (₱)'
-                                : form.valueType === 'PERCENT_OFF'
-                                  ? 'Percent off (%)'
-                                  : 'Promo price (₱)'
-                        }
-                    >
-                        <Input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={form.value}
-                            onChange={(e) => setField('value', e.target.value)}
-                        />
-                    </FormItem>
+                        {selectedProduct ? (
+                            <div className="md:col-span-2">
+                                <PricingProductHero
+                                    sku={selectedProduct.sku}
+                                    name={selectedProduct.name}
+                                    imageUrl={selectedProduct.imageUrl}
+                                    currentPrice={selectedProduct.price}
+                                    badge={
+                                        form.recordType === 'PROMO'
+                                            ? 'PROMO'
+                                            : 'TIER'
+                                    }
+                                />
+                            </div>
+                        ) : null}
 
-                    {!isBase ? (
-                        <>
-                            <FormItem label="Valid from">
+                        <FormItem label="Condition name">
+                            <Input
+                                placeholder={
+                                    form.recordType === 'TIER_DISCOUNT'
+                                        ? 'Wholesale 10+ Tier'
+                                        : '11.11 Sale'
+                                }
+                                value={form.name}
+                                onChange={(e) =>
+                                    setField('name', e.target.value)
+                                }
+                            />
+                        </FormItem>
+                        <FormItem label="Condition code">
+                            <Input
+                                placeholder="Auto (DISC01 / PROMO01)"
+                                disabled={Boolean(editing)}
+                                value={form.conditionCode}
+                                onChange={(e) =>
+                                    setField(
+                                        'conditionCode',
+                                        e.target.value.toUpperCase(),
+                                    )
+                                }
+                            />
+                        </FormItem>
+                        {form.recordType === 'TIER_DISCOUNT' ? (
+                            <FormItem label="Minimum quantity">
                                 <Input
-                                    type="date"
-                                    value={form.validFrom}
+                                    type="number"
+                                    min={1}
+                                    value={form.minQuantity}
                                     onChange={(e) =>
-                                        setField('validFrom', e.target.value)
+                                        setField('minQuantity', e.target.value)
                                     }
                                 />
                             </FormItem>
-                            <FormItem label="Valid to (optional)">
+                        ) : (
+                            <FormItem label="Promo code (optional)">
                                 <Input
-                                    type="date"
-                                    value={form.validTo}
+                                    placeholder="SALE1111"
+                                    value={form.promoCode}
                                     onChange={(e) =>
-                                        setField('validTo', e.target.value)
+                                        setField('promoCode', e.target.value)
                                     }
                                 />
                             </FormItem>
-                        </>
-                    ) : null}
-                </div>
+                        )}
+                        <FormItem label="Customers">
+                            <Select<Option<PricingCustomerType>>
+                                isSearchable={false}
+                                options={CUSTOMER_OPTIONS}
+                                value={CUSTOMER_OPTIONS.find(
+                                    (o) => o.value === form.customerType,
+                                )}
+                                onChange={(o) =>
+                                    o && setField('customerType', o.value)
+                                }
+                            />
+                        </FormItem>
+                        <FormItem label="Discount type">
+                            <Select<Option<'PERCENT_OFF' | 'FIXED_PRICE'>>
+                                isSearchable={false}
+                                options={VALUE_TYPE_OPTIONS}
+                                value={VALUE_TYPE_OPTIONS.find(
+                                    (o) => o.value === form.valueType,
+                                )}
+                                onChange={(o) =>
+                                    o && setField('valueType', o.value)
+                                }
+                            />
+                        </FormItem>
+                        <FormItem
+                            label={
+                                form.valueType === 'PERCENT_OFF'
+                                    ? 'Percent off (%)'
+                                    : 'Promo price (₱)'
+                            }
+                        >
+                            <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={form.value}
+                                onChange={(e) =>
+                                    setField('value', e.target.value)
+                                }
+                            />
+                        </FormItem>
+                        {preview ? (
+                            <FormItem
+                                label="Price preview"
+                                className="md:col-span-2"
+                            >
+                                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                    <span className="text-gray-500">Base</span>
+                                    <span className="font-medium tabular-nums">
+                                        {formatSdMoney(preview.base)}
+                                    </span>
+                                    <span className="text-gray-400">→</span>
+                                    <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                                        {formatSdMoney(preview.discounted)}
+                                    </span>
+                                </div>
+                            </FormItem>
+                        ) : null}
+                        <FormItem label="Valid from">
+                            <Input
+                                type="date"
+                                value={form.validFrom}
+                                onChange={(e) =>
+                                    setField('validFrom', e.target.value)
+                                }
+                            />
+                        </FormItem>
+                        <FormItem label="Valid to (optional)">
+                            <Input
+                                type="date"
+                                value={form.validTo}
+                                onChange={(e) =>
+                                    setField('validTo', e.target.value)
+                                }
+                            />
+                        </FormItem>
+                    </div>
+                )}
             </FormDialog>
         </PageContainer>
     )

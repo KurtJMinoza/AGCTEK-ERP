@@ -118,6 +118,27 @@ describe('ProductBarcodeService', () => {
         expect(productFamily.createProductFamily).not.toHaveBeenCalled()
     })
 
+    it('hides barcodes that belong to another company', async () => {
+        resolver.resolve.mockRejectedValue(new Error('not found'))
+        const prisma = makePrisma({
+            mmMaterial: {
+                findFirst: jest.fn().mockResolvedValue({
+                    ...MATERIAL,
+                    companyId: 'other-company',
+                }),
+            },
+            sdProductVariant: {
+                findFirst: jest.fn().mockResolvedValue({ materialId: 'm1' }),
+            },
+        })
+        const service = build(prisma)
+
+        const result = await service.lookup('4809999999999', 'c1')
+
+        expect(result.found).toBe(false)
+        expect(result.message).toContain('another company')
+    })
+
     it('resolves an SD-only variant barcode when MM registry misses', async () => {
         resolver.resolve.mockRejectedValue(new Error('not found'))
         const prisma = makePrisma({

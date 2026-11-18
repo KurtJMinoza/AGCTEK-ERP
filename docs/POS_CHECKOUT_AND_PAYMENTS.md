@@ -49,9 +49,12 @@ cashier confirmation the tender stays pending. A salary deduction is a credit
 sale — the customer's credit limit is checked before the sale and consumed
 after it; it is never counted as cash in the drawer.
 
-Split payment is supported: a sale carries one tender row per payment method
-and the tenders must cover the amount due. Only cash may hand over more than
-the amount it covers; the surplus is the change.
+Split payment is supported (`paymentMode: SPLIT`): a sale carries one tender
+row per payment method (Cash + GCash, Cash + Card, …). The cashier enters each
+payment amount; the UI shows covered vs remaining balance. Checkout rejects a
+split with fewer than two tenders, and the order is marked `Paid` only when the
+tenders fully cover the amount due and every tender has settled. Only cash may
+hand over more than the amount it covers; the surplus is the change.
 
 ## 4. Completion, idempotency and safety
 

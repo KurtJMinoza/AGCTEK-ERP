@@ -138,19 +138,6 @@ export class PosVoidService {
                     },
                 })
 
-                // The checkout booked the deduction against the employee's
-                // credit; the voided sale no longer owes it.
-                if (salaryLoanCredit > 0 && order.customerId) {
-                    await tx.sdCustomer.updateMany({
-                        where: { id: order.customerId },
-                        data: {
-                            availableCredit: {
-                                increment: new Decimal(salaryLoanCredit),
-                            },
-                        },
-                    })
-                }
-
                 // Cancel the receivable and employee loan items (partial payment)
                 await tx.sdPosReceivable.updateMany({
                     where: { salesOrderId: order.id, status: 'OPEN' },

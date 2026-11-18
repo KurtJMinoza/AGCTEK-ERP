@@ -7,6 +7,7 @@ import {
     HiOutlineCash,
     HiOutlineChartBar,
     HiOutlineCube,
+    HiOutlineExclamationCircle,
     HiOutlineReceiptTax,
     HiOutlineRefresh,
     HiOutlineShoppingCart,
@@ -37,6 +38,7 @@ import { SdMoneyCell, formatSdMoney } from '../components/SdDataTableCells'
 import {
     BestSellersLeaderboard,
     CustomerAvatar,
+    CustomerReceivablesPanel,
     EmptyState,
     KpiCard,
     ProductBuyersPanel,
@@ -431,6 +433,18 @@ const SalesAnalysisDashboard = () => {
                   previous: data.previous.uniqueCustomers,
                   icon: <HiOutlineUserGroup />,
               },
+              {
+                  label: 'Balance due',
+                  value: money(data.totalBalanceDue),
+                  current: data.totalBalanceDue,
+                  previous: 0,
+                  icon: <HiOutlineExclamationCircle />,
+                  tone: 'warning' as const,
+                  subtext:
+                      data.ordersWithBalance > 0
+                          ? `${data.ordersWithBalance.toLocaleString('en-PH')} order${data.ordersWithBalance === 1 ? '' : 's'} not fully paid`
+                          : 'All orders fully paid',
+              },
           ]
         : [
               'Total revenue',
@@ -438,6 +452,7 @@ const SalesAnalysisDashboard = () => {
               'Average order value',
               'Units sold',
               'Customers',
+              'Balance due',
           ].map((label) => ({
               label,
               value: '—',
@@ -519,7 +534,7 @@ const SalesAnalysisDashboard = () => {
                 </Alert>
             ) : null}
 
-            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                 {kpis.map((kpi) => (
                     <KpiCard key={kpi.label} loading={loading} {...kpi} />
                 ))}
@@ -691,6 +706,28 @@ const SalesAnalysisDashboard = () => {
                     )}
                 </AdaptiveCard>
             </div>
+
+            {loading || (data?.customerReceivables.length ?? 0) > 0 ? (
+                <AdaptiveCard className="mb-4 border-amber-200 dark:border-amber-500/30">
+                    <SectionTitle
+                        title="Customers with balance due"
+                        description="Down payments and partial payments still to be collected — largest balance first"
+                        extra={
+                            data && data.totalBalanceDue > 0 ? (
+                                <Tag className="shrink-0 bg-amber-100 font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                                    {money(data.totalBalanceDue)} outstanding
+                                </Tag>
+                            ) : null
+                        }
+                    />
+                    <CustomerReceivablesPanel
+                        receivables={data?.customerReceivables ?? []}
+                        totalBalanceDue={data?.totalBalanceDue ?? 0}
+                        currency={currency}
+                        loading={loading}
+                    />
+                </AdaptiveCard>
+            ) : null}
 
             <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <AdaptiveCard className="xl:col-span-2">

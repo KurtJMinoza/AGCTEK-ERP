@@ -435,6 +435,8 @@ export class SalesOrderService {
             include: {
                 lines: { orderBy: { lineNumber: 'asc' } },
                 company: true,
+                // POS split sales need every tender on the detail dialog.
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         const cancellation = await this.customerCancellationMap(rows)
@@ -2083,7 +2085,7 @@ export class SalesOrderService {
             where: { id },
             include: {
                 ...this.includes,
-                payments: { orderBy: { createdAt: 'desc' } },
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         if (!row) throw new NotFoundException('Sales order not found')

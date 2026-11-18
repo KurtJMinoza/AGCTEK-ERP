@@ -39,6 +39,8 @@ export type TenderResult = {
     downPaymentType?: 'PERCENTAGE' | 'FIXED'
     downPaymentPct?: number
     downPaymentAmount?: number
+    /** Free-text remarks shown on the complete sales report. */
+    remarks?: string
 }
 
 type POSTenderDialogProps = {
@@ -176,14 +178,33 @@ const POSTenderDialog = ({
     const [dpPct, setDpPct] = useState(50)
     const [dpCustomAmount, setDpCustomAmount] = useState('')
 
+    // Custom down payment rules: an amount outside (0, order total) is never
+    // silently corrected — it is reported and the sale cannot be completed.
+    const dpCustomError = useMemo(() => {
+        if (paymentMode !== 'DOWN_PAYMENT' || dpType !== 'FIXED') return null
+        if (dpCustomAmount.trim() === '') {
+            return 'Enter the down payment amount.'
+        }
+        const custom = round2(Number(dpCustomAmount))
+        if (!Number.isFinite(custom) || custom <= 0) {
+            return 'The down payment must be greater than zero.'
+        }
+        if (custom > round2(amountDue) + 0.005) {
+            return `The down payment (${formatPrice(custom)}) cannot exceed the order total (${formatPrice(amountDue)}).`
+        }
+        if (custom >= round2(amountDue) - 0.005) {
+            return `The down payment equals the order total (${formatPrice(amountDue)}). Use Full Payment instead, or enter a smaller amount.`
+        }
+        return null
+    }, [paymentMode, dpType, dpCustomAmount, amountDue, formatPrice])
+
     // Effective down payment amount
     const effectiveDpAmount = useMemo(() => {
         if (paymentMode !== 'DOWN_PAYMENT') return amountDue
         if (dpType === 'PERCENTAGE') return round2((amountDue * dpPct) / 100)
-        const custom = Number(dpCustomAmount)
-        if (Number.isFinite(custom) && custom > 0) return round2(Math.min(custom, amountDue))
-        return 0
-    }, [paymentMode, dpType, dpPct, dpCustomAmount, amountDue])
+        if (dpCustomError) return 0
+        return round2(Number(dpCustomAmount))
+    }, [paymentMode, dpType, dpPct, dpCustomAmount, dpCustomError, amountDue])
 
     const effectiveAmountDue = paymentMode === 'DOWN_PAYMENT' ? effectiveDpAmount : amountDue
     const balanceDue = paymentMode === 'DOWN_PAYMENT' ? round2(amountDue - effectiveDpAmount) : 0
@@ -195,16 +216,11 @@ const POSTenderDialog = ({
         amountDue > 0 ? amountDue.toFixed(2) : '',
     )
 
-    // Reset tender form amounts when DP amount changes
-    useEffect(() => {
-        if (effectiveAmountDue > 0 && tenders.length === 0) {
-            setAmount(effectiveAmountDue.toFixed(2))
-            setCashReceived(effectiveAmountDue.toFixed(2))
-        }
-    }, [effectiveAmountDue, tenders.length])
     const [referenceNumber, setReferenceNumber] = useState('')
     const [bankName, setBankName] = useState('')
     const [transactionDate, setTransactionDate] = useState('')
+
+    const [remarks, setRemarks] = useState('')
 
     const methodLabel = (code: string) =>
         methods.find((row) => row.method === code)?.label ?? code
@@ -212,6 +228,7 @@ const POSTenderDialog = ({
     // Load configurable payment methods when the dialog opens.
     useEffect(() => {
         if (!isOpen) return
+        setRemarks('')
         listPaymentMethods(true)
             .then((records) => {
                 if (records.length) setMethods(toMethodOptions(records))
@@ -258,12 +275,52 @@ const POSTenderDialog = ({
         [tenders],
     )
 
+    // Live validation of the payment being entered (the same rules run again
+    // in addPayment, and the server enforces them as the final authority).
+    const amountLocked = paymentMode === 'FULL' && tenders.length === 0
+    const amountError = useMemo(() => {
+        if (amountLocked || amount.trim() === '') return null
+        const value = Number(amount)
+        if (!Number.isFinite(value) || value <= 0) {
+            return 'Enter an amount greater than zero.'
+        }
+        if (value > remaining + 0.005) {
+            return `${formatPrice(value)} is more than the ${formatPrice(Math.max(0, remaining))} still due.`
+        }
+        if (
+            paymentMode === 'SPLIT' &&
+            tenders.length === 0 &&
+            value >= effectiveAmountDue - 0.005
+        ) {
+            return 'A split payment needs a partial first amount; the rest goes on another method.'
+        }
+        return null
+    }, [
+        amountLocked,
+        amount,
+        remaining,
+        paymentMode,
+        tenders.length,
+        effectiveAmountDue,
+        formatPrice,
+    ])
+    const coveredValue = amountLocked ? remaining : Number(amount) || 0
+    const cashError =
+        method === 'CASH' &&
+        !amountError &&
+        cashReceived.trim() !== '' &&
+        coveredValue > 0 &&
+        round2(Number(cashReceived)) < round2(coveredValue) - 0.005
+            ? 'Cash received must be at least the amount it covers.'
+            : null
+
     /** Restarts the form for a method: the amount covers what is still due. */
     const resetForm = useCallback(
-        (next: PosTenderMethod, due: number) => {
+        (next: PosTenderMethod, due: number, opts?: { blankAmount?: boolean }) => {
             setMethod(next)
-            setAmount(due > 0 ? due.toFixed(2) : '')
-            setCashReceived(due > 0 ? due.toFixed(2) : '')
+            const blank = Boolean(opts?.blankAmount)
+            setAmount(!blank && due > 0 ? due.toFixed(2) : '')
+            setCashReceived(!blank && due > 0 ? due.toFixed(2) : '')
             setReferenceNumber('')
             setBankName('')
             setTransactionDate('')
@@ -274,10 +331,73 @@ const POSTenderDialog = ({
         [],
     )
 
-    const selectMethod = (next: PosTenderMethod) => resetForm(next, remaining)
+    // Keep amount/cash fields in sync with the amount still due.
+    useEffect(() => {
+        if (!isOpen) return
+        if (tenders.length > 0) return
+        if (paymentMode === 'SPLIT') {
+            // Cashier must enter each split amount intentionally.
+            setAmount('')
+            setCashReceived('')
+            return
+        }
+        if (effectiveAmountDue > 0) {
+            setAmount(effectiveAmountDue.toFixed(2))
+            setCashReceived(effectiveAmountDue.toFixed(2))
+        }
+    }, [isOpen, effectiveAmountDue, tenders.length, paymentMode])
+
+    const selectMethod = (next: PosTenderMethod) =>
+        resetForm(
+            next,
+            remaining,
+            paymentMode === 'SPLIT' && remaining > 0.005
+                ? { blankAmount: tenders.length === 0 }
+                : undefined,
+        )
+
+    const setPaymentModeAndReset = (mode: PosPaymentMode) => {
+        setPaymentMode(mode)
+        setTenders([])
+        setError(null)
+        if (mode === 'SPLIT') {
+            resetForm('CASH', amountDue, { blankAmount: true })
+        } else if (mode === 'FULL') {
+            resetForm('CASH', amountDue)
+        } else {
+            // Down-payment amount refreshes via the effectiveAmountDue effect.
+            resetForm('CASH', 0, { blankAmount: true })
+        }
+    }
+
+    const onAmountCoveredChange = (next: string) => {
+        setAmount(next)
+        if (method !== 'CASH') return
+        setCashReceived((prev) => {
+            const prevAmt = Number(amount) || 0
+            const prevCash = Number(prev) || 0
+            const nextAmt = Number(next) || 0
+            // Keep cash received aligned until the cashier enters a larger tender.
+            if (
+                !prev ||
+                Math.abs(prevCash - prevAmt) < 0.005 ||
+                prevCash < nextAmt
+            ) {
+                return next
+            }
+            return prev
+        })
+    }
 
     const addPayment = () => {
-        const value = Number(amount)
+        if (dpCustomError) {
+            setError(dpCustomError)
+            return
+        }
+        const value =
+            paymentMode === 'FULL' && tenders.length === 0
+                ? remaining
+                : Number(amount)
         if (!Number.isFinite(value) || value <= 0) {
             setError('Enter an amount greater than zero.')
             return
@@ -288,11 +408,21 @@ const POSTenderDialog = ({
             )
             return
         }
+        if (
+            paymentMode === 'SPLIT' &&
+            tenders.length === 0 &&
+            value >= effectiveAmountDue - 0.005
+        ) {
+            setError(
+                'Split payment needs more than one method. Enter a partial amount for the first payment, then add another method for the remaining balance.',
+            )
+            return
+        }
 
         const tender: PosTenderInput = { method, amount: round2(value) }
 
         if (method === 'CASH') {
-            const cash = Number(cashReceived)
+            const cash = Number(cashReceived || amount)
             if (!Number.isFinite(cash) || cash < tender.amount) {
                 setError(
                     'Cash received must be at least the amount it covers.',
@@ -346,8 +476,17 @@ const POSTenderDialog = ({
             tender.verifiedBy = cashierUserId
         }
 
+        const nextRemaining = round2(remaining - tender.amount)
         setTenders((current) => [...current, tender])
-        resetForm(method, round2(remaining - tender.amount))
+        // After each split tender, pre-fill the remaining balance for the next method.
+        resetForm(method, nextRemaining)
+        if (paymentMode === 'SPLIT' && nextRemaining > 0.005) {
+            notify(
+                'info',
+                'Remaining balance',
+                `${formatPrice(nextRemaining)} still due — select the next payment method.`,
+            )
+        }
         if (
             (method === 'GCASH' || method === 'BANK_TRANSFER') &&
             !tender.verifiedBy
@@ -360,17 +499,42 @@ const POSTenderDialog = ({
         }
     }
 
-    const removeTender = (index: number) =>
-        setTenders((current) => current.filter((_, i) => i !== index))
+    const removeTender = (index: number) => {
+        setTenders((current) => {
+            const next = current.filter((_, i) => i !== index)
+            const nextCovered = round2(
+                next.reduce((sum, tender) => sum + tender.amount, 0),
+            )
+            const nextRemaining = round2(effectiveAmountDue - nextCovered)
+            resetForm(
+                method,
+                nextRemaining,
+                paymentMode === 'SPLIT' && next.length === 0
+                    ? { blankAmount: true }
+                    : undefined,
+            )
+            return next
+        })
+    }
 
     const complete = () => {
+        if (dpCustomError) {
+            setError(dpCustomError)
+            return
+        }
         if (!tenders.length) {
             setError('Add at least one payment method.')
             return
         }
+        if (paymentMode === 'SPLIT' && tenders.length < 2) {
+            setError(
+                'Split payment requires at least two payment methods (for example Cash + GCash).',
+            )
+            return
+        }
         if (remaining > 0.005) {
             setError(
-                `The tenders cover ${formatPrice(covered)} of ${formatPrice(effectiveAmountDue)}.`,
+                `The tenders cover ${formatPrice(covered)} of ${formatPrice(effectiveAmountDue)}. Add another payment for the remaining ${formatPrice(remaining)}.`,
             )
             return
         }
@@ -381,10 +545,18 @@ const POSTenderDialog = ({
                 return
             }
         }
+        const resolvedMode: PosPaymentMode =
+            paymentMode === 'DOWN_PAYMENT'
+                ? 'DOWN_PAYMENT'
+                : tenders.length > 1
+                  ? 'SPLIT'
+                  : 'FULL'
+        const trimmedRemarks = remarks.trim()
         onComplete({
             tenders,
-            paymentMode,
-            ...(paymentMode === 'DOWN_PAYMENT' && {
+            paymentMode: resolvedMode,
+            ...(trimmedRemarks ? { remarks: trimmedRemarks } : {}),
+            ...(resolvedMode === 'DOWN_PAYMENT' && {
                 downPaymentType: dpType,
                 downPaymentPct: dpType === 'PERCENTAGE' ? dpPct : undefined,
                 downPaymentAmount: effectiveDpAmount,
@@ -427,16 +599,58 @@ const POSTenderDialog = ({
                                 ? 'border-primary bg-primary-subtle text-primary dark:bg-primary/15'
                                 : 'border-gray-200 text-gray-600 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800',
                         )}
-                        onClick={() => {
-                            setPaymentMode(mode)
-                            setTenders([])
-                            setError(null)
-                        }}
+                        onClick={() => setPaymentModeAndReset(mode)}
                     >
                         {mode === 'FULL' ? 'Full Payment' : mode === 'SPLIT' ? 'Split Payment' : 'Down Payment'}
                     </button>
                 ))}
             </div>
+
+            {paymentMode === 'SPLIT' ? (
+                <AdaptiveCard className="mb-4 border border-sky-200 bg-sky-50/60 dark:border-sky-500/30 dark:bg-sky-500/10">
+                    <div className="text-sm font-semibold text-sky-900 dark:text-sky-200">
+                        Split payment
+                    </div>
+                    <p className="mt-1 text-xs text-sky-800 dark:text-sky-300">
+                        Add two or more methods (for example Cash + GCash). Each
+                        payment amount is listed below; the sale stays unpaid
+                        until the remaining balance is ₱0.00.
+                    </p>
+                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Amount due
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums heading-text">
+                                {formatPrice(effectiveAmountDue)}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Covered
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                                {formatPrice(covered)}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600">
+                                Remaining
+                            </div>
+                            <div
+                                className={classNames(
+                                    'text-sm font-semibold tabular-nums',
+                                    remaining > 0.005
+                                        ? 'text-red-600 dark:text-red-400'
+                                        : 'text-emerald-600 dark:text-emerald-400',
+                                )}
+                            >
+                                {formatPrice(Math.max(0, remaining))}
+                            </div>
+                        </div>
+                    </div>
+                </AdaptiveCard>
+            ) : null}
 
             {/* Down payment configuration */}
             {paymentMode === 'DOWN_PAYMENT' && (
@@ -506,12 +720,22 @@ const POSTenderDialog = ({
                                 decimalScale={2}
                                 fixedDecimalScale
                                 allowNegative={false}
+                                invalid={Boolean(dpCustomError)}
                                 value={dpCustomAmount}
                                 onValueChange={(v) => {
                                     setDpCustomAmount(v.value ?? '')
                                     setTenders([])
+                                    setError(null)
                                 }}
                             />
+                            {dpCustomError && dpCustomAmount.trim() !== '' ? (
+                                <p
+                                    role="alert"
+                                    className="mt-1 text-xs font-medium text-red-600 dark:text-red-400"
+                                >
+                                    {dpCustomError}
+                                </p>
+                            ) : null}
                         </div>
                     )}
 
@@ -688,14 +912,46 @@ const POSTenderDialog = ({
                                 </label>
                                 <NumericInput
                                     id="pos-tender-amount"
-                                    placeholder="0.00"
+                                    placeholder={
+                                        paymentMode === 'SPLIT'
+                                            ? 'Enter partial amount'
+                                            : '0.00'
+                                    }
                                     thousandSeparator=","
                                     decimalScale={2}
                                     fixedDecimalScale
                                     allowNegative={false}
-                                    value={amount}
-                                    onValueChange={(v) => setAmount(v.value ?? '')}
+                                    invalid={Boolean(amountError)}
+                                    value={
+                                        paymentMode === 'FULL' &&
+                                        tenders.length === 0
+                                            ? remaining.toFixed(2)
+                                            : amount
+                                    }
+                                    disabled={
+                                        paymentMode === 'FULL' &&
+                                        tenders.length === 0
+                                    }
+                                    onValueChange={(v) => {
+                                        setError(null)
+                                        onAmountCoveredChange(v.value ?? '')
+                                    }}
                                 />
+                                {amountError ? (
+                                    <p
+                                        role="alert"
+                                        className="mt-1 text-xs font-medium text-red-600 dark:text-red-400"
+                                    >
+                                        {amountError}
+                                    </p>
+                                ) : null}
+                                {paymentMode === 'FULL' ? (
+                                    <p className="mt-1 text-[11px] text-gray-500">
+                                        Full payment covers the whole amount in
+                                        one method. Switch to Split Payment to
+                                        combine Cash + GCash / Card.
+                                    </p>
+                                ) : null}
                             </div>
 
                             {method === 'CASH' ? (
@@ -714,11 +970,21 @@ const POSTenderDialog = ({
                                             decimalScale={2}
                                             fixedDecimalScale
                                             allowNegative={false}
+                                            invalid={Boolean(cashError)}
                                             value={cashReceived}
-                                            onValueChange={(v) =>
+                                            onValueChange={(v) => {
+                                                setError(null)
                                                 setCashReceived(v.value ?? '')
-                                            }
+                                            }}
                                         />
+                                        {cashError ? (
+                                            <p
+                                                role="alert"
+                                                className="mt-1 text-xs font-medium text-red-600 dark:text-red-400"
+                                            >
+                                                {cashError}
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <div>
                                         <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -894,6 +1160,11 @@ const POSTenderDialog = ({
                             <Button
                                 block
                                 icon={<HiOutlinePlus />}
+                                disabled={
+                                    Boolean(amountError) ||
+                                    Boolean(cashError) ||
+                                    Boolean(dpCustomError)
+                                }
                                 onClick={addPayment}
                             >
                                 Add payment
@@ -901,6 +1172,24 @@ const POSTenderDialog = ({
                         </div>
                     </AdaptiveCard>
                 </div>
+            </div>
+
+            <div className="mt-4">
+                <label
+                    htmlFor="pos-payment-remarks"
+                    className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                >
+                    Remarks
+                </label>
+                <Input
+                    id="pos-payment-remarks"
+                    textArea
+                    rows={2}
+                    maxLength={500}
+                    value={remarks}
+                    placeholder="Optional note for this sale (shows on the complete sales report)"
+                    onChange={(e) => setRemarks(e.target.value)}
+                />
             </div>
 
             {/* Totals of the running sale */}
@@ -916,10 +1205,13 @@ const POSTenderDialog = ({
                     </div>
                     <div>
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Tendered
+                            Covered
                         </div>
-                        <div className="text-base font-semibold tabular-nums heading-text">
-                            {formatPrice(tendered)}
+                        <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                            {formatPrice(covered)}
+                            <span className="ml-1 text-[11px] font-medium text-gray-500">
+                                / {formatPrice(tendered)} tendered
+                            </span>
                         </div>
                     </div>
                     <div>
@@ -931,7 +1223,7 @@ const POSTenderDialog = ({
                                 'text-base font-semibold tabular-nums',
                                 remaining > 0.005
                                     ? 'text-red-600 dark:text-red-400'
-                                    : 'heading-text',
+                                    : 'text-emerald-600 dark:text-emerald-400',
                             )}
                         >
                             {formatPrice(Math.max(0, remaining))}
@@ -964,12 +1256,21 @@ const POSTenderDialog = ({
                     size="sm"
                     variant="solid"
                     loading={completing}
-                    disabled={remaining > 0.005 || !tenders.length}
+                    disabled={
+                        Boolean(dpCustomError) ||
+                        remaining > 0.005 ||
+                        !tenders.length ||
+                        (paymentMode === 'SPLIT' && tenders.length < 2)
+                    }
                     onClick={complete}
                 >
                     {paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
                         ? `Complete sale (balance ${formatPrice(balanceDue)})`
-                        : 'Complete sale'}
+                        : paymentMode === 'SPLIT' && remaining > 0.005
+                          ? `Add ${formatPrice(remaining)} more`
+                          : paymentMode === 'SPLIT' && tenders.length < 2
+                            ? 'Add another payment method'
+                            : 'Complete sale'}
                 </Button>
             </div>
         </Dialog>

@@ -147,6 +147,9 @@ describe('PosCheckoutService', () => {
                 }),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
+            sdEmployeeLoanItem: {
+                create: jest.fn().mockResolvedValue({ id: 'loan-1' }),
+            },
             user: {
                 findFirst: jest.fn().mockResolvedValue({
                     employeeCode: 'EMP-1',
@@ -302,6 +305,7 @@ describe('PosCheckoutService', () => {
     it('records one tender row per payment method', async () => {
         await service.complete(
             dto({
+                paymentMode: 'SPLIT',
                 tenders: [
                     { method: 'CASH', amount: 3000 },
                     {
@@ -314,6 +318,49 @@ describe('PosCheckoutService', () => {
             }) as never,
         )
         expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledTimes(2)
+        expect(prisma.sdSalesOrder.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    paymentMethod: 'SPLIT',
+                    paymentStatus: 'Paid',
+                }),
+            }),
+        )
+    })
+
+    it('rejects split payment with a single tender', async () => {
+        await expect(
+            service.complete(
+                dto({
+                    paymentMode: 'SPLIT',
+                    tenders: [{ method: 'CASH', amount: 7300, tenderAmount: 7300 }],
+                }) as never,
+            ),
+        ).rejects.toThrow(/at least two payment methods/i)
+    })
+
+    it('does not mark a split sale Paid while a tender is still pending', async () => {
+        await service.complete(
+            dto({
+                paymentMode: 'SPLIT',
+                tenders: [
+                    { method: 'CASH', amount: 3000 },
+                    {
+                        method: 'GCASH',
+                        amount: 4300,
+                        referenceNumber: 'GC-1',
+                    },
+                ],
+            }) as never,
+        )
+        expect(prisma.sdSalesOrder.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    paymentMethod: 'SPLIT',
+                    paymentStatus: 'Pending Verification',
+                }),
+            }),
+        )
     })
 
     it('treats an item without tax setup as a non-VAT sale, without a receipt warning', async () => {
@@ -493,6 +540,8 @@ describe('PosCheckoutService', () => {
         }))
         const receipt = await service.complete(
             dto({
+                customerId: 'cust-1',
+                customerName: 'Jane Doe',
                 tenders: [
                     {
                         method: 'SALARY_LOAN',

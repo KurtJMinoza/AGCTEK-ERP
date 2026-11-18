@@ -12,6 +12,7 @@ const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 const TOP_PRODUCT_LIMIT = 10
 const TOP_CUSTOMER_LIMIT = 10
+const TOP_RECEIVABLE_LIMIT = 10
 const BUYERS_PER_PRODUCT = 8
 const RECENT_ORDER_LIMIT = 10
 const LINE_REPORT_LIMIT = 2000
@@ -25,6 +26,54 @@ const PRODUCT_NAME = Prisma.raw(
 )
 
 export type TrendBucket = 'day' | 'month'
+
+/** Canonical paid-status labels for the complete sales line report. */
+export type SalesLinePaidStatus = 'Paid' | 'Partially Paid' | 'Unpaid'
+
+/**
+ * Normalize stored paymentStatus / outstanding balance into the triad
+ * Paid | Partially Paid | Unpaid. Never returns blank.
+ */
+export function normalizeSalesLinePaidStatus(input: {
+    paymentStatus?: string | null
+    outstandingBalance?: number | null
+    orderStatus?: string | null
+}): SalesLinePaidStatus {
+    const raw = (input.paymentStatus ?? '').trim()
+    const key = raw.toUpperCase().replace(/\s+/g, '_')
+    const outstanding = Number(input.outstandingBalance ?? 0)
+
+    if (
+        key === 'PARTIALLY_PAID' ||
+        raw === 'Partially Paid' ||
+        (Number.isFinite(outstanding) && outstanding > 0.005)
+    ) {
+        return 'Partially Paid'
+    }
+    if (
+        key === 'PAID' ||
+        key === 'AUTHORIZED' ||
+        key === 'VERIFIED' ||
+        key === 'CONFIRMED'
+    ) {
+        return 'Paid'
+    }
+    if (
+        key === 'UNPAID' ||
+        key === 'PENDING_COLLECTION' ||
+        key === 'PENDING_VERIFICATION'
+    ) {
+        return 'Unpaid'
+    }
+    if (
+        input.orderStatus === 'COMPLETED' ||
+        input.orderStatus === 'DELIVERED' ||
+        input.orderStatus === 'SHIPPED'
+    ) {
+        return 'Paid'
+    }
+    return 'Unpaid'
+}
 
 /** The comparison window: same length, immediately before the range. */
 export function previousWindow(from: Date, now: Date) {
@@ -142,6 +191,8 @@ type Totals = {
     orders: bigint
     customers: bigint
     units: Prisma.Decimal | null
+    balance_due: Prisma.Decimal | null
+    open_orders: bigint
 }
 type ChannelRow = {
     channel: string
@@ -179,6 +230,20 @@ type CustomerRow = {
     orders: bigint
     units: Prisma.Decimal | null
     last_purchase_at: Date
+    balance_due: Prisma.Decimal | null
+    open_orders: bigint
+}
+type ReceivableRow = {
+    customer_key: string
+    customer_id: string | null
+    customer_name: string
+    customer_number: string | null
+    revenue: Prisma.Decimal | null
+    balance_due: Prisma.Decimal | null
+    open_orders: bigint
+    oldest_open_at: Date
+    latest_open_at: Date
+    open_order_numbers: string[] | null
 }
 type LineReportRow = {
     product_image_url: string | null
@@ -203,6 +268,49 @@ type LineReportRow = {
     order_number: string
     created_at: Date
     paid_status: string | null
+    balance_due: Prisma.Decimal | null
+    payment_method: string | null
+    payments: unknown
+    remarks: string | null
+}
+
+/** One captured tender of a sale, as shown in the sales line report. */
+export type SalesLinePayment = {
+    method: string
+    amount: number
+    reference: string
+    status: string
+}
+
+/**
+ * Payment method of a sale line and its tender breakdown.
+ * A sale is `SPLIT` when the order says so or when it was settled with more
+ * than one distinct method (e.g. Cash + GCash); repeated tenders of the same
+ * method (down payment + later collection) stay a single method.
+ */
+export function summarizeLinePayments(
+    orderMethod: string | null | undefined,
+    rawPayments: unknown,
+): { paymentMethod: string; payments: SalesLinePayment[] } {
+    const list = Array.isArray(rawPayments) ? rawPayments : []
+    const payments: SalesLinePayment[] = list
+        .map((item) => {
+            const row = (item ?? {}) as Record<string, unknown>
+            return {
+                method: String(row.method ?? '').trim(),
+                amount: roundMoney(Number(row.amount ?? 0)),
+                reference: String(row.reference ?? '').trim(),
+                status: String(row.status ?? '').trim(),
+            }
+        })
+        .filter((payment) => payment.method)
+    const distinct = new Set(payments.map((payment) => payment.method))
+    const method = (orderMethod ?? '').trim().toUpperCase()
+    const paymentMethod =
+        method === 'SPLIT' || distinct.size > 1
+            ? 'SPLIT'
+            : (method || payments[0]?.method || '')
+    return { paymentMethod, payments }
 }
 type RecentOrderRow = {
     id: string
@@ -212,6 +320,7 @@ type RecentOrderRow = {
     customer_name: string
     customer_number: string | null
     revenue: Prisma.Decimal | null
+    balance_due: Prisma.Decimal | null
     units: Prisma.Decimal | null
     products: string[] | null
 }
@@ -226,6 +335,8 @@ const EXT_SALE_AT = Prisma.raw(`(t."transactionDate"::timestamp - interval '8 ho
  * - EXT: manually recorded external platform sales (Shopee, Lazada, …) once
  *   CONFIRMED or APPROVED, dated by their sale date; channel = platform name.
  * Sales without a Customer Master record group by the name typed at the sale.
+ * `balance_due` is the order's current `outstandingBalance` (it drops when a
+ * collection is posted); external platform sales are settled, so it is 0.
  * `slines` is every line of those documents in one shape (product, qty, amount).
  */
 function scopedOrders(
@@ -257,6 +368,7 @@ function scopedOrders(
                         WHERE l."salesOrderId" = o."id"
                     )
                 ) AS revenue,
+                GREATEST(COALESCE(o."outstandingBalance", 0), 0) AS balance_due,
                 'SO'::text AS src
             FROM "sd_sales_orders" o
             LEFT JOIN "sd_customers" c ON c."id" = o."customerId"
@@ -266,7 +378,14 @@ function scopedOrders(
               AND o."status" NOT IN ('CANCELLED', 'DRAFT')
               AND (
                   o."status" IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
-                  OR o."paymentStatus" IN ('Paid', 'Unpaid')
+                  OR o."paymentStatus" IN (
+                      'Paid',
+                      'Unpaid',
+                      'Partially Paid',
+                      'PARTIALLY_PAID',
+                      'Pending Verification',
+                      'Pending Collection'
+                  )
               )
               ${channel === 'ALL' || channel === 'EXTERNAL' ? Prisma.empty : Prisma.sql`AND o."channel" = ${channel}`}
             UNION ALL
@@ -280,6 +399,7 @@ function scopedOrders(
                 COALESCE(c."id", NULLIF(TRIM(t."customerName"), ''), 'WALK-IN'),
                 COALESCE(c."companyName", NULLIF(TRIM(t."customerName"), ''), 'Walk-in'),
                 t."grandTotal",
+                0::numeric,
                 'EXT'::text
             FROM "sd_ext_platform_transactions" t
             JOIN "sd_sales_sources" ss ON ss."id" = t."salesSourceId"
@@ -330,6 +450,8 @@ const toTotals = (row: Totals | undefined) => {
         averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
         totalUnits: Number(row?.units ?? 0),
         uniqueCustomers: Number(row?.customers ?? 0),
+        totalBalanceDue: roundMoney(Number(row?.balance_due ?? 0)),
+        ordersWithBalance: Number(row?.open_orders ?? 0),
     }
 }
 
@@ -380,7 +502,9 @@ export class SalesAnalyticsService {
                 SUM(revenue) AS revenue,
                 COUNT(*) AS orders,
                 COUNT(DISTINCT customer_key) AS customers,
-                (SELECT SUM(quantity) FROM slines) AS units
+                (SELECT SUM(quantity) FROM slines) AS units,
+                SUM(balance_due) AS balance_due,
+                COUNT(*) FILTER (WHERE balance_due > 0.005) AS open_orders
             FROM scoped`
 
         const [
@@ -390,6 +514,7 @@ export class SalesAnalyticsService {
             trend,
             products,
             customers,
+            receivables,
             recentOrders,
             lineReport,
         ] = await Promise.all([
@@ -432,6 +557,8 @@ export class SalesAnalyticsService {
                     SUM(s.revenue) AS revenue,
                     COUNT(*) AS orders,
                     MAX(s."createdAt") AS last_purchase_at,
+                    SUM(s.balance_due) AS balance_due,
+                    COUNT(*) FILTER (WHERE s.balance_due > 0.005) AS open_orders,
                     (
                         SELECT SUM(sl.quantity)
                         FROM slines sl
@@ -441,6 +568,25 @@ export class SalesAnalyticsService {
                 GROUP BY s.customer_key
                 ORDER BY revenue DESC NULLS LAST, orders DESC
                 LIMIT ${TOP_CUSTOMER_LIMIT}`,
+            // Customers who still owe money on orders of the period, largest balance first.
+            this.prisma.$queryRaw<ReceivableRow[]>`
+                ${scoped}
+                SELECT
+                    s.customer_key,
+                    MAX(s.customer_id) AS customer_id,
+                    MAX(s.customer_name) AS customer_name,
+                    MAX(s.customer_number) AS customer_number,
+                    SUM(s.revenue) AS revenue,
+                    SUM(s.balance_due) AS balance_due,
+                    COUNT(*) AS open_orders,
+                    MIN(s."createdAt") AS oldest_open_at,
+                    MAX(s."createdAt") AS latest_open_at,
+                    array_agg(s.order_number ORDER BY s."createdAt" DESC) AS open_order_numbers
+                FROM scoped s
+                WHERE s.balance_due > 0.005
+                GROUP BY s.customer_key
+                ORDER BY balance_due DESC NULLS LAST, open_orders DESC
+                LIMIT ${TOP_RECEIVABLE_LIMIT}`,
             this.prisma.$queryRaw<RecentOrderRow[]>`
                 ${scoped}
                 SELECT
@@ -451,6 +597,7 @@ export class SalesAnalyticsService {
                     s.customer_name,
                     s.customer_number,
                     s.revenue,
+                    s.balance_due,
                     (
                         SELECT SUM(sl.quantity)
                         FROM slines sl
@@ -562,20 +709,53 @@ export class SalesAnalyticsService {
                         ELSE 'CASH'
                     END AS sales_type,
                     CASE
-                        WHEN o."paymentMethod" = 'SALARY_LOAN'
-                            OR EXISTS (
-                                SELECT 1
-                                FROM "sd_sales_order_payments" sp
-                                WHERE sp."salesOrderId" = o."id"
-                                  AND sp."paymentMethod" = 'SALARY_LOAN'
-                                  AND sp."status" NOT IN ('Cancelled', 'Refunded')
-                            )
-                        THEN CASE
-                            WHEN o."paymentStatus" = 'Paid' THEN 'PAID'
-                            ELSE 'UNPAID'
-                        END
-                        ELSE NULL
+                        WHEN COALESCE(o."outstandingBalance", 0) > 0.005
+                            OR o."paymentStatus" IN ('PARTIALLY_PAID', 'Partially Paid')
+                        THEN 'Partially Paid'
+                        WHEN o."paymentStatus" IN (
+                            'Paid',
+                            'Authorized',
+                            'Verified',
+                            'Confirmed'
+                        )
+                        THEN 'Paid'
+                        WHEN o."paymentStatus" IN (
+                            'Unpaid',
+                            'Pending Collection',
+                            'Pending Verification'
+                        )
+                        THEN 'Unpaid'
+                        WHEN o."status" IN ('COMPLETED', 'DELIVERED', 'SHIPPED')
+                        THEN 'Paid'
+                        ELSE 'Unpaid'
                     END AS paid_status,
+                    (
+                        GREATEST(COALESCE(o."outstandingBalance", 0), 0)
+                        * (COALESCE(l."unitPrice", 0) * l."quantity")
+                        / NULLIF(
+                            SUM(COALESCE(l."unitPrice", 0) * l."quantity")
+                                OVER (PARTITION BY s."id"),
+                            0
+                        )
+                    ) AS balance_due,
+                    o."paymentMethod" AS payment_method,
+                    COALESCE(
+                        (
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'method', sp."paymentMethod",
+                                    'amount', sp."amount",
+                                    'reference', sp."referenceNumber",
+                                    'status', sp."status"
+                                )
+                                ORDER BY sp."createdAt", sp."id"
+                            )
+                            FROM "sd_sales_order_payments" sp
+                            WHERE sp."salesOrderId" = o."id"
+                              AND sp."status" NOT IN ('Cancelled', 'Refunded', 'Failed')
+                        ),
+                        '[]'::jsonb
+                    ) AS payments,
                     CASE
                         WHEN inv."id" IS NOT NULL
                             AND c."customerAccountType" = 'CREDIT'
@@ -590,7 +770,8 @@ export class SalesAnalyticsService {
                     ) AS invoice_number,
                     s.order_number,
                     s."createdAt" AS created_at,
-                    l."lineNumber" AS line_no
+                    l."lineNumber" AS line_no,
+                    COALESCE(NULLIF(TRIM(o."notes"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_sales_orders" o ON o."id" = s."id"
                 INNER JOIN "sd_sales_order_lines" l ON l."salesOrderId" = s."id"
@@ -643,12 +824,19 @@ export class SalesAnalyticsService {
                     el."lineSubtotal" AS subtotal,
                     el."grossAmount" AS total_sales,
                     CASE WHEN c."customerAccountType" = 'CREDIT' THEN 'CREDIT' ELSE 'CASH' END AS sales_type,
-                    NULL::text AS paid_status,
+                    CASE
+                        WHEN t."status" IN ('CONFIRMED', 'APPROVED') THEN 'Paid'
+                        ELSE 'Unpaid'
+                    END AS paid_status,
+                    0::numeric AS balance_due,
+                    NULL::text AS payment_method,
+                    '[]'::jsonb AS payments,
                     'NONE' AS invoice_type,
                     COALESCE(NULLIF(TRIM(t."externalOrderRef"), ''), s.order_number) AS invoice_number,
                     s.order_number,
                     s."createdAt" AS created_at,
-                    el."lineNumber" AS line_no
+                    el."lineNumber" AS line_no,
+                    COALESCE(NULLIF(TRIM(t."remarks"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_ext_platform_transactions" t ON t."id" = s."id"
                 INNER JOIN "sd_ext_platform_transaction_lines" el ON el."transactionId" = s."id"
@@ -762,6 +950,20 @@ export class SalesAnalyticsService {
                 orders: Number(row.orders),
                 units: Number(row.units ?? 0),
                 lastPurchaseAt: row.last_purchase_at,
+                balanceDue: roundMoney(Number(row.balance_due ?? 0)),
+                ordersWithBalance: Number(row.open_orders ?? 0),
+            })),
+            customerReceivables: receivables.map((row) => ({
+                customerKey: row.customer_key,
+                customerId: row.customer_id,
+                customerName: row.customer_name,
+                customerNumber: row.customer_number,
+                revenue: Number(row.revenue ?? 0),
+                balanceDue: roundMoney(Number(row.balance_due ?? 0)),
+                openOrders: Number(row.open_orders ?? 0),
+                oldestOpenAt: row.oldest_open_at,
+                latestOpenAt: row.latest_open_at,
+                orderNumbers: row.open_order_numbers ?? [],
             })),
             recentOrders: recentOrders.map((row) => ({
                 id: row.id,
@@ -771,6 +973,7 @@ export class SalesAnalyticsService {
                 customerName: row.customer_name,
                 customerNumber: row.customer_number,
                 revenue: Number(row.revenue ?? 0),
+                balanceDue: roundMoney(Number(row.balance_due ?? 0)),
                 units: Number(row.units ?? 0),
                 products: row.products ?? [],
             })),
@@ -796,7 +999,12 @@ export class SalesAnalyticsService {
                 invoiceNumber: row.invoice_number ?? '',
                 orderNumber: row.order_number,
                 createdAt: row.created_at,
-                paidStatus: row.paid_status,
+                paidStatus: normalizeSalesLinePaidStatus({
+                    paymentStatus: row.paid_status,
+                }),
+                balanceDue: roundMoney(Number(row.balance_due ?? 0)),
+                ...summarizeLinePayments(row.payment_method, row.payments),
+                remarks: row.remarks?.trim() || '',
             })),
         }
     }

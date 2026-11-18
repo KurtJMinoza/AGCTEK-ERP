@@ -84,6 +84,8 @@ export const PosCheckoutPayloadSchema = z.object({
     downPaymentPct: z.number().min(0).max(100).optional(),
     downPaymentAmount: z.number().nonnegative().optional(),
     dueDate: z.string().trim().min(1).optional(),
+    /** Free-text payment remarks captured at Take Payment. */
+    remarks: z.string().trim().max(500).optional(),
 })
 
 export type PosTenderInput = z.infer<typeof PosTenderSchema>

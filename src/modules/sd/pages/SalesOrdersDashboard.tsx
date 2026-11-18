@@ -35,7 +35,7 @@ import Alert from '@/components/ui/Alert'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import {
-    PAYMENT_METHOD_LABEL,
+    paymentMethodLabel,
     markOrderPaymentPaid,
     startSalesOrderFulfillment,
     summarizeSalesOrders,
@@ -422,16 +422,16 @@ const SalesOrdersDashboard = () => {
                     const payment = row.original.payment
                     if (!payment)
                         return <span className="text-gray-400">—</span>
+                    const tenders = row.original.tenders ?? []
+                    const methodLabel =
+                        tenders.length > 1
+                            ? tenders
+                                  .map((t) => paymentMethodLabel(t.method))
+                                  .join(' + ')
+                            : paymentMethodLabel(payment.method)
                     return (
-                        <div className="whitespace-nowrap">
-                            <span>
-                                {payment.method &&
-                                payment.method in PAYMENT_METHOD_LABEL
-                                    ? PAYMENT_METHOD_LABEL[
-                                          payment.method as keyof typeof PAYMENT_METHOD_LABEL
-                                      ]
-                                    : payment.method}
-                            </span>
+                        <div className="max-w-[14rem] truncate whitespace-nowrap">
+                            <span title={methodLabel}>{methodLabel}</span>
                             {payment.isDemo ? (
                                 <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:bg-gray-800">
                                     Demo

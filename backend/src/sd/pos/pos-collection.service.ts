@@ -224,7 +224,7 @@ export class PosCollectionService {
                 where: { id: input.salesOrderId },
                 data: {
                     outstandingBalance: actualNewBalance,
-                    paymentStatus: settled ? 'Paid' : 'PARTIALLY_PAID',
+                    paymentStatus: settled ? 'Paid' : 'Partially Paid',
                 },
             })
 

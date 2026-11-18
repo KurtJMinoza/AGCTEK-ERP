@@ -136,7 +136,7 @@ export type PosReceipt = {
     tendered: number
     change: number
     tenders: PosReceiptTender[]
-    /** Paid | Unpaid | Pending Verification — header collection state. */
+    /** Paid | Partially Paid | Unpaid | Pending Verification — never blank. */
     paymentStatus?: string | null
     warnings: string[]
     /** Partial-payment fields (null / 0 for full-payment sales). */
@@ -146,7 +146,8 @@ export type PosReceipt = {
     downPaymentAmount?: number | null
     outstandingBalance?: number
     dueDate?: string | null
-    paymentStatus?: string
+    /** Payment remarks entered at Take Payment. */
+    remarks?: string | null
 }
 
 /** Server quote of a running cart: the amount the checkout will ask for. */

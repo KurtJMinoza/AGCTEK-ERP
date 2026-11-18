@@ -27,13 +27,24 @@ export const CHECKOUT_PAYMENT_METHODS = [
 ] as const
 export type CheckoutPaymentMethod = (typeof CHECKOUT_PAYMENT_METHODS)[number]
 
-export const PAYMENT_METHOD_LABEL: Record<CheckoutPaymentMethod, string> = {
+export const PAYMENT_METHOD_LABEL: Record<string, string> = {
     COD: 'Cash on Delivery',
     CARD_DEMO: 'Credit or Debit Card',
     WALLET_DEMO: 'Digital Wallet',
     QR_DEMO: 'QR Payment',
     BANK_TRANSFER_DEMO: 'Bank Transfer',
+    CASH: 'Cash',
+    GCASH: 'GCash',
+    BANK_TRANSFER: 'Bank transfer',
+    CARD: 'Card',
+    CHEQUE: 'Cheque',
+    SALARY_LOAN: 'Salary deduction',
+    SPLIT: 'Split payment',
+    CHARGE: 'Charge',
 }
+
+export const paymentMethodLabel = (method: string | null | undefined) =>
+    method ? (PAYMENT_METHOD_LABEL[method] ?? method) : '—'
 
 /** Customer's checkout selection, sent to the backend with the order. */
 export type CheckoutPaymentSelection = {
@@ -113,7 +124,7 @@ export type SalesOrderRecord = {
     downPaymentPct: number | null
     downPaymentAmount: number | null
     dueDate: string | null
-    /** Demo payment snapshot (null for non-checkout orders). */
+    /** Demo / POS payment snapshot (null for non-checkout orders). */
     payment: {
         method: string | null
         provider: string | null
@@ -121,6 +132,18 @@ export type SalesOrderRecord = {
         reference: string | null
         isDemo: boolean
     } | null
+    /** Individual POS tenders (Cash + GCash, …). Empty for non-POS / single-header demos. */
+    tenders: Array<{
+        method: string
+        amount: number
+        tenderAmount: number
+        changeAmount: number
+        status: string
+        verificationStatus: string | null
+        referenceNumber: string | null
+        employeeName: string | null
+        bankName: string | null
+    }>
     /** Snapshot of the delivery address taken at checkout. */
     shippingAddress: {
         name: string | null
@@ -212,6 +235,17 @@ type ApiSalesOrder = {
     paymentReference: string | null
     paymentProvider: string | null
     isDemoPayment: boolean | null
+    payments?: Array<{
+        paymentMethod: string
+        amount: DecimalString
+        tenderAmount?: DecimalString
+        changeAmount?: DecimalString
+        status: string
+        verificationStatus?: string | null
+        referenceNumber?: string | null
+        employeeName?: string | null
+        bankName?: string | null
+    }>
     shipToName: string | null
     shipToPhone: string | null
     shipToAddressLine1: string | null
@@ -348,6 +382,17 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
                       isDemo: Boolean(order.isDemoPayment),
                   }
                 : null,
+        tenders: (order.payments ?? []).map((tender) => ({
+            method: tender.paymentMethod,
+            amount: num(tender.amount),
+            tenderAmount: num(tender.tenderAmount ?? tender.amount),
+            changeAmount: num(tender.changeAmount ?? 0),
+            status: tender.status,
+            verificationStatus: tender.verificationStatus ?? null,
+            referenceNumber: tender.referenceNumber ?? null,
+            employeeName: tender.employeeName ?? null,
+            bankName: tender.bankName ?? null,
+        })),
         shippingAddress:
             order.shipToName !== undefined && order.shipToName !== null
                 ? {

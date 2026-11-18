@@ -111,6 +111,27 @@ const POSCollectionDialog = ({
     )
     const remaining = round2(balance - covered)
 
+    // Live validation; addPayment repeats it and the server is the authority.
+    const amountError = useMemo(() => {
+        if (amount.trim() === '') return null
+        const value = Number(amount)
+        if (!Number.isFinite(value) || value <= 0) {
+            return 'Enter an amount greater than zero.'
+        }
+        if (value > remaining + 0.005) {
+            return `${formatPrice(value)} is more than the ${formatPrice(Math.max(0, remaining))} balance still due.`
+        }
+        return null
+    }, [amount, remaining, formatPrice])
+    const cashError =
+        method === 'CASH' &&
+        !amountError &&
+        amount.trim() !== '' &&
+        cashReceived.trim() !== '' &&
+        round2(Number(cashReceived)) < round2(Number(amount)) - 0.005
+            ? 'Cash received must be at least the payment amount.'
+            : null
+
     const addPayment = () => {
         const value = Number(amount)
         if (!Number.isFinite(value) || value <= 0) {
@@ -275,9 +296,18 @@ const POSCollectionDialog = ({
                                 decimalScale={2}
                                 fixedDecimalScale
                                 allowNegative={false}
+                                invalid={Boolean(amountError)}
                                 value={amount}
-                                onValueChange={(v) => setAmount(v.value ?? '')}
+                                onValueChange={(v) => {
+                                    setError(null)
+                                    setAmount(v.value ?? '')
+                                }}
                             />
+                            {amountError ? (
+                                <p role="alert" className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                                    {amountError}
+                                </p>
+                            ) : null}
                         </div>
                         {method === 'CASH' && (
                             <div>
@@ -288,9 +318,18 @@ const POSCollectionDialog = ({
                                     decimalScale={2}
                                     fixedDecimalScale
                                     allowNegative={false}
+                                    invalid={Boolean(cashError)}
                                     value={cashReceived}
-                                    onValueChange={(v) => setCashReceived(v.value ?? '')}
+                                    onValueChange={(v) => {
+                                        setError(null)
+                                        setCashReceived(v.value ?? '')
+                                    }}
                                 />
+                                {cashError ? (
+                                    <p role="alert" className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                                        {cashError}
+                                    </p>
+                                ) : null}
                             </div>
                         )}
                         {['GCASH', 'BANK_TRANSFER', 'CARD', 'CHEQUE'].includes(method) && (
@@ -327,7 +366,12 @@ const POSCollectionDialog = ({
                                 {error}
                             </div>
                         )}
-                        <Button block icon={<HiOutlinePlus />} onClick={addPayment}>
+                        <Button
+                            block
+                            icon={<HiOutlinePlus />}
+                            disabled={Boolean(amountError) || Boolean(cashError)}
+                            onClick={addPayment}
+                        >
                             Add payment
                         </Button>
                     </div>

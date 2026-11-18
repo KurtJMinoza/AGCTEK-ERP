@@ -171,10 +171,17 @@ const POSReceipt = ({
                 <div className="mt-1 text-[10px]">V = VATable · E = VAT-exempt · Z = Zero-rated</div>
             ) : null}
             <Divider />
+            {receipt.tenders.length > 1 ? (
+                <Row label="Payment" value="SPLIT" bold />
+            ) : null}
             {receipt.tenders.map((tender, index) => (
                 <div key={`${tender.method}-${index}`} className="mb-1">
                     <Row
-                        label={TENDER_LABEL[tender.method] ?? tender.method}
+                        label={
+                            receipt.tenders.length > 1
+                                ? `${index + 1}. ${TENDER_LABEL[tender.method] ?? tender.method}`
+                                : TENDER_LABEL[tender.method] ?? tender.method
+                        }
                         value={money(tender.amount)}
                     />
                     {tender.employeeName ? (
@@ -201,35 +208,40 @@ const POSReceipt = ({
             ))}
             <Row label="Tendered" value={money(receipt.tendered)} />
             <Row label="Change" value={money(receipt.change)} />
-            {(receipt as Record<string, unknown>).outstandingBalance != null &&
-            Number((receipt as Record<string, unknown>).outstandingBalance) > 0 ? (
+            <Row
+                label="Payment Status"
+                value={String(
+                    receipt.paymentStatus ||
+                        (Number(receipt.outstandingBalance ?? 0) > 0.005
+                            ? 'Partially Paid'
+                            : 'Paid'),
+                )}
+                bold
+            />
+            {receipt.outstandingBalance != null &&
+            Number(receipt.outstandingBalance) > 0.005 ? (
                 <>
                     <Divider />
-                    {(receipt as Record<string, unknown>).downPaymentPct ? (
+                    {receipt.downPaymentPct ? (
                         <Row
                             label="Down Payment"
-                            value={`${Number((receipt as Record<string, unknown>).downPaymentPct)}% — PHP ${money(Number((receipt as Record<string, unknown>).downPaymentAmount ?? 0))}`}
+                            value={`${Number(receipt.downPaymentPct)}% — PHP ${money(Number(receipt.downPaymentAmount ?? 0))}`}
                         />
-                    ) : (receipt as Record<string, unknown>).downPaymentAmount ? (
+                    ) : receipt.downPaymentAmount ? (
                         <Row
                             label="Down Payment"
-                            value={`PHP ${money(Number((receipt as Record<string, unknown>).downPaymentAmount))}`}
+                            value={`PHP ${money(Number(receipt.downPaymentAmount))}`}
                         />
                     ) : null}
                     <Row
                         label="BALANCE DUE"
-                        value={`PHP ${money(Number((receipt as Record<string, unknown>).outstandingBalance))}`}
+                        value={`PHP ${money(Number(receipt.outstandingBalance))}`}
                         bold
                     />
-                    <Row
-                        label="Payment Status"
-                        value={String((receipt as Record<string, unknown>).paymentStatus ?? 'PARTIALLY PAID')}
-                        bold
-                    />
-                    {(receipt as Record<string, unknown>).dueDate ? (
+                    {receipt.dueDate ? (
                         <Row
                             label="Due Date"
-                            value={new Date(String((receipt as Record<string, unknown>).dueDate)).toLocaleDateString('en-PH')}
+                            value={new Date(String(receipt.dueDate)).toLocaleDateString('en-PH')}
                         />
                     ) : null}
                 </>

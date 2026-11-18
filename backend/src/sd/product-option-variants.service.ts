@@ -665,7 +665,7 @@ export class ProductOptionVariantsService {
     }
 
     /** POS / scanner lookup — barcode identifies the exact variant. */
-    async findVariantByBarcode(barcode: string) {
+    async findVariantByBarcode(barcode: string, companyId?: string) {
         const value = barcode.trim()
         if (!value) {
             throw new BadRequestException('Barcode is required')
@@ -674,7 +674,15 @@ export class ProductOptionVariantsService {
             where: { barcode: value },
             include: {
                 product: { select: { id: true, divisionId: true, sku: true, name: true } },
-                material: { select: { id: true, materialCode: true, materialName: true, baseUomId: true } },
+                material: {
+                    select: {
+                        id: true,
+                        materialCode: true,
+                        materialName: true,
+                        baseUomId: true,
+                        companyId: true,
+                    },
+                },
                 optionValues: {
                     include: { optionValue: { include: { option: true } } },
                 },
@@ -684,6 +692,16 @@ export class ProductOptionVariantsService {
             throw new NotFoundException(
                 `No variant matches barcode "${value}"`,
             )
+        }
+        const scopedCompanyId = companyId?.trim() || null
+        if (scopedCompanyId) {
+            const ownerCompanyId =
+                variant.companyId ?? variant.material?.companyId ?? null
+            if (ownerCompanyId && ownerCompanyId !== scopedCompanyId) {
+                throw new NotFoundException(
+                    `No variant matches barcode "${value}" for this company`,
+                )
+            }
         }
         return variant
     }

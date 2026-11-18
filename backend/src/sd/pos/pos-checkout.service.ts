@@ -120,7 +120,6 @@ export type PosReceipt = {
         status: string
         verificationStatus: string
     }>
-    paymentStatus?: string | null
     warnings: string[]
     /** Partial payment fields (null for full-payment sales). */
     paymentMode: string | null
@@ -129,7 +128,10 @@ export type PosReceipt = {
     downPaymentAmount: number | null
     outstandingBalance: number
     dueDate: string | null
+    /** Paid | Partially Paid | Unpaid | PARTIALLY_PAID (legacy) — never blank. */
     paymentStatus: string
+    /** Payment remarks entered at Take Payment. */
+    remarks: string | null
 }
 
 /**
@@ -348,6 +350,14 @@ export class PosCheckoutService {
 
         // Determine payment mode
         const isDownPayment = dto.paymentMode === 'DOWN_PAYMENT'
+        const wantsSplit =
+            dto.paymentMode === 'SPLIT' ||
+            (!isDownPayment && (dto.tenders?.length ?? 0) > 1)
+        if (wantsSplit && (dto.tenders?.length ?? 0) < 2) {
+            throw new BadRequestException(
+                'Split payment requires at least two payment methods (for example Cash + GCash).',
+            )
+        }
         let tenders: PosTender[]
         let change: number
         let outstandingBalance = 0
@@ -361,6 +371,14 @@ export class PosCheckoutService {
             if (dpAmount <= 0 || dpAmount > total + 0.005) {
                 throw new BadRequestException(
                     'The down payment must be between ₱0.01 and the order total.',
+                )
+            }
+            if (
+                dto.downPaymentType !== 'PERCENTAGE' &&
+                dpAmount >= total - 0.005
+            ) {
+                throw new BadRequestException(
+                    `The down payment (₱${dpAmount.toFixed(2)}) must be less than the order total (₱${total.toFixed(2)}). Use Full Payment to settle the whole amount.`,
                 )
             }
             const result = allocatePartialTenders(
@@ -465,15 +483,12 @@ export class PosCheckoutService {
         // Products are released immediately, even on partial payment.
         await this.postGoodsIssue(order, session)
 
-        // Determine payment status
-        let paymentStatus: string
-        if (outstandingBalance > 0.005) {
-            paymentStatus = 'PARTIALLY_PAID'
-        } else if (tenders.every((t) => t.status === 'Paid')) {
-            paymentStatus = 'Paid'
-        } else {
-            paymentStatus = 'Pending Verification'
-        }
+        // Paid only when the sale is fully covered and every tender has settled.
+        // Partially Paid = balance still due; Unpaid / Pending Verification otherwise.
+        const paymentStatus =
+            outstandingBalance > 0.005
+                ? 'Partially Paid'
+                : resolvePosOrderPaymentStatus(tenders)
 
         const receiptNumber = await this.nextReceiptNumber(orderCompanyId)
         const dueDate = dto.dueDate ? new Date(dto.dueDate) : null
@@ -482,11 +497,10 @@ export class PosCheckoutService {
             data: {
                 status: 'COMPLETED',
                 paymentMethod:
-                    tenders.length > 1 ? 'SPLIT' : tenders[0].method,
-                paymentStatus:
-                    outstandingBalance > 0.005
-                        ? paymentStatus
-                        : resolvePosOrderPaymentStatus(tenders),
+                    tenders.length > 1 || wantsSplit
+                        ? 'SPLIT'
+                        : tenders[0].method,
+                paymentStatus,
                 paymentReference: tenders[0].referenceNumber ?? null,
                 paymentProvider: tenders[0].provider ?? null,
                 changeAmount: change,
@@ -503,6 +517,7 @@ export class PosCheckoutService {
                 downPaymentAmount: isDownPayment
                     ? round2(initialPayment)
                     : null,
+                notes: dto.remarks?.trim() || null,
             },
             include: {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
@@ -1098,6 +1113,14 @@ export class PosCheckoutService {
     }
 
     private async assertEmployeeCredit(customerId: string, amount: number) {
+        // Salary deduction is keyed by employee name on the tender; a CREDIT
+        // account is optional. When the customer does have a credit limit,
+        // enforce available credit so the receivable stays within policy.
+        if (!customerId || customerId === 'WALK-IN') {
+            throw new BadRequestException(
+                'Select or create a customer before using salary deduction.',
+            )
+        }
         const customer = await this.prisma.sdCustomer.findUnique({
             where: { id: customerId },
             select: {
@@ -1113,9 +1136,7 @@ export class PosCheckoutService {
             )
         }
         if (customer.customerAccountType !== 'CREDIT') {
-            throw new BadRequestException(
-                'A salary deduction requires a CREDIT customer account with a credit limit.',
-            )
+            return
         }
         const available = Number(customer.availableCredit ?? 0)
         if (available < amount) {
@@ -1247,7 +1268,9 @@ export class PosCheckoutService {
             totalAmount: Prisma.Decimal | null
             paymentReceived: Prisma.Decimal | null
             changeAmount: Prisma.Decimal | null
+            paymentMethod?: string | null
             paymentStatus?: string | null
+            notes?: string | null
             outstandingBalance?: Prisma.Decimal | null
             dueDate?: Date | null
             downPaymentType?: string | null
@@ -1364,9 +1387,12 @@ export class PosCheckoutService {
                 status: payment.status,
                 verificationStatus: payment.verificationStatus,
             })),
-            paymentStatus: resolvePosOrderPaymentStatus(payments),
             warnings,
-            paymentMode: order.downPaymentType ? 'DOWN_PAYMENT' : null,
+            paymentMode: order.downPaymentType
+                ? 'DOWN_PAYMENT'
+                : payments.length > 1 || order.paymentMethod === 'SPLIT'
+                  ? 'SPLIT'
+                  : 'FULL',
             downPaymentType: order.downPaymentType ?? null,
             downPaymentPct: order.downPaymentPct
                 ? Number(order.downPaymentPct)
@@ -1376,7 +1402,11 @@ export class PosCheckoutService {
                 : null,
             outstandingBalance: Number(order.outstandingBalance ?? 0),
             dueDate: order.dueDate?.toISOString() ?? null,
-            paymentStatus: order.paymentStatus ?? order.status,
+            paymentStatus:
+                (order.paymentStatus ?? '').trim() ||
+                resolvePosOrderPaymentStatus(payments) ||
+                'Unpaid',
+            remarks: order.notes?.trim() || null,
         }
     }
 }

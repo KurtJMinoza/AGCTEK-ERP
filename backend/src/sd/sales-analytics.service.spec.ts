@@ -1,9 +1,47 @@
 import {
     bucketLabels,
+    normalizeSalesLinePaidStatus,
     previousWindow,
     resolveCustomRange,
     resolveRange,
+    summarizeLinePayments,
 } from './sales-analytics.service'
+
+describe('summarizeLinePayments', () => {
+    it('reports a Cash + GCash sale as split with both tenders', () => {
+        const result = summarizeLinePayments('SPLIT', [
+            { method: 'CASH', amount: 500, reference: null, status: 'Paid' },
+            { method: 'GCASH', amount: 109.55, reference: '123123123', status: 'Paid' },
+        ])
+        expect(result.paymentMethod).toBe('SPLIT')
+        expect(result.payments).toEqual([
+            { method: 'CASH', amount: 500, reference: '', status: 'Paid' },
+            { method: 'GCASH', amount: 109.55, reference: '123123123', status: 'Paid' },
+        ])
+    })
+
+    it('treats two distinct methods as split even if the order says otherwise', () => {
+        const result = summarizeLinePayments('CASH', [
+            { method: 'CASH', amount: 10 },
+            { method: 'GCASH', amount: 5 },
+        ])
+        expect(result.paymentMethod).toBe('SPLIT')
+    })
+
+    it('keeps a down payment plus a later collection of one method as that method', () => {
+        const result = summarizeLinePayments('CASH', [
+            { method: 'CASH', amount: 290 },
+            { method: 'CASH', amount: 175.55 },
+        ])
+        expect(result.paymentMethod).toBe('CASH')
+        expect(result.payments).toHaveLength(2)
+    })
+
+    it('falls back to the first tender and handles missing data', () => {
+        expect(summarizeLinePayments(null, [{ method: 'GCASH', amount: 1 }]).paymentMethod).toBe('GCASH')
+        expect(summarizeLinePayments(null, null)).toEqual({ paymentMethod: '', payments: [] })
+    })
+})
 
 // 2026-10-17 01:30 in Manila (UTC+8) = 2026-10-16 17:30 UTC.
 const NOW = new Date('2026-10-16T17:30:00.000Z')
@@ -59,5 +97,24 @@ describe('bucketLabels', () => {
         expect(labels[0]).toBe('2026-01')
         expect(labels.at(-1)).toBe('2026-10')
         expect(labels).toHaveLength(10)
+    })
+})
+
+describe('normalizeSalesLinePaidStatus', () => {
+    it.each([
+        [{ paymentStatus: 'Paid' }, 'Paid'],
+        [{ paymentStatus: 'paid' }, 'Paid'],
+        [{ paymentStatus: 'Authorized' }, 'Paid'],
+        [{ paymentStatus: 'Unpaid' }, 'Unpaid'],
+        [{ paymentStatus: 'Pending Verification' }, 'Unpaid'],
+        [{ paymentStatus: 'Pending Collection' }, 'Unpaid'],
+        [{ paymentStatus: 'PARTIALLY_PAID' }, 'Partially Paid'],
+        [{ paymentStatus: 'Partially Paid' }, 'Partially Paid'],
+        [{ paymentStatus: 'Paid', outstandingBalance: 50 }, 'Partially Paid'],
+        [{ paymentStatus: null, orderStatus: 'COMPLETED' }, 'Paid'],
+        [{ paymentStatus: '', orderStatus: 'DRAFT' }, 'Unpaid'],
+        [{ paymentStatus: null }, 'Unpaid'],
+    ] as const)('%j → %s', (input, expected) => {
+        expect(normalizeSalesLinePaidStatus(input)).toBe(expected)
     })
 })

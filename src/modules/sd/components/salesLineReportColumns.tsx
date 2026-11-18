@@ -3,9 +3,10 @@
 import type { ColumnDef } from '@/components/shared/DataTable'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
-import { SdMoneyCell } from './SdDataTableCells'
+import { SdMoneyCell, formatSdMoney } from './SdDataTableCells'
 import {
     salesChannelLabel,
+    salesPaymentMethodLabel,
     type SalesLineReportRow,
 } from '../services/salesAnalyticsService'
 
@@ -354,21 +355,93 @@ const ALL_COLUMN_BUILDERS: Array<
         : undefined,
     size: relaxed(opts.variant) ? 88 : 108,
     minSize: relaxed(opts.variant) ? 72 : 92,
-    cell: ({ row }) =>
-      row.original.paidStatus ? (
+    cell: ({ row }) => {
+      const status = row.original.paidStatus || 'Unpaid'
+      return (
         <Tag
           className={classNames(
-            row.original.paidStatus === 'PAID' &&
+            (status === 'Paid' || status === 'PAID') &&
               'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-            row.original.paidStatus === 'UNPAID' &&
+            (status === 'Partially Paid' || status === 'PARTIALLY_PAID') &&
+              'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300',
+            (status === 'Unpaid' || status === 'UNPAID') &&
               'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
           )}
         >
-          {row.original.paidStatus}
+          {status}
         </Tag>
+      )
+    },
+  }),
+  (opts) => ({
+    header: 'Balance due',
+    id: 'balanceDue',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 108 : 112,
+    minSize: relaxed(opts.variant) ? 96 : 100,
+    cell: ({ row }) =>
+      row.original.balanceDue > 0.005 ? (
+        <span className="whitespace-nowrap text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
+          {formatSdMoney(row.original.balanceDue, opts.currency)}
+        </span>
       ) : (
         <span className="text-gray-400">—</span>
       ),
+  }),
+  (opts) => ({
+    header: 'Payment method',
+    id: 'paymentMethod',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 220 : 190,
+    minSize: relaxed(opts.variant) ? 190 : 160,
+    cell: ({ row }) => {
+      const { paymentMethod, payments } = row.original
+      if (!paymentMethod) return <span className="text-gray-400">—</span>
+      const isSplit = paymentMethod === 'SPLIT'
+      return (
+        <div className="min-w-0 space-y-0.5 whitespace-normal">
+          <Tag
+            className={classNames(
+              'whitespace-nowrap text-[11px]',
+              isSplit &&
+                'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+            )}
+          >
+            {salesPaymentMethodLabel(paymentMethod)}
+            {isSplit ? ` · ${payments.length}` : ''}
+          </Tag>
+          {isSplit
+            ? payments.map((payment, index) => (
+                <div
+                  key={`${payment.method}-${index}`}
+                  className="flex items-baseline justify-between gap-2 text-[11px] leading-tight"
+                  title={
+                    payment.reference
+                      ? `${salesPaymentMethodLabel(payment.method)} · Ref ${payment.reference}`
+                      : salesPaymentMethodLabel(payment.method)
+                  }
+                >
+                  <span className="truncate text-gray-600 dark:text-gray-300">
+                    {index + 1}. {salesPaymentMethodLabel(payment.method)}
+                    {payment.reference ? (
+                      <span className="ml-1 font-mono text-gray-400">
+                        #{payment.reference}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-semibold tabular-nums heading-text">
+                    {formatSdMoney(payment.amount, opts.currency)}
+                  </span>
+                </div>
+              ))
+            : null}
+        </div>
+      )
+    },
   }),
   (opts) => ({
     header: 'Sales type',
@@ -419,6 +492,23 @@ const ALL_COLUMN_BUILDERS: Array<
       </span>
     ),
   }),
+  (opts) => ({
+    header: 'Remarks',
+    id: 'remarks',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 140 : 180,
+    minSize: relaxed(opts.variant) ? 100 : 140,
+    cell: ({ row }) => (
+      <span
+        className="whitespace-normal text-[10px] leading-tight text-gray-600 dark:text-gray-300"
+        title={row.original.remarks || undefined}
+      >
+        {row.original.remarks || '—'}
+      </span>
+    ),
+  }),
 ]
 
 const SUMMARY_IDS = new Set([
@@ -430,6 +520,8 @@ const SUMMARY_IDS = new Set([
   'totalSales',
   'salesType',
   'paidStatus',
+  'balanceDue',
+  'paymentMethod',
   'invoiceNumber',
 ])
 

@@ -195,6 +195,12 @@ export class PosCheckoutDto {
     @IsString()
     dueDate?: string
 
+    /** Free-text payment remarks captured at Take Payment (stored on the sale). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    remarks?: string
+
     @IsOptional()
     @IsString()
     createdBy?: string

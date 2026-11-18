@@ -70,11 +70,12 @@ export class ProductBarcodeService {
     async lookup(barcode: string, companyId?: string) {
         const value = barcode?.trim()
         if (!value) throw new BadRequestException('Barcode is required')
+        const scopedCompanyId = companyId?.trim() || undefined
 
         let materialId: string | null = null
         let source: 'MM' | 'SD' = 'MM'
         try {
-            const hit = await this.barcodeResolver.resolve(value, companyId)
+            const hit = await this.barcodeResolver.resolve(value, scopedCompanyId)
             materialId = hit.materialId ?? null
         } catch {
             /* MM registry miss — try the SD variant barcode below */
@@ -84,7 +85,17 @@ export class ProductBarcodeService {
         // left sellable variant barcodes looking "not found".)
         if (!materialId) {
             const variant = await this.prisma.sdProductVariant.findFirst({
-                where: { barcode: value },
+                where: {
+                    barcode: value,
+                    ...(scopedCompanyId
+                        ? {
+                              OR: [
+                                  { companyId: scopedCompanyId },
+                                  { material: { companyId: scopedCompanyId } },
+                              ],
+                          }
+                        : {}),
+                },
                 select: { materialId: true },
             })
             if (variant?.materialId) {
@@ -112,10 +123,28 @@ export class ProductBarcodeService {
             }
         }
 
-        const variant = await this.findListing(material.id, value)
+        // POS / company terminal: never surface another company's material.
+        if (
+            scopedCompanyId &&
+            material.companyId &&
+            material.companyId !== scopedCompanyId
+        ) {
+            return {
+                found: false,
+                barcode: value,
+                message:
+                    'Barcode belongs to another company and cannot be sold on this terminal.',
+            }
+        }
+
+        const variant = await this.findListing(
+            material.id,
+            value,
+            scopedCompanyId,
+        )
         const ledger = await this.ledgerFor(
             material.id,
-            companyId ?? material.companyId ?? undefined,
+            scopedCompanyId ?? material.companyId ?? undefined,
         )
         return {
             found: true,
@@ -317,7 +346,11 @@ export class ProductBarcodeService {
         }
     }
 
-    private async findListing(materialId: string, barcode?: string) {
+    private async findListing(
+        materialId: string,
+        barcode?: string,
+        companyId?: string,
+    ) {
         const select = {
             id: true,
             sku: true,
@@ -335,16 +368,24 @@ export class ProductBarcodeService {
                 },
             },
         } as const
+        const companyScope = companyId
+            ? {
+                  OR: [
+                      { companyId },
+                      { material: { companyId } },
+                  ],
+              }
+            : {}
 
         // Prefer the exact variant that carries this barcode (correct size/color).
         if (barcode) {
             const byBarcode = await this.prisma.sdProductVariant.findFirst({
-                where: { materialId, barcode },
+                where: { materialId, barcode, ...companyScope },
                 select,
             })
             if (byBarcode) return byBarcode
             const byBarcodeOnly = await this.prisma.sdProductVariant.findFirst({
-                where: { barcode },
+                where: { barcode, ...companyScope },
                 select,
             })
             if (byBarcodeOnly) return byBarcodeOnly
@@ -355,13 +396,14 @@ export class ProductBarcodeService {
             where: {
                 materialId,
                 product: { isActive: true, divisionId: 'DIV_RETAIL' },
+                ...companyScope,
             },
             select,
         })
         if (retail) return retail
 
         return this.prisma.sdProductVariant.findFirst({
-            where: { materialId },
+            where: { materialId, ...companyScope },
             select,
         })
     }
