@@ -412,8 +412,8 @@ export class SalesOrderService {
         if (search) {
             and.push({
                 OR: [
-                    { orderNumber: { contains: search, mode: 'insensitive' } },
-                    { customerName: { contains: search, mode: 'insensitive' } },
+                { orderNumber: { contains: search, mode: 'insensitive' } },
+                { customerName: { contains: search, mode: 'insensitive' } },
                     {
                         customerEmail: {
                             contains: search,
@@ -621,17 +621,17 @@ export class SalesOrderService {
             channel: 'ECOMMERCE',
             idempotencyKey: dto.checkoutId,
             divisionId: null,
-            customerId: dto.customerId,
-            customerName: dto.customerName,
-            customerEmail: dto.customerEmail,
+                customerId: dto.customerId,
+                customerName: dto.customerName,
+                customerEmail: dto.customerEmail,
             lines: dto.cartItems,
             subtotal: dto.subtotal,
             discountAmount: dto.discountAmount,
             promoCode: dto.promoCode,
             shippingAmount: dto.shippingAmount,
             totalAmount: dto.totalAmount,
-            shippingAddress: dto.shippingAddress,
-            createdBy: dto.createdBy,
+                shippingAddress: dto.shippingAddress,
+                createdBy: dto.createdBy,
             paymentMethod: dto.paymentMethod,
             paymentProvider: dto.paymentProvider,
             cardDemoSimulateFailure: dto.cardDemoSimulateFailure,
@@ -717,12 +717,12 @@ export class SalesOrderService {
             const orderNumber = await this.nextOrderNumber('SO', attempt)
             try {
                 const order = await this.prisma.sdSalesOrder.create({
-                    data: this.retailOrderData(
+                                data: this.retailOrderData(
                         master,
                         totals,
-                        account?.email,
-                        orderNumber,
-                        dto.checkoutId,
+                                    account?.email,
+                                    orderNumber,
+                                    dto.checkoutId,
                         payment,
                         snapshots,
                         checkoutCompanyId,
@@ -1134,11 +1134,11 @@ export class SalesOrderService {
                         ? snapshots?.variantById.get(line.variantId)
                         : undefined
                     return {
-                        lineNumber: idx + 1,
+                    lineNumber: idx + 1,
                         divisionId,
                         companyId: companyId ?? null,
-                        sku: line.sku,
-                        description: line.description,
+                    sku: line.sku,
+                    description: line.description,
                         productNameSnapshot:
                             product?.name ?? line.description ?? undefined,
                         productSkuSnapshot:
@@ -1666,7 +1666,7 @@ export class SalesOrderService {
 
         const gate = await this.customerCancellationState(order)
         if (!gate.canCancel) {
-            throw new ConflictException(
+                throw new ConflictException(
                 gate.reason ?? 'This order can no longer be cancelled',
             )
         }

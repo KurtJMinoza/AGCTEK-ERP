@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
     HiOutlineCash,
+    HiOutlineCheckCircle,
     HiOutlineCreditCard,
     HiOutlineDeviceMobile,
     HiOutlineDocumentText,
@@ -104,6 +105,28 @@ function toMethodOptions(records: PaymentMethod[]): MethodOption[] {
 /** Quick cash denominations offered at the register (PHP). */
 const CASH_DENOMINATIONS = [500, 1000, 2000, 5000]
 
+const MODE_OPTIONS: Array<{
+    mode: PosPaymentMode
+    label: string
+    hint: string
+}> = [
+    {
+        mode: 'FULL',
+        label: 'Full',
+        hint: 'One method covers the total',
+    },
+    {
+        mode: 'SPLIT',
+        label: 'Split',
+        hint: 'Combine cash, GCash, card…',
+    },
+    {
+        mode: 'DOWN_PAYMENT',
+        label: 'Down payment',
+        hint: 'Pay part now, balance later',
+    },
+]
+
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
@@ -160,7 +183,7 @@ const POSTenderDialog = ({
     amountDue,
     cashierUserId,
     customerName,
-    customerAccountType,
+    customerAccountType: _customerAccountType,
     customerId,
     completing = false,
     onClose,
@@ -172,7 +195,6 @@ const POSTenderDialog = ({
     const [method, setMethod] = useState<PosTenderMethod>('CASH')
     const [tenders, setTenders] = useState<PosTenderInput[]>([])
 
-    // Payment mode (Full / Split / Down Payment)
     const [paymentMode, setPaymentMode] = useState<PosPaymentMode>('FULL')
     const [dpType, setDpType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE')
     const [dpPct, setDpPct] = useState(50)
@@ -198,7 +220,6 @@ const POSTenderDialog = ({
         return null
     }, [paymentMode, dpType, dpCustomAmount, amountDue, formatPrice])
 
-    // Effective down payment amount
     const effectiveDpAmount = useMemo(() => {
         if (paymentMode !== 'DOWN_PAYMENT') return amountDue
         if (dpType === 'PERCENTAGE') return round2((amountDue * dpPct) / 100)
@@ -206,8 +227,12 @@ const POSTenderDialog = ({
         return round2(Number(dpCustomAmount))
     }, [paymentMode, dpType, dpPct, dpCustomAmount, dpCustomError, amountDue])
 
-    const effectiveAmountDue = paymentMode === 'DOWN_PAYMENT' ? effectiveDpAmount : amountDue
-    const balanceDue = paymentMode === 'DOWN_PAYMENT' ? round2(amountDue - effectiveDpAmount) : 0
+    const effectiveAmountDue =
+        paymentMode === 'DOWN_PAYMENT' ? effectiveDpAmount : amountDue
+    const balanceDue =
+        paymentMode === 'DOWN_PAYMENT'
+            ? round2(amountDue - effectiveDpAmount)
+            : 0
 
     const [amount, setAmount] = useState(() =>
         amountDue > 0 ? amountDue.toFixed(2) : '',
@@ -215,29 +240,34 @@ const POSTenderDialog = ({
     const [cashReceived, setCashReceived] = useState(() =>
         amountDue > 0 ? amountDue.toFixed(2) : '',
     )
-
     const [referenceNumber, setReferenceNumber] = useState('')
     const [bankName, setBankName] = useState('')
     const [transactionDate, setTransactionDate] = useState('')
-
+    const [employeeName, setEmployeeName] = useState('')
+    const [verified, setVerified] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const [remarks, setRemarks] = useState('')
+    // Each sale starts with empty remarks: clear them when the dialog reopens.
+    const [wasOpen, setWasOpen] = useState(isOpen)
+    if (wasOpen !== isOpen) {
+        setWasOpen(isOpen)
+        if (isOpen) setRemarks('')
+    }
 
     const methodLabel = (code: string) =>
         methods.find((row) => row.method === code)?.label ?? code
 
-    // Load configurable payment methods when the dialog opens.
+    const methodIcon = (code: string) =>
+        methods.find((row) => row.method === code)?.icon ?? <HiOutlineGlobeAlt />
+
     useEffect(() => {
         if (!isOpen) return
-        setRemarks('')
         listPaymentMethods(true)
             .then((records) => {
                 if (records.length) setMethods(toMethodOptions(records))
             })
             .catch(() => {})
     }, [isOpen])
-    const [employeeName, setEmployeeName] = useState('')
-    const [verified, setVerified] = useState(false)
-    const [error, setError] = useState<string | null>(null)
 
     const covered = useMemo(
         () => round2(tenders.reduce((sum, tender) => sum + tender.amount, 0)),
@@ -247,15 +277,18 @@ const POSTenderDialog = ({
         () =>
             round2(
                 tenders.reduce(
-                    (sum, tender) => sum + (tender.tenderAmount ?? tender.amount),
+                    (sum, tender) =>
+                        sum + (tender.tenderAmount ?? tender.amount),
                     0,
                 ),
             ),
         [tenders],
     )
     const remaining = round2(effectiveAmountDue - covered)
-    // The server returns the change of every cash tender (handed over minus
-    // what it covers); a split sale may still be fully covered.
+    const progressPct =
+        effectiveAmountDue > 0
+            ? Math.min(100, Math.round((covered / effectiveAmountDue) * 100))
+            : 0
     const change = useMemo(
         () =>
             round2(
@@ -275,11 +308,40 @@ const POSTenderDialog = ({
         [tenders],
     )
 
-    // Live validation of the payment being entered (the same rules run again
-    // in addPayment, and the server enforces them as the final authority).
-    const amountLocked = paymentMode === 'FULL' && tenders.length === 0
-    const amountError = useMemo(() => {
-        if (amountLocked || amount.trim() === '') return null
+    const syncFormToDue = useCallback((due: number, nextMethod?: PosTenderMethod) => {
+        if (nextMethod) setMethod(nextMethod)
+        setAmount(due > 0 ? due.toFixed(2) : '')
+        setCashReceived(due > 0 ? due.toFixed(2) : '')
+        setReferenceNumber('')
+        setBankName('')
+        setTransactionDate('')
+        setEmployeeName('')
+        setVerified(false)
+        setError(null)
+    }, [])
+
+    useEffect(() => {
+        if (effectiveAmountDue > 0 && tenders.length === 0) {
+            setAmount(effectiveAmountDue.toFixed(2))
+            setCashReceived(effectiveAmountDue.toFixed(2))
+        }
+    }, [effectiveAmountDue, tenders.length])
+
+    const selectMethod = (next: PosTenderMethod) => syncFormToDue(remaining, next)
+
+    const setAmountCovering = (value: number) => {
+        const next = round2(Math.max(0, Math.min(value, remaining)))
+        setAmount(next > 0 ? next.toFixed(2) : '')
+        if (method === 'CASH') {
+            setCashReceived(next > 0 ? next.toFixed(2) : '')
+        }
+        setError(null)
+    }
+
+    // Live check of the amount being entered; buildTenderFromForm repeats it
+    // and the server stays the final authority.
+    const amountError = (() => {
+        if (amount.trim() === '') return null
         const value = Number(amount)
         if (!Number.isFinite(value) || value <= 0) {
             return 'Enter an amount greater than zero.'
@@ -287,147 +349,33 @@ const POSTenderDialog = ({
         if (value > remaining + 0.005) {
             return `${formatPrice(value)} is more than the ${formatPrice(Math.max(0, remaining))} still due.`
         }
-        if (
-            paymentMode === 'SPLIT' &&
-            tenders.length === 0 &&
-            value >= effectiveAmountDue - 0.005
-        ) {
-            return 'A split payment needs a partial first amount; the rest goes on another method.'
-        }
         return null
-    }, [
-        amountLocked,
-        amount,
-        remaining,
-        paymentMode,
-        tenders.length,
-        effectiveAmountDue,
-        formatPrice,
-    ])
-    const coveredValue = amountLocked ? remaining : Number(amount) || 0
-    const cashError =
-        method === 'CASH' &&
-        !amountError &&
-        cashReceived.trim() !== '' &&
-        coveredValue > 0 &&
-        round2(Number(cashReceived)) < round2(coveredValue) - 0.005
-            ? 'Cash received must be at least the amount it covers.'
-            : null
+    })()
 
-    /** Restarts the form for a method: the amount covers what is still due. */
-    const resetForm = useCallback(
-        (next: PosTenderMethod, due: number, opts?: { blankAmount?: boolean }) => {
-            setMethod(next)
-            const blank = Boolean(opts?.blankAmount)
-            setAmount(!blank && due > 0 ? due.toFixed(2) : '')
-            setCashReceived(!blank && due > 0 ? due.toFixed(2) : '')
-            setReferenceNumber('')
-            setBankName('')
-            setTransactionDate('')
-            setEmployeeName('')
-            setVerified(false)
-            setError(null)
-        },
-        [],
-    )
-
-    // Keep amount/cash fields in sync with the amount still due.
-    useEffect(() => {
-        if (!isOpen) return
-        if (tenders.length > 0) return
-        if (paymentMode === 'SPLIT') {
-            // Cashier must enter each split amount intentionally.
-            setAmount('')
-            setCashReceived('')
-            return
-        }
-        if (effectiveAmountDue > 0) {
-            setAmount(effectiveAmountDue.toFixed(2))
-            setCashReceived(effectiveAmountDue.toFixed(2))
-        }
-    }, [isOpen, effectiveAmountDue, tenders.length, paymentMode])
-
-    const selectMethod = (next: PosTenderMethod) =>
-        resetForm(
-            next,
-            remaining,
-            paymentMode === 'SPLIT' && remaining > 0.005
-                ? { blankAmount: tenders.length === 0 }
-                : undefined,
-        )
-
-    const setPaymentModeAndReset = (mode: PosPaymentMode) => {
-        setPaymentMode(mode)
-        setTenders([])
-        setError(null)
-        if (mode === 'SPLIT') {
-            resetForm('CASH', amountDue, { blankAmount: true })
-        } else if (mode === 'FULL') {
-            resetForm('CASH', amountDue)
-        } else {
-            // Down-payment amount refreshes via the effectiveAmountDue effect.
-            resetForm('CASH', 0, { blankAmount: true })
-        }
-    }
-
-    const onAmountCoveredChange = (next: string) => {
-        setAmount(next)
-        if (method !== 'CASH') return
-        setCashReceived((prev) => {
-            const prevAmt = Number(amount) || 0
-            const prevCash = Number(prev) || 0
-            const nextAmt = Number(next) || 0
-            // Keep cash received aligned until the cashier enters a larger tender.
-            if (
-                !prev ||
-                Math.abs(prevCash - prevAmt) < 0.005 ||
-                prevCash < nextAmt
-            ) {
-                return next
-            }
-            return prev
-        })
-    }
-
-    const addPayment = () => {
+    const buildTenderFromForm = (): PosTenderInput | null => {
         if (dpCustomError) {
             setError(dpCustomError)
-            return
+            return null
         }
-        const value =
-            paymentMode === 'FULL' && tenders.length === 0
-                ? remaining
-                : Number(amount)
+        const value = Number(amount)
         if (!Number.isFinite(value) || value <= 0) {
             setError('Enter an amount greater than zero.')
-            return
+            return null
         }
         if (value > remaining + 0.005) {
             setError(
                 `This payment covers ${formatPrice(value)} but only ${formatPrice(remaining)} is still due.`,
             )
-            return
-        }
-        if (
-            paymentMode === 'SPLIT' &&
-            tenders.length === 0 &&
-            value >= effectiveAmountDue - 0.005
-        ) {
-            setError(
-                'Split payment needs more than one method. Enter a partial amount for the first payment, then add another method for the remaining balance.',
-            )
-            return
+            return null
         }
 
         const tender: PosTenderInput = { method, amount: round2(value) }
 
         if (method === 'CASH') {
-            const cash = Number(cashReceived || amount)
+            const cash = Number(cashReceived)
             if (!Number.isFinite(cash) || cash < tender.amount) {
-                setError(
-                    'Cash received must be at least the amount it covers.',
-                )
-                return
+                setError('Cash received must be at least the amount it covers.')
+                return null
             }
             tender.tenderAmount = round2(cash)
         }
@@ -445,18 +393,18 @@ const POSTenderDialog = ({
                           ? 'Enter the cheque number.'
                           : 'Enter the reference number.',
                 )
-                return
+                return null
             }
             tender.referenceNumber = referenceNumber.trim()
         }
         if (method === 'BANK_TRANSFER') {
             if (!bankName.trim()) {
                 setError('Enter the bank name.')
-                return
+                return null
             }
             if (!transactionDate.trim()) {
                 setError('Enter the transaction date.')
-                return
+                return null
             }
             tender.bankName = bankName.trim()
             tender.transactionDate = transactionDate.trim()
@@ -464,7 +412,7 @@ const POSTenderDialog = ({
         if (method === 'SALARY_LOAN') {
             if (!employeeName.trim()) {
                 setError('Enter the employee full name.')
-                return
+                return null
             }
             tender.employeeName = employeeName.trim()
         }
@@ -476,17 +424,23 @@ const POSTenderDialog = ({
             tender.verifiedBy = cashierUserId
         }
 
+        return tender
+    }
+
+    const addPayment = () => {
+        const tender = buildTenderFromForm()
+        if (!tender) return
+
         const nextRemaining = round2(remaining - tender.amount)
-        setTenders((current) => [...current, tender])
-        // After each split tender, pre-fill the remaining balance for the next method.
-        resetForm(method, nextRemaining)
-        if (paymentMode === 'SPLIT' && nextRemaining > 0.005) {
-            notify(
-                'info',
-                'Remaining balance',
-                `${formatPrice(nextRemaining)} still due — select the next payment method.`,
-            )
-        }
+        setTenders((current) => {
+            const next = [...current, tender]
+            if (next.length >= 2 && paymentMode === 'FULL') {
+                setPaymentMode('SPLIT')
+            }
+            return next
+        })
+        syncFormToDue(nextRemaining, method)
+
         if (
             (method === 'GCASH' || method === 'BANK_TRANSFER') &&
             !tender.verifiedBy
@@ -506,15 +460,27 @@ const POSTenderDialog = ({
                 next.reduce((sum, tender) => sum + tender.amount, 0),
             )
             const nextRemaining = round2(effectiveAmountDue - nextCovered)
-            resetForm(
-                method,
-                nextRemaining,
-                paymentMode === 'SPLIT' && next.length === 0
-                    ? { blankAmount: true }
-                    : undefined,
-            )
+            syncFormToDue(nextRemaining, method)
+            if (next.length < 2 && paymentMode === 'SPLIT') {
+                // stay in Split — cashier may still intend another method
+            }
             return next
         })
+    }
+
+    const changeMode = (mode: PosPaymentMode) => {
+        setPaymentMode(mode)
+        setTenders([])
+        setError(null)
+        const due =
+            mode === 'DOWN_PAYMENT'
+                ? dpType === 'PERCENTAGE'
+                    ? round2((amountDue * dpPct) / 100)
+                    : dpCustomError
+                      ? 0
+                      : round2(Number(dpCustomAmount))
+                : amountDue
+        syncFormToDue(due > 0 ? due : amountDue, 'CASH')
     }
 
     const complete = () => {
@@ -522,41 +488,51 @@ const POSTenderDialog = ({
             setError(dpCustomError)
             return
         }
-        if (!tenders.length) {
-            setError('Add at least one payment method.')
-            return
+        let nextTenders = tenders
+        if (!nextTenders.length) {
+            if (paymentMode === 'SPLIT') {
+                setError(
+                    'Split payment needs at least two methods — add the first payment, then another for the rest.',
+                )
+                return
+            }
+            const tender = buildTenderFromForm()
+            if (!tender) return
+            nextTenders = [tender]
         }
-        if (paymentMode === 'SPLIT' && tenders.length < 2) {
+
+        const nextCovered = round2(
+            nextTenders.reduce((sum, tender) => sum + tender.amount, 0),
+        )
+        const nextRemaining = round2(effectiveAmountDue - nextCovered)
+        if (nextRemaining > 0.005) {
             setError(
-                'Split payment requires at least two payment methods (for example Cash + GCash).',
+                `Still short ${formatPrice(nextRemaining)}. Add another payment or raise the amount.`,
             )
             return
         }
-        if (remaining > 0.005) {
+        if (paymentMode === 'SPLIT' && nextTenders.length < 2) {
             setError(
-                `The tenders cover ${formatPrice(covered)} of ${formatPrice(effectiveAmountDue)}. Add another payment for the remaining ${formatPrice(remaining)}.`,
+                'Split payment needs at least two methods. Switch to Full if one method covers everything.',
             )
             return
         }
-        // Down payment requires an identified customer
         if (paymentMode === 'DOWN_PAYMENT' && balanceDue > 0) {
             if (!customerId || customerId === 'WALK-IN') {
                 setError('A partial payment requires an identified customer.')
                 return
             }
         }
-        const resolvedMode: PosPaymentMode =
-            paymentMode === 'DOWN_PAYMENT'
-                ? 'DOWN_PAYMENT'
-                : tenders.length > 1
-                  ? 'SPLIT'
-                  : 'FULL'
+
         const trimmedRemarks = remarks.trim()
         onComplete({
-            tenders,
-            paymentMode: resolvedMode,
+            tenders: nextTenders,
+            paymentMode:
+                nextTenders.length >= 2 && paymentMode === 'FULL'
+                    ? 'SPLIT'
+                    : paymentMode,
             ...(trimmedRemarks ? { remarks: trimmedRemarks } : {}),
-            ...(resolvedMode === 'DOWN_PAYMENT' && {
+            ...(paymentMode === 'DOWN_PAYMENT' && {
                 downPaymentType: dpType,
                 downPaymentPct: dpType === 'PERCENTAGE' ? dpPct : undefined,
                 downPaymentAmount: effectiveDpAmount,
@@ -564,93 +540,142 @@ const POSTenderDialog = ({
         })
     }
 
-    const selected = methods.find((row) => row.method === method)!
+    const selected = methods.find((row) => row.method === method) ?? methods[0]
     const showVerification =
         (method === 'GCASH' || method === 'BANK_TRANSFER') &&
         Boolean(cashierUserId)
+    const formAmount = Number(amount) || 0
+    const willLeaveRemaining =
+        formAmount > 0 && round2(remaining - formAmount) > 0.005
+    const isFinalSlice =
+        formAmount > 0 && Math.abs(formAmount - remaining) <= 0.005
+    const splitReady = remaining <= 0.005 && tenders.length >= 1
 
     return (
         <Dialog
             isOpen={isOpen}
-            width={880}
+            width={920}
             aria={{ labelledby: 'pos-tender-title' }}
             shouldReturnFocusAfterClose={false}
             onAfterClose={onAfterClose}
             onClose={onClose}
             onRequestClose={onClose}
         >
-            <h5 id="pos-tender-title" className="mb-1">
-                Take payment
-            </h5>
-            <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-                {formatPrice(amountDue)} due
-                {customerName ? ` · ${customerName}` : ''}
-            </p>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h5 id="pos-tender-title" className="mb-0.5">
+                        Take payment
+                    </h5>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {customerName ? `${customerName} · ` : ''}
+                        Order total {formatPrice(amountDue)}
+                    </p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-right dark:border-gray-700 dark:bg-gray-800/50">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                        {paymentMode === 'DOWN_PAYMENT'
+                            ? 'Collect now'
+                            : 'To collect'}
+                    </div>
+                    <div className="text-xl font-bold tabular-nums heading-text">
+                        {formatPrice(effectiveAmountDue)}
+                    </div>
+                </div>
+            </div>
 
-            {/* Payment mode selector */}
-            <div className="mb-4 flex gap-2">
-                {(['FULL', 'SPLIT', 'DOWN_PAYMENT'] as const).map((mode) => (
+            {/* Mode selector */}
+            <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {MODE_OPTIONS.map((option) => (
                     <button
-                        key={mode}
+                        key={option.mode}
                         type="button"
                         className={classNames(
-                            'rounded-lg border px-4 py-2 text-sm font-semibold transition-colors',
-                            paymentMode === mode
-                                ? 'border-primary bg-primary-subtle text-primary dark:bg-primary/15'
-                                : 'border-gray-200 text-gray-600 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800',
+                            'rounded-xl border px-3 py-2.5 text-left transition-colors',
+                            paymentMode === option.mode
+                                ? 'border-primary bg-primary-subtle shadow-sm dark:bg-primary/15'
+                                : 'border-gray-200 hover:border-primary/60 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800',
                         )}
-                        onClick={() => setPaymentModeAndReset(mode)}
+                        onClick={() => changeMode(option.mode)}
+                        aria-pressed={paymentMode === option.mode}
                     >
-                        {mode === 'FULL' ? 'Full Payment' : mode === 'SPLIT' ? 'Split Payment' : 'Down Payment'}
+                        <div
+                            className={classNames(
+                                'text-sm font-semibold',
+                                paymentMode === option.mode
+                                    ? 'text-primary'
+                                    : 'heading-text',
+                            )}
+                        >
+                            {option.label}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                            {option.hint}
+                        </div>
                     </button>
                 ))}
             </div>
 
-            {paymentMode === 'SPLIT' ? (
-                <AdaptiveCard className="mb-4 border border-sky-200 bg-sky-50/60 dark:border-sky-500/30 dark:bg-sky-500/10">
-                    <div className="text-sm font-semibold text-sky-900 dark:text-sky-200">
-                        Split payment
-                    </div>
-                    <p className="mt-1 text-xs text-sky-800 dark:text-sky-300">
-                        Add two or more methods (for example Cash + GCash). Each
-                        payment amount is listed below; the sale stays unpaid
-                        until the remaining balance is ₱0.00.
-                    </p>
-                    <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+            {/* Split progress */}
+            {(paymentMode === 'SPLIT' || tenders.length > 0) && (
+                <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 dark:border-sky-500/30 dark:bg-sky-500/10">
+                    <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
                         <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                                Amount due
-                            </div>
-                            <div className="text-sm font-semibold tabular-nums heading-text">
-                                {formatPrice(effectiveAmountDue)}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                                Covered
-                            </div>
-                            <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                                {formatPrice(covered)}
-                            </div>
-                        </div>
-                        <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600">
-                                Remaining
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                                {splitReady
+                                    ? 'Split covered'
+                                    : tenders.length === 0
+                                      ? 'Start the split'
+                                      : 'Still to cover'}
                             </div>
                             <div
                                 className={classNames(
-                                    'text-sm font-semibold tabular-nums',
-                                    remaining > 0.005
-                                        ? 'text-red-600 dark:text-red-400'
-                                        : 'text-emerald-600 dark:text-emerald-400',
+                                    'text-2xl font-bold tabular-nums',
+                                    splitReady
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : 'text-sky-800 dark:text-sky-200',
                                 )}
                             >
-                                {formatPrice(Math.max(0, remaining))}
+                                {splitReady
+                                    ? formatPrice(0)
+                                    : formatPrice(Math.max(0, remaining))}
+                            </div>
+                        </div>
+                        <div className="text-right text-xs text-sky-800/80 dark:text-sky-200/80">
+                            <div>
+                                Paid {formatPrice(covered)} of{' '}
+                                {formatPrice(effectiveAmountDue)}
+                            </div>
+                            <div className="font-semibold tabular-nums">
+                                {progressPct}% · {tenders.length} payment
+                                {tenders.length === 1 ? '' : 's'}
                             </div>
                         </div>
                     </div>
-                </AdaptiveCard>
-            ) : null}
+                    <div className="h-2 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-950/50">
+                        <div
+                            className={classNames(
+                                'h-full rounded-full transition-all',
+                                splitReady ? 'bg-emerald-500' : 'bg-sky-500',
+                            )}
+                            style={{ width: `${progressPct}%` }}
+                        />
+                    </div>
+                    {paymentMode === 'SPLIT' && tenders.length === 0 ? (
+                        <p className="mt-2 text-xs text-sky-800 dark:text-sky-200">
+                            Add the first method for part of the total, then
+                            pick another method for the rest.
+                        </p>
+                    ) : null}
+                    {paymentMode === 'SPLIT' &&
+                    tenders.length === 1 &&
+                    remaining > 0.005 ? (
+                        <p className="mt-2 text-xs text-sky-800 dark:text-sky-200">
+                            Next: choose a second method for the remaining{' '}
+                            {formatPrice(remaining)}.
+                        </p>
+                    ) : null}
+                </div>
+            )}
 
             {/* Down payment configuration */}
             {paymentMode === 'DOWN_PAYMENT' && (
@@ -741,130 +766,173 @@ const POSTenderDialog = ({
 
                     <div className="mt-3 grid grid-cols-3 gap-3 text-center">
                         <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Order total</div>
-                            <div className="text-sm font-semibold tabular-nums heading-text">{formatPrice(amountDue)}</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Order total
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums heading-text">
+                                {formatPrice(amountDue)}
+                            </div>
                         </div>
                         <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Down payment</div>
-                            <div className="text-sm font-semibold tabular-nums text-primary">{formatPrice(effectiveDpAmount)}</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Down payment
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-primary">
+                                {formatPrice(effectiveDpAmount)}
+                            </div>
                         </div>
                         <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Balance due</div>
-                            <div className="text-sm font-semibold tabular-nums text-amber-600">{formatPrice(balanceDue)}</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                                Balance due
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-amber-600">
+                                {formatPrice(balanceDue)}
+                            </div>
                         </div>
                     </div>
 
                     {(!customerId || customerId === 'WALK-IN') && (
                         <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-                            A partial payment requires an identified customer. Select or create a customer first.
+                            A partial payment requires an identified customer.
+                            Select or create a customer first.
                         </div>
                     )}
                 </AdaptiveCard>
             )}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {/* LEFT — payment methods and the tenders already taken */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                {/* LEFT — methods + taken payments */}
                 <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                        {methods.map((row) => (
-                            <button
-                                key={row.method}
-                                type="button"
-                                className={classNames(
-                                    'flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors',
-                                    method === row.method
-                                        ? 'border-primary bg-primary-subtle dark:bg-primary/15'
-                                        : 'border-gray-200 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800',
-                                )}
-                                onClick={() => selectMethod(row.method)}
-                                aria-pressed={method === row.method}
-                            >
-                                <span className="shrink-0 text-lg text-gray-600 dark:text-gray-300">
-                                    {row.icon}
-                                </span>
-                                <span className="min-w-0">
-                                    <span className="block truncate text-sm font-semibold heading-text">
-                                        {row.label}
+                    <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            {paymentMode === 'SPLIT' && tenders.length === 1
+                                ? 'Second method'
+                                : 'Payment method'}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            {methods.map((row) => (
+                                <button
+                                    key={row.method}
+                                    type="button"
+                                    className={classNames(
+                                        'flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors',
+                                        method === row.method
+                                            ? 'border-primary bg-primary-subtle ring-1 ring-primary/30 dark:bg-primary/15'
+                                            : 'border-gray-200 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800',
+                                    )}
+                                    onClick={() => selectMethod(row.method)}
+                                    aria-pressed={method === row.method}
+                                >
+                                    <span className="shrink-0 text-lg text-gray-600 dark:text-gray-300">
+                                        {row.icon}
                                     </span>
-                                    <span className="block truncate text-[11px] text-gray-500">
-                                        {row.hint}
+                                    <span className="min-w-0">
+                                        <span className="block truncate text-sm font-semibold heading-text">
+                                            {row.label}
+                                        </span>
+                                        <span className="block truncate text-[11px] text-gray-500">
+                                            {row.hint}
+                                        </span>
                                     </span>
-                                </span>
-                            </button>
-                        ))}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div>
                         <div className="mb-2 flex items-center justify-between">
                             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                Payments taken
+                                Payments in this sale
                             </span>
                             <Tag className="font-semibold tabular-nums">
                                 {tenders.length}
                             </Tag>
                         </div>
                         {tenders.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-gray-200 px-3 py-6 text-center text-sm text-gray-500 dark:border-gray-700">
-                                No payment added yet.
+                            <div className="rounded-xl border border-dashed border-gray-200 px-3 py-5 text-center text-sm text-gray-500 dark:border-gray-700">
+                                {paymentMode === 'SPLIT'
+                                    ? 'No split lines yet — add the first amount on the right.'
+                                    : paymentMode === 'FULL'
+                                      ? 'Full pay can complete from the form, or add a line first.'
+                                      : 'Add payments that cover the down payment.'}
                             </div>
                         ) : (
                             <div className="space-y-2">
                                 {tenders.map((tender, index) => (
                                     <div
                                         key={`${tender.method}-${index}`}
-                                        className="rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700"
+                                        className="rounded-xl border border-gray-200 px-3 py-2.5 dark:border-gray-700"
                                     >
                                         <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <span className="text-sm font-semibold heading-text">
-                                                        {methodLabel(tender.method)}
-                                                    </span>
-                                                    <Tag
-                                                        className={classNames(
-                                                            'text-[10px] font-semibold',
-                                                            expectedTenderStatus(tender)
-                                                                .className,
+                                            <div className="flex min-w-0 items-start gap-2.5">
+                                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-sm font-bold tabular-nums text-gray-600 dark:bg-gray-700 dark:text-gray-200">
+                                                    {index + 1}
+                                                </span>
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="text-base text-gray-500">
+                                                            {methodIcon(
+                                                                tender.method,
+                                                            )}
+                                                        </span>
+                                                        <span className="text-sm font-semibold heading-text">
+                                                            {methodLabel(
+                                                                tender.method,
+                                                            )}
+                                                        </span>
+                                                        <Tag
+                                                            className={classNames(
+                                                                'text-[10px] font-semibold',
+                                                                expectedTenderStatus(
+                                                                    tender,
+                                                                ).className,
+                                                            )}
+                                                        >
+                                                            {
+                                                                expectedTenderStatus(
+                                                                    tender,
+                                                                ).label
+                                                            }
+                                                        </Tag>
+                                                    </div>
+                                                    <div className="mt-0.5 text-sm font-semibold tabular-nums heading-text">
+                                                        {formatPrice(
+                                                            tender.amount,
                                                         )}
-                                                    >
-                                                        {
-                                                            expectedTenderStatus(tender)
-                                                                .label
-                                                        }
-                                                    </Tag>
-                                                </div>
-                                                <div className="text-xs text-gray-500 tabular-nums">
-                                                    {formatPrice(tender.amount)}
+                                                    </div>
                                                     {tender.tenderAmount &&
                                                     tender.tenderAmount >
                                                         tender.amount ? (
-                                                        <span className="ml-2">
-                                                            received{' '}
-                                                            {
-                                                                formatPrice(
-                                                                    tender.tenderAmount,
-                                                                )
-                                                            } · change{' '}
+                                                        <div className="text-[11px] text-gray-500 tabular-nums">
+                                                            Received{' '}
+                                                            {formatPrice(
+                                                                tender.tenderAmount,
+                                                            )}{' '}
+                                                            · change{' '}
                                                             {formatPrice(
                                                                 round2(
                                                                     tender.tenderAmount -
                                                                         tender.amount,
                                                                 ),
                                                             )}
-                                                        </span>
+                                                        </div>
+                                                    ) : null}
+                                                    {tender.referenceNumber ? (
+                                                        <div className="truncate font-mono text-[11px] text-gray-500">
+                                                            {
+                                                                tender.referenceNumber
+                                                            }
+                                                        </div>
+                                                    ) : null}
+                                                    {tender.employeeName ? (
+                                                        <div className="truncate text-[11px] text-gray-500">
+                                                            Employee{' '}
+                                                            {
+                                                                tender.employeeName
+                                                            }
+                                                        </div>
                                                     ) : null}
                                                 </div>
-                                                {tender.referenceNumber ? (
-                                                    <div className="truncate font-mono text-[11px] text-gray-500">
-                                                        {tender.referenceNumber}
-                                                    </div>
-                                                ) : null}
-                                                {tender.employeeName ? (
-                                                    <div className="truncate text-[11px] text-gray-500">
-                                                        Employee{' '}
-                                                        {tender.employeeName}
-                                                    </div>
-                                                ) : null}
                                             </div>
                                             <Button
                                                 size="sm"
@@ -883,7 +951,7 @@ const POSTenderDialog = ({
                     </div>
                 </div>
 
-                {/* RIGHT — the form of the selected method and the totals */}
+                {/* RIGHT — form */}
                 <div className="space-y-3">
                     <AdaptiveCard className="border border-gray-200 dark:border-gray-700">
                         <div className="mb-3 flex items-center justify-between gap-2">
@@ -900,6 +968,17 @@ const POSTenderDialog = ({
                                     </div>
                                 </div>
                             </div>
+                            {remaining > 0.005 ? (
+                                <Tag className="bg-amber-100 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                                    Left {formatPrice(remaining)}
+                                </Tag>
+                            ) : (
+                                <Tag className="bg-emerald-100 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                                    <span className="inline-flex items-center gap-1">
+                                        <HiOutlineCheckCircle /> Covered
+                                    </span>
+                                </Tag>
+                            )}
                         </div>
 
                         <div className="space-y-3">
@@ -908,33 +987,20 @@ const POSTenderDialog = ({
                                     htmlFor="pos-tender-amount"
                                     className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
                                 >
-                                    Amount covered
+                                    Amount this method covers
                                 </label>
                                 <NumericInput
                                     id="pos-tender-amount"
-                                    placeholder={
-                                        paymentMode === 'SPLIT'
-                                            ? 'Enter partial amount'
-                                            : '0.00'
-                                    }
+                                    placeholder="0.00"
                                     thousandSeparator=","
                                     decimalScale={2}
                                     fixedDecimalScale
                                     allowNegative={false}
                                     invalid={Boolean(amountError)}
-                                    value={
-                                        paymentMode === 'FULL' &&
-                                        tenders.length === 0
-                                            ? remaining.toFixed(2)
-                                            : amount
-                                    }
-                                    disabled={
-                                        paymentMode === 'FULL' &&
-                                        tenders.length === 0
-                                    }
+                                    value={amount}
                                     onValueChange={(v) => {
                                         setError(null)
-                                        onAmountCoveredChange(v.value ?? '')
+                                        setAmount(v.value ?? '')
                                     }}
                                 />
                                 {amountError ? (
@@ -945,12 +1011,39 @@ const POSTenderDialog = ({
                                         {amountError}
                                     </p>
                                 ) : null}
-                                {paymentMode === 'FULL' ? (
-                                    <p className="mt-1 text-[11px] text-gray-500">
-                                        Full payment covers the whole amount in
-                                        one method. Switch to Split Payment to
-                                        combine Cash + GCash / Card.
-                                    </p>
+                                {remaining > 0.005 ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        <Button
+                                            size="xs"
+                                            variant={
+                                                isFinalSlice
+                                                    ? 'solid'
+                                                    : 'default'
+                                            }
+                                            onClick={() =>
+                                                setAmountCovering(remaining)
+                                            }
+                                        >
+                                            All remaining (
+                                            {formatPrice(remaining)})
+                                        </Button>
+                                        {remaining > 1 ? (
+                                            <Button
+                                                size="xs"
+                                                onClick={() =>
+                                                    setAmountCovering(
+                                                        remaining / 2,
+                                                    )
+                                                }
+                                            >
+                                                Half (
+                                                {formatPrice(
+                                                    round2(remaining / 2),
+                                                )}
+                                                )
+                                            </Button>
+                                        ) : null}
+                                    </div>
                                 ) : null}
                             </div>
 
@@ -970,21 +1063,11 @@ const POSTenderDialog = ({
                                             decimalScale={2}
                                             fixedDecimalScale
                                             allowNegative={false}
-                                            invalid={Boolean(cashError)}
                                             value={cashReceived}
-                                            onValueChange={(v) => {
-                                                setError(null)
+                                            onValueChange={(v) =>
                                                 setCashReceived(v.value ?? '')
-                                            }}
+                                            }
                                         />
-                                        {cashError ? (
-                                            <p
-                                                role="alert"
-                                                className="mt-1 text-xs font-medium text-red-600 dark:text-red-400"
-                                            >
-                                                {cashError}
-                                            </p>
-                                        ) : null}
                                     </div>
                                     <div>
                                         <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -1012,7 +1095,8 @@ const POSTenderDialog = ({
                                                                     round2(
                                                                         (Number(
                                                                             amount,
-                                                                        ) || 0) +
+                                                                        ) ||
+                                                                            0) +
                                                                             denomination,
                                                                     ),
                                                                 ),
@@ -1024,11 +1108,6 @@ const POSTenderDialog = ({
                                                 ),
                                             )}
                                         </div>
-                                        <p className="mt-1 text-[11px] text-gray-500">
-                                            Adds the denomination on top of the
-                                            amount covered; the surplus is the
-                                            change.
-                                        </p>
                                     </div>
                                 </>
                             ) : null}
@@ -1121,9 +1200,9 @@ const POSTenderDialog = ({
                                         />
                                     </div>
                                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                                        This sale is recorded as Unpaid until
-                                        payroll collects it. Enter the employee
-                                        full name only.
+                                        Recorded as Unpaid until payroll
+                                        collects it. Enter the employee full
+                                        name only.
                                     </div>
                                 </>
                             ) : null}
@@ -1141,10 +1220,11 @@ const POSTenderDialog = ({
                                     Verified by the cashier
                                 </label>
                             ) : null}
-                            {method === 'GCASH' || method === 'BANK_TRANSFER' ? (
+                            {method === 'GCASH' ||
+                            method === 'BANK_TRANSFER' ? (
                                 <p className="text-[11px] text-gray-500">
-                                    Without the cashier confirmation the tender
-                                    is recorded as pending verification.
+                                    Without confirmation this tender stays
+                                    pending verification.
                                 </p>
                             ) : null}
 
@@ -1159,18 +1239,52 @@ const POSTenderDialog = ({
 
                             <Button
                                 block
+                                variant={
+                                    willLeaveRemaining ? 'default' : 'solid'
+                                }
                                 icon={<HiOutlinePlus />}
                                 disabled={
-                                    Boolean(amountError) ||
-                                    Boolean(cashError) ||
-                                    Boolean(dpCustomError)
+                                    remaining <= 0.005 ||
+                                    Boolean(dpCustomError) ||
+                                    Boolean(amountError)
                                 }
                                 onClick={addPayment}
                             >
-                                Add payment
+                                {remaining <= 0.005
+                                    ? 'Nothing left to add'
+                                    : willLeaveRemaining
+                                      ? `Add ${selected.label} · leave ${formatPrice(round2(remaining - formAmount))}`
+                                      : isFinalSlice && tenders.length > 0
+                                        ? `Add final ${selected.label}`
+                                        : `Add ${selected.label}`}
                             </Button>
                         </div>
                     </AdaptiveCard>
+
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/40">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Tendered
+                                </div>
+                                <div className="text-base font-semibold tabular-nums heading-text">
+                                    {formatPrice(tendered)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                    Change
+                                </div>
+                                <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                                    {formatPrice(change)}
+                                </div>
+                            </div>
+                        </div>
+                        <p className="mt-2 text-[11px] text-gray-500">
+                            Preview only — the server owns tax, final total and
+                            change.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -1192,86 +1306,40 @@ const POSTenderDialog = ({
                 />
             </div>
 
-            {/* Totals of the running sale */}
-            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/40">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            {paymentMode === 'DOWN_PAYMENT' ? 'Down payment' : 'Amount due'}
-                        </div>
-                        <div className="text-base font-semibold tabular-nums heading-text">
-                            {formatPrice(effectiveAmountDue)}
-                        </div>
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Covered
-                        </div>
-                        <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                            {formatPrice(covered)}
-                            <span className="ml-1 text-[11px] font-medium text-gray-500">
-                                / {formatPrice(tendered)} tendered
-                            </span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Remaining
-                        </div>
-                        <div
-                            className={classNames(
-                                'text-base font-semibold tabular-nums',
-                                remaining > 0.005
-                                    ? 'text-red-600 dark:text-red-400'
-                                    : 'text-emerald-600 dark:text-emerald-400',
-                            )}
-                        >
-                            {formatPrice(Math.max(0, remaining))}
-                        </div>
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                            Change
-                        </div>
-                        <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                            {formatPrice(change)}
-                        </div>
-                    </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-gray-500">
+                    {paymentMode === 'SPLIT' && !splitReady
+                        ? `Cover the remaining ${formatPrice(Math.max(0, remaining))} to complete.`
+                        : paymentMode === 'FULL' && tenders.length === 0
+                          ? 'One method can complete the sale without adding a line first.'
+                          : null}
                 </div>
-                <p className="mt-2 text-[11px] text-gray-500">
-                    Preview only — the server adds the tax from the MM tax
-                    configuration and owns the final total and the change.
-                </p>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-                <Button
-                    size="sm"
-                    onClick={onClose}
-                    disabled={completing}
-                >
-                    Cancel
-                </Button>
-                <Button
-                    size="sm"
-                    variant="solid"
-                    loading={completing}
-                    disabled={
-                        Boolean(dpCustomError) ||
-                        remaining > 0.005 ||
-                        !tenders.length ||
-                        (paymentMode === 'SPLIT' && tenders.length < 2)
-                    }
-                    onClick={complete}
-                >
-                    {paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
-                        ? `Complete sale (balance ${formatPrice(balanceDue)})`
-                        : paymentMode === 'SPLIT' && remaining > 0.005
-                          ? `Add ${formatPrice(remaining)} more`
-                          : paymentMode === 'SPLIT' && tenders.length < 2
-                            ? 'Add another payment method'
-                            : 'Complete sale'}
-                </Button>
+                <div className="flex gap-2">
+                    <Button size="sm" onClick={onClose} disabled={completing}>
+                        Cancel
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="solid"
+                        loading={completing}
+                        disabled={
+                            completing ||
+                            Boolean(dpCustomError) ||
+                            (paymentMode === 'SPLIT'
+                                ? remaining > 0.005 || tenders.length < 2
+                                : remaining > 0.005 && tenders.length > 0)
+                        }
+                        onClick={complete}
+                    >
+                        {paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
+                            ? `Complete · balance ${formatPrice(balanceDue)}`
+                            : paymentMode === 'SPLIT'
+                              ? splitReady && tenders.length >= 2
+                                  ? 'Complete split sale'
+                                  : 'Complete split sale'
+                              : 'Complete sale'}
+                    </Button>
+                </div>
             </div>
         </Dialog>
     )

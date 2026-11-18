@@ -414,6 +414,22 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                 ],
             },
+            {
+                code: 'communications',
+                title: 'Communications',
+                submodules: [
+                    {
+                        code: 'emails',
+                        title: 'Emails',
+                        description:
+                            'Cover letters sent with quotations: subject, message, placeholders, default and active.',
+                        path: '/emails',
+                        icon: 'mail',
+                        // Mail hub; messages for compose/sent, templates for cover letters.
+                        permissionCode: 'emails.messages',
+                    },
+                ],
+            },
         ],
     },
     {

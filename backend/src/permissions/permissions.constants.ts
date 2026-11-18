@@ -29,6 +29,7 @@ export const MODULE_CODES = {
     FICO: 'fico',
     SCM: 'scm',
     CRM: 'crm',
+    EMAILS: 'emails',
     HCM: 'hcm',
     ADMIN: 'admin',
 } as const
@@ -71,6 +72,12 @@ export const MODULE_CATALOG: {
         name: 'Customer Relationship Management',
         description: 'Customers, contacts, and sales pipeline.',
         sortOrder: 50,
+    },
+    {
+        code: 'emails',
+        name: 'Emails',
+        description: 'Cover-letter templates sent with quotations and other customer documents.',
+        sortOrder: 55,
     },
     {
         code: 'hcm',
@@ -613,6 +620,18 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Manual / demo point grants (mock earn); real points come from paid invoices.',
         ],
     ]),
+    ...group('emails', [
+        [
+            'messages',
+            'Email Messages',
+            'CRM emailer: compose, drafts, and sent mail (outbound).',
+        ],
+        [
+            'templates',
+            'Email Templates',
+            'Cover-letter templates sent with customer documents (quotations).',
+        ],
+    ]),
     ...group('hcm', [['hris', 'HRIS Access', 'Link to the external HRIS.']]),
     ...mmFeatureResources(),
 ]
@@ -663,6 +682,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         fico: NO_DELETE,
         scm: FULL_ACCESS,
         crm: FULL_ACCESS,
+        emails: FULL_ACCESS,
         hcm: NO_DELETE,
     },
     [USER_ROLES.EMPLOYEE]: {
@@ -670,6 +690,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         mm: READ_CREATE,
         scm: READ_CREATE,
         crm: READ_CREATE,
+        // Compose / drafts / sent; template edits stay available so quote cover letters work.
+        emails: NO_DELETE,
     },
 }
 

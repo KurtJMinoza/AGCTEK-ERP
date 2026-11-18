@@ -6,7 +6,15 @@ import {
     type QuotationPdfInput,
     type QuotationPdfModel,
 } from './quotation-pdf.model'
-
+import { composeOverPdfDesign } from './quotation-pdf-design'
+import {
+    QUOTATION_PDF_PAGE,
+    quotationPdfBodyInsets,
+    resolveQuotationPdfLayout,
+    type QuotationPdfBlocks,
+    type QuotationPdfBox,
+} from './quotation-pdf-layout'
+import { quotationPdfLogoSize } from './quotation-pdf-logo'
 /**
  * pdfkit's bundled type declarations export a document instance; at runtime the module exports the
  * `PDFDocument` constructor. This cast bridges that mismatch.
@@ -38,8 +46,11 @@ const STATUS_COLOR: Record<string, string> = {
     CONVERTED: COLOR.success,
 }
 
-const MARGIN = 48
-const FOOTER_BAND = 28
+/** Tallest the letterhead logo may print, in points (wide logos are limited by the width instead). */
+const LOGO_MAX_HEIGHT = 56
+
+/** Where a block draws: from (x, y) at `width`; `bottom` is its box's bottom edge, null in the classic flow. */
+type Frame = { x: number; y: number; width: number; bottom: number | null }
 
 /** All amounts render as ASCII-safe currency (e.g. `PHP 2,350.00`); see `formatQuotationMoney`. */
 const money = formatQuotationMoney
@@ -57,9 +68,15 @@ export class QuotationPdfService {
         if (!model.lines.length) {
             throw new BadRequestException('A quotation without lines cannot be turned into a PDF')
         }
+        const body = quotationPdfBodyInsets(model.layout)
+        // With boxes, the lines box sets the table's left edge and width on every page.
+        const lines = model.layout.blocks?.lines
+        const side = lines
+            ? { left: lines.x, right: QUOTATION_PDF_PAGE.width - lines.x - lines.width }
+            : { left: body.side, right: body.side }
         const doc = new PDFDocument({
             size: 'A4',
-            margins: { top: MARGIN, bottom: MARGIN + FOOTER_BAND, left: MARGIN, right: MARGIN },
+            margins: { top: body.top, bottom: body.bottom, ...side },
             bufferPages: true,
             info: {
                 Title: `${model.quotation.number} rev ${model.quotation.revision}`,
@@ -71,12 +88,15 @@ export class QuotationPdfService {
         return doc
     }
 
-    /** Full PDF bytes. The caller streams or sends them; nothing is persisted. */
+    /**
+     * Full PDF bytes, placed over the imported design when the profile has one (design under, data
+     * over). The caller streams or sends them; nothing is persisted.
+     */
     async render(input: QuotationPdfInput): Promise<Buffer> {
         const doc = this.createDocument(input)
         const bytes = this.toBuffer(doc)
         doc.end()
-        return bytes
+        return composeOverPdfDesign(await bytes, input.design, resolveQuotationPdfLayout(input.layout))
     }
 
     private toBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
@@ -101,8 +121,12 @@ export class QuotationPdfService {
     }
 
     private draw(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {
-        this.drawHeader(doc, model)
-        this.drawMeta(doc, model)
+        if (model.layout.blocks) {
+            this.drawBoxes(doc, model, model.layout.blocks)
+        } else {
+            this.drawHeader(doc, model)
+            this.drawMeta(doc, model)
+        }
         this.drawTableHeader(doc, model)
         this.drawLines(doc, model)
         this.drawTotals(doc, model)
@@ -110,35 +134,21 @@ export class QuotationPdfService {
         this.drawFooters(doc, model)
     }
 
+    /** Classic header: letterhead left, title right, then a rule. */
     private drawHeader(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {
         const left = this.left(doc)
         const width = this.contentWidth(doc)
         const top = doc.y
 
-        doc.font('Helvetica-Bold').fontSize(20).fillColor(COLOR.text)
-        doc.text(model.company.name, left, top, { width: width * 0.62 })
-        if (model.company.address) {
-            doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
-            doc.text(model.company.address, left, doc.y, { width: width * 0.62 })
-        }
-        if (model.company.tin) {
-            doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
-            doc.text(`TIN: ${model.company.tin}`, left, doc.y, { width: width * 0.62 })
+        // An imported design usually carries the letterhead; the profile can turn the drawn one off.
+        if (model.layout.showLetterhead) {
+            this.drawLetterhead(doc, model, { x: left, y: top, width: width * 0.62, bottom: null }, {
+                width: width * 0.5,
+                height: LOGO_MAX_HEIGHT,
+            })
         }
         const leftBottom = doc.y
-
-        doc.font('Helvetica-Bold').fontSize(22).fillColor(COLOR.text)
-        doc.text('QUOTATION', left, top, { width, align: 'right' })
-        doc.font('Helvetica').fontSize(10).fillColor(COLOR.muted)
-        doc.text(`${model.quotation.number} · Rev ${model.quotation.revision}`, left, doc.y, {
-            width,
-            align: 'right',
-        })
-        doc
-            .font('Helvetica-Bold')
-            .fontSize(11)
-            .fillColor(STATUS_COLOR[model.quotation.status] ?? COLOR.text)
-        doc.text(model.quotation.statusLabel.toUpperCase(), left, doc.y, { width, align: 'right' })
+        this.drawTitle(doc, model, { x: left, y: top, width, bottom: null })
         const rightBottom = doc.y
 
         doc.y = Math.max(leftBottom, rightBottom) + 10
@@ -146,34 +156,152 @@ export class QuotationPdfService {
         doc.y += 14
     }
 
+    /** Classic customer / details columns. */
     private drawMeta(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {
         const left = this.left(doc)
         const width = this.contentWidth(doc)
         const colW = width / 2 - 12
         const top = doc.y
 
-        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR.muted).text('CUSTOMER', left, top)
-        doc.font('Helvetica-Bold').fontSize(11).fillColor(COLOR.text)
-        doc.text(model.customer.companyName, left, doc.y, { width: colW })
-        doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
-        for (const line of [model.customer.contactName, model.customer.email, model.customer.phone]) {
-            if (line) doc.text(line, left, doc.y, { width: colW })
-        }
+        this.drawCustomer(doc, model, { x: left, y: top, width: colW, bottom: null })
         const leftBottom = doc.y
-
-        const rx = left + width / 2 + 8
-        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR.muted).text('DETAILS', rx, top)
-        doc.font('Helvetica').fontSize(9).fillColor(COLOR.text)
-        doc.text(`Date: ${model.quotation.date}`, rx, doc.y, { width: colW })
-        if (model.quotation.validUntil) {
-            doc.text(`Valid until: ${model.quotation.validUntil}`, rx, doc.y, { width: colW })
-        }
-        if (model.opportunityName) {
-            doc.text(`Opportunity: ${model.opportunityName}`, rx, doc.y, { width: colW })
-        }
+        this.drawDetails(doc, model, { x: left + width / 2 + 8, y: top, width: colW, bottom: null })
         const rightBottom = doc.y
 
         doc.y = Math.max(leftBottom, rightBottom) + 16
+    }
+
+    /**
+     * Drag-and-drop layout: every block in its own page-1 box, clipped to it (text that does not fit
+     * ends in an ellipsis); the lines table then starts at the lines box top.
+     */
+    private drawBoxes(doc: PDFKit.PDFDocument, model: QuotationPdfModel, blocks: QuotationPdfBlocks) {
+        const inBox = (box: QuotationPdfBox, drawBlock: (frame: Frame) => void) => {
+            doc.save()
+            doc.rect(box.x, box.y, box.width, box.height).clip()
+            drawBlock({ x: box.x, y: box.y, width: box.width, bottom: box.y + box.height })
+            doc.restore()
+        }
+        if (model.layout.showLetterhead) {
+            inBox(blocks.letterhead, (frame) => {
+                // The logo gets the box height left over after the address and TIN lines.
+                doc.font('Helvetica').fontSize(9)
+                const reserved = this.letterheadLines(model).reduce(
+                    (sum, line) => sum + doc.heightOfString(line, { width: frame.width }),
+                    0,
+                )
+                const logoHeight = Math.max(12, blocks.letterhead.height - reserved - 4)
+                this.drawLetterhead(doc, model, frame, { width: frame.width, height: logoHeight })
+            })
+        }
+        inBox(blocks.title, (frame) => this.drawTitle(doc, model, frame))
+        inBox(blocks.customer, (frame) => this.drawCustomer(doc, model, frame))
+        inBox(blocks.details, (frame) => this.drawDetails(doc, model, frame))
+        doc.y = blocks.lines.y
+    }
+
+    /** Address and TIN lines printed under the logo / company name. */
+    private letterheadLines(model: QuotationPdfModel) {
+        const lines: string[] = []
+        if (model.company.address) lines.push(model.company.address)
+        if (model.layout.showTin && model.company.tin) lines.push(`TIN: ${model.company.tin}`)
+        return lines
+    }
+
+    /** Logo (or the company name when there is none), then address and TIN. */
+    private drawLetterhead(
+        doc: PDFKit.PDFDocument,
+        model: QuotationPdfModel,
+        frame: Frame,
+        logoMax: { width: number; height: number },
+    ) {
+        doc.y = frame.y
+        if (!this.drawLogo(doc, model.company.logo, frame.x, frame.y, logoMax.width, logoMax.height)) {
+            doc.font('Helvetica-Bold').fontSize(20).fillColor(COLOR.text)
+            this.put(doc, model.company.name, frame)
+        }
+        doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
+        for (const line of this.letterheadLines(model)) this.put(doc, line, frame)
+    }
+
+    private drawTitle(doc: PDFKit.PDFDocument, model: QuotationPdfModel, frame: Frame) {
+        doc.y = frame.y
+        doc.font('Helvetica-Bold').fontSize(22).fillColor(COLOR.text)
+        this.put(doc, 'QUOTATION', frame, { align: 'right' })
+        doc.font('Helvetica').fontSize(10).fillColor(COLOR.muted)
+        this.put(doc, `${model.quotation.number} · Rev ${model.quotation.revision}`, frame, { align: 'right' })
+        doc
+            .font('Helvetica-Bold')
+            .fontSize(11)
+            .fillColor(STATUS_COLOR[model.quotation.status] ?? COLOR.text)
+        this.put(doc, model.quotation.statusLabel.toUpperCase(), frame, { align: 'right' })
+    }
+
+    private drawCustomer(doc: PDFKit.PDFDocument, model: QuotationPdfModel, frame: Frame) {
+        doc.y = frame.y
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR.muted)
+        this.put(doc, 'CUSTOMER', frame)
+        doc.font('Helvetica-Bold').fontSize(11).fillColor(COLOR.text)
+        this.put(doc, model.customer.companyName, frame)
+        doc.font('Helvetica').fontSize(9).fillColor(COLOR.muted)
+        for (const line of [model.customer.contactName, model.customer.email, model.customer.phone]) {
+            if (line) this.put(doc, line, frame)
+        }
+    }
+
+    private drawDetails(doc: PDFKit.PDFDocument, model: QuotationPdfModel, frame: Frame) {
+        doc.y = frame.y
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLOR.muted)
+        this.put(doc, 'DETAILS', frame)
+        doc.font('Helvetica').fontSize(9).fillColor(COLOR.text)
+        this.put(doc, `Date: ${model.quotation.date}`, frame)
+        if (model.quotation.validUntil) this.put(doc, `Valid until: ${model.quotation.validUntil}`, frame)
+        if (model.layout.showPaymentTerms && model.paymentTerms) {
+            this.put(doc, `Payment terms: ${model.paymentTerms}`, frame)
+        }
+        if (model.layout.showOpportunity && model.opportunityName) {
+            this.put(doc, `Opportunity: ${model.opportunityName}`, frame)
+        }
+    }
+
+    /**
+     * One text run at `doc.y` inside the frame. In a box (bottom set) it is cut to the room left, with
+     * an ellipsis, and skipped once not even one line fits.
+     */
+    private put(doc: PDFKit.PDFDocument, text: string, frame: Frame, options: PDFKit.Mixins.TextOptions = {}) {
+        if (frame.bottom === null) {
+            doc.text(text, frame.x, doc.y, { width: frame.width, ...options })
+            return
+        }
+        const room = frame.bottom - doc.y
+        if (room < doc.currentLineHeight()) return
+        doc.text(text, frame.x, doc.y, { width: frame.width, ...options, height: room, ellipsis: true })
+    }
+
+    /**
+     * Company logo scaled to fit `maxWidth` × `maxHeight`, top-left aligned; leaves `doc.y` below
+     * it. False (nothing drawn) when there is no logo or it cannot be read, so the company name
+     * prints instead.
+     */
+    private drawLogo(
+        doc: PDFKit.PDFDocument,
+        logo: Buffer | null,
+        x: number,
+        y: number,
+        maxWidth: number,
+        maxHeight: number,
+    ) {
+        const size = logo ? quotationPdfLogoSize(logo) : null
+        if (!logo || !size) return false
+        const scale = Math.min(maxWidth / size.width, maxHeight / size.height)
+        const height = size.height * scale
+        try {
+            doc.image(logo, x, y, { width: size.width * scale, height })
+        } catch {
+            return false
+        }
+        doc.y = y + height + 4
+        return true
     }
 
     private columns(doc: PDFKit.PDFDocument) {

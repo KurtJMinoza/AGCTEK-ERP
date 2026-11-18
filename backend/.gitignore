@@ -5,5 +5,11 @@ data
 *.db
 *.db-journal
 
+# Emailed quotation PDFs (private; served only through authenticated SD endpoints)
+storage/
+
+# Local Maildev output (npm run mail:dev)
+maildev*.log
+
 # legacy sqlite dev database
 /data/

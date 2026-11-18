@@ -33,6 +33,11 @@ import {
 } from './attachments/attachments.controller'
 import { CrmAttachmentsService } from './attachments/attachments.service'
 import { CrmUsersService } from './users/crm-users.service'
+import { CrmEmailController } from './emails/crm-email.controller'
+import { CrmEmailService } from './emails/crm-email.service'
+import { CrmMaildevClient } from './emails/crm-maildev.client'
+import { CrmEmailInboundService } from './emails/crm-email-inbound.service'
+import { CrmEmailInboundPoller } from './emails/crm-email-inbound.poller'
 
 /**
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
@@ -59,6 +64,7 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmLeadActivitiesController,
         CrmTicketAttachmentsController,
         CrmOpportunityAttachmentsController,
+        CrmEmailController,
     ],
     providers: [
         CrmLeadsService,
@@ -76,6 +82,10 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmMessagesService,
         CrmUsersService,
         CrmAttachmentsService,
+        CrmEmailService,
+        CrmMaildevClient,
+        CrmEmailInboundService,
+        CrmEmailInboundPoller,
     ],
 })
 export class CrmModule {}

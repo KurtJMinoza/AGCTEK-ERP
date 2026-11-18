@@ -128,6 +128,16 @@ export function quotationEventSummary(action: string, label: string, note: strin
             return `Quotation ${label} expired`
         case 'CONVERTED':
             return `Quotation ${label} converted to the SD sales order`
+        case 'PDF_STORED':
+            return withNote(`Quotation ${label} PDF stored`)
+        case 'EMAIL_SENT':
+            return withNote(`Quotation ${label} emailed`)
+        case 'EMAIL_RESENT':
+            return withNote(`Quotation ${label} email resent`)
+        case 'EMAIL_FAILED':
+            return withNote(`Quotation ${label} email failed`)
+        case 'EMAIL_SKIPPED':
+            return withNote(`Quotation ${label} email skipped`)
         default:
             return withNote(`Quotation ${label} ${formatSystemLabel(action).toLowerCase()}`)
     }
