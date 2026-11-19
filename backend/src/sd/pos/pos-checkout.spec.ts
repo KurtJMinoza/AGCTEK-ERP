@@ -1,5 +1,34 @@
 import { BadRequestException } from '@nestjs/common'
-import { PosCheckoutService } from './pos-checkout.service'
+import { PosCheckoutService, toReceiptBusiness } from './pos-checkout.service'
+
+describe('toReceiptBusiness', () => {
+    it('maps the selling company for the receipt header', () => {
+        expect(
+            toReceiptBusiness({
+                name: '  Amalgated World Import Corporation ',
+                address: ' 12 Rizal St, Cebu ',
+                tin: '123-456-789-000',
+                logoUrl: ' /uploads/companies/awic.png ',
+            }),
+        ).toEqual({
+            name: 'Amalgated World Import Corporation',
+            address: '12 Rizal St, Cebu',
+            tin: '123-456-789-000',
+            logoUrl: '/uploads/companies/awic.png',
+        })
+    })
+
+    it('keeps blank optional fields empty and rejects a company without a name', () => {
+        expect(toReceiptBusiness({ name: 'AWIC', address: '', tin: null })).toEqual({
+            name: 'AWIC',
+            address: '',
+            tin: '',
+            logoUrl: null,
+        })
+        expect(toReceiptBusiness({ name: '  ' })).toBeNull()
+        expect(toReceiptBusiness(null)).toBeNull()
+    })
+})
 
 const COMPANY_ID = 'company-1'
 const MATERIAL_ID = 'material-1'

@@ -148,6 +148,16 @@ export type PosReceipt = {
     dueDate?: string | null
     /** Payment remarks entered at Take Payment. */
     remarks?: string | null
+    /** Selling company printed in the receipt header. */
+    business?: PosReceiptBusiness | null
+}
+
+export type PosReceiptBusiness = {
+    name: string
+    address: string
+    /** BIR Taxpayer Identification Number; empty when not configured. */
+    tin: string
+    logoUrl: string | null
 }
 
 /** Server quote of a running cart: the amount the checkout will ask for. */

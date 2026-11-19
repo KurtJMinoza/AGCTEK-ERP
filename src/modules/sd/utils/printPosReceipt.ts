@@ -33,6 +33,28 @@ function waitFrames(count = 2): Promise<void> {
     })
 }
 
+/**
+ * Resolves once every image of the receipt (company logo) has loaded or failed,
+ * so a slow logo is not printed as a blank gap. Bounded so a dead URL never
+ * blocks the print.
+ */
+function waitForImages(root: HTMLElement, timeoutMs = 3000): Promise<void> {
+    const pending = Array.from(root.querySelectorAll('img'))
+        .filter((img) => !img.complete)
+        .map(
+            (img) =>
+                new Promise<void>((resolve) => {
+                    img.addEventListener('load', () => resolve(), { once: true })
+                    img.addEventListener('error', () => resolve(), { once: true })
+                }),
+        )
+    if (!pending.length) return Promise.resolve()
+    return Promise.race([
+        Promise.all(pending).then(() => undefined),
+        new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
+    ])
+}
+
 /** Null / SSR guards — used by the POS Print / Reprint buttons. */
 export function printPosReceiptUnavailableReason(
     source: HTMLElement | null,
@@ -103,6 +125,7 @@ export async function printPosReceipt(
     doc.head.appendChild(pageStyle)
     doc.body.appendChild(clone)
 
+    await waitForImages(clone)
     await waitFrames(2)
 
     return new Promise((resolve) => {

@@ -132,6 +132,44 @@ export type PosReceipt = {
     paymentStatus: string
     /** Payment remarks entered at Take Payment. */
     remarks: string | null
+    /** Selling company printed in the receipt header (null when unknown). */
+    business: PosReceiptBusiness | null
+}
+
+/** Legal entity of the sale, shown in the receipt header. */
+export type PosReceiptBusiness = {
+    name: string
+    address: string
+    tin: string
+    logoUrl: string | null
+}
+
+const RECEIPT_COMPANY_SELECT = {
+    name: true,
+    address: true,
+    tin: true,
+    logoUrl: true,
+} as const
+
+export function toReceiptBusiness(
+    company:
+        | {
+              name?: string | null
+              address?: string | null
+              tin?: string | null
+              logoUrl?: string | null
+          }
+        | null
+        | undefined,
+): PosReceiptBusiness | null {
+    const name = company?.name?.trim()
+    if (!company || !name) return null
+    return {
+        name,
+        address: company.address?.trim() ?? '',
+        tin: company.tin?.trim() ?? '',
+        logoUrl: company.logoUrl?.trim() || null,
+    }
 }
 
 /**
@@ -223,10 +261,32 @@ export class PosCheckoutService {
             include: {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
                 payments: true,
+                company: { select: RECEIPT_COMPANY_SELECT },
             },
         })
         if (!order) throw new NotFoundException('Sale not found')
         return this.receipt(order as never, order.payments)
+    }
+
+    /**
+     * Adds the selling company to a receipt built from an order that was not
+     * loaded with it. A failed lookup never blocks the receipt: the print
+     * layout falls back to the brand name.
+     */
+    private async withBusiness(receipt: PosReceipt): Promise<PosReceipt> {
+        if (receipt.business) return receipt
+        try {
+            const row = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: receipt.salesOrderId },
+                select: { company: { select: RECEIPT_COMPANY_SELECT } },
+            })
+            return { ...receipt, business: toReceiptBusiness(row?.company) }
+        } catch (error) {
+            this.logger.warn(
+                `Receipt header lookup failed for ${receipt.receiptNumber}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            return receipt
+        }
     }
 
     /** The POS sales of a branch, newest first (transaction history). */
@@ -245,6 +305,7 @@ export class PosCheckoutService {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
                 payments: true,
                 voidTransaction: true,
+                company: { select: RECEIPT_COMPANY_SELECT },
             },
             orderBy: { createdAt: 'desc' },
             take: Math.min(args.limit ?? 50, 200),
@@ -313,7 +374,9 @@ export class PosCheckoutService {
             // A checkout that failed after the order existed is resumed, not
             // returned as a half-finished sale.
             if (existing.status === 'COMPLETED') {
-                return this.receipt(existing, existing.payments ?? [])
+                return this.withBusiness(
+                    this.receipt(existing, existing.payments ?? []),
+                )
             }
             if (existing.status === 'CONFIRMED') {
                 return this.finalizeStagedOrder(
@@ -584,7 +647,9 @@ export class PosCheckoutService {
             idempotencyKey: dto.idempotencyKey,
         })
 
-        return this.receipt(completed, completed.payments ?? [], warnings)
+        return this.withBusiness(
+            this.receipt(completed, completed.payments ?? [], warnings),
+        )
     }
 
     /**
@@ -606,7 +671,9 @@ export class PosCheckoutService {
         })
         if (!order) throw new NotFoundException('Sale not found')
         if (order.status === 'COMPLETED') {
-            return this.receipt(order as never, order.payments)
+            return this.withBusiness(
+                this.receipt(order as never, order.payments),
+            )
         }
         if (order.status !== 'CONFIRMED') {
             throw new ConflictException(
@@ -688,7 +755,9 @@ export class PosCheckoutService {
             idempotencyKey: order.idempotencyKey ?? `pos:${order.id}`,
         })
 
-        return this.receipt(completed as never, completed.payments)
+        return this.withBusiness(
+            this.receipt(completed as never, completed.payments),
+        )
     }
 
     /** Cart lines → material, MM tax classification and the line tax split. */
@@ -1262,6 +1331,13 @@ export class PosCheckoutService {
             voidedAt?: Date | null
             voidedBy?: string | null
             voidReason?: string | null
+            /** Selling company, when the order was loaded with it. */
+            company?: {
+                name?: string | null
+                address?: string | null
+                tin?: string | null
+                logoUrl?: string | null
+            } | null
             subtotal: Prisma.Decimal | null
             discountAmount: Prisma.Decimal | null
             taxAmount: Prisma.Decimal | null
@@ -1407,6 +1483,7 @@ export class PosCheckoutService {
                 resolvePosOrderPaymentStatus(payments) ||
                 'Unpaid',
             remarks: order.notes?.trim() || null,
+            business: toReceiptBusiness(order.company),
         }
     }
 }
