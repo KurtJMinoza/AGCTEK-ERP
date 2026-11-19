@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import type { PrismaService } from '../../prisma/prisma.service'
+import type { OsrmService } from '../routing/osrm.service'
 import type { VehiclesService } from '../vehicles/vehicles.service'
 import { OcularTripsService } from './ocular-trips.service'
 import type { TripsService } from './trips.service'
@@ -26,6 +27,7 @@ function trip(overrides: Record<string, unknown> = {}) {
 function setup(tripRow: ReturnType<typeof trip> | null = trip(), free = ['veh-1']) {
     const tx = {
         tripStop: {
+            create: jest.fn().mockResolvedValue({ id: 'new-stop' }),
             updateMany: jest.fn().mockResolvedValue({ count: 3 }),
             update: jest.fn().mockResolvedValue({}),
             delete: jest.fn().mockResolvedValue({}),
@@ -56,12 +58,14 @@ function setup(tripRow: ReturnType<typeof trip> | null = trip(), free = ['veh-1'
         findOne: jest.fn().mockResolvedValue({ id: 'trip-1' }),
         updateStatus: jest.fn().mockResolvedValue({}),
     }
+    const osrm = { baseUrl: null as string | null, getRoute: jest.fn().mockResolvedValue(null) }
     const service = new OcularTripsService(
         prisma as unknown as PrismaService,
         vehicles as unknown as VehiclesService,
         trips as unknown as TripsService,
+        osrm as unknown as OsrmService,
     )
-    return { service, prisma, tx, vehicles, trips }
+    return { service, prisma, tx, vehicles, trips, osrm }
 }
 
 describe('OcularTripsService', () => {
@@ -220,6 +224,392 @@ describe('OcularTripsService', () => {
             await expect(
                 service.setStopStatus('trip-1', 's1', { status: 'SKIPPED' }),
             ).rejects.toBeInstanceOf(ConflictException)
+        })
+    })
+
+    describe('pickup points', () => {
+        const pickup = (id: string, sequence: number, status = 'PENDING') => ({
+            id,
+            sequence,
+            status,
+            stopType: 'SHIP',
+            createdLeadId: null,
+        })
+        const dropoff = (id: string, sequence: number, status = 'PENDING') => ({
+            id,
+            sequence,
+            status,
+            stopType: 'TO',
+            createdLeadId: null,
+        })
+
+        it('creates pickups ahead of dropoffs whatever order they are given', async () => {
+            const { service, prisma } = setup()
+            await service.create({
+                vehicleId: 'veh-1',
+                windowStart: at(9),
+                windowEnd: at(17),
+                stops: [
+                    { address: 'visit A' },
+                    { address: 'pickup X', type: 'PICKUP' },
+                    { address: 'visit B', type: 'DROPOFF' },
+                ],
+            })
+            const rows = prisma.trip.create.mock.calls[0][0].data.stops.create as Array<{
+                address: string
+                sequence: number
+                stopType: string
+            }>
+            expect(rows.map((r) => [r.address, r.sequence, r.stopType])).toEqual([
+                ['pickup X', 1, 'SHIP'],
+                ['visit A', 2, 'TO'],
+                ['visit B', 3, 'TO'],
+            ])
+        })
+
+        it('inserts a new pickup after the last pickup and ahead of every dropoff', async () => {
+            const { service, tx } = setup(
+                trip({ stops: [pickup('p1', 1), dropoff('d1', 2), dropoff('d2', 3)] }),
+            )
+            await service.addStop('trip-1', { address: 'second pickup', type: 'PICKUP' })
+            expect(tx.tripStop.create.mock.calls[0][0].data).toMatchObject({ stopType: 'SHIP' })
+            const order = tx.tripStop.update.mock.calls.map(
+                (call) => [call[0].where.id, call[0].data.sequence] as const,
+            )
+            expect(order).toEqual([
+                ['p1', 1],
+                ['new-stop', 2],
+                ['d1', 3],
+                ['d2', 4],
+            ])
+        })
+
+        it('rejects a new pickup once the trip has started', async () => {
+            const { service } = setup(trip({ status: 'IN_TRANSIT', stops: [dropoff('d1', 1)] }))
+            await expect(
+                service.addStop('trip-1', { address: 'late pickup', type: 'PICKUP' }),
+            ).rejects.toBeInstanceOf(ConflictException)
+        })
+
+        it('rejects an unknown stop type', async () => {
+            const { service } = setup()
+            await expect(
+                service.addStop('trip-1', { address: 'x', type: 'WAYPOINT' }),
+            ).rejects.toBeInstanceOf(BadRequestException)
+        })
+
+        it('rejects a reorder that puts a dropoff before a pickup', async () => {
+            const { service } = setup(trip({ stops: [pickup('p1', 1), dropoff('d1', 2)] }))
+            await expect(
+                service.reorderStops('trip-1', { stopIds: ['d1', 'p1'] }),
+            ).rejects.toThrow(/Pickup points must come before/)
+        })
+
+        it('lets a pickup be marked done before the trip starts, without closing the trip', async () => {
+            const { service, prisma, trips } = setup(trip({ stops: [pickup('p1', 1)] }))
+            await service.setStopStatus('trip-1', 'p1', { status: 'COMPLETED' })
+            expect(prisma.tripStop.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 'p1' },
+                    data: expect.objectContaining({ status: 'COMPLETED' }),
+                }),
+            )
+            expect(trips.updateStatus).not.toHaveBeenCalled()
+        })
+
+        it('does not allow a pickup to be skipped', async () => {
+            const { service } = setup(trip({ stops: [pickup('p1', 1)] }))
+            await expect(
+                service.setStopStatus('trip-1', 'p1', { status: 'SKIPPED' }),
+            ).rejects.toBeInstanceOf(BadRequestException)
+        })
+
+        it('still requires a started trip to work a dropoff', async () => {
+            const { service } = setup(trip({ stops: [pickup('p1', 1, 'COMPLETED'), dropoff('d1', 2)] }))
+            await expect(
+                service.setStopStatus('trip-1', 'd1', { status: 'COMPLETED' }),
+            ).rejects.toThrow(/Start the trip/)
+        })
+    })
+
+    describe('route preview', () => {
+        const located = (id: string, sequence: number, lat: number | null, lng: number | null) => ({
+            id,
+            sequence,
+            name: null,
+            address: `addr ${id}`,
+            lat,
+            lng,
+            status: 'PENDING',
+            createdLeadId: null,
+        })
+
+        it('routes located stops in manual order with ETAs from the planned start', async () => {
+            const { service, osrm } = setup(
+                trip({
+                    code: 'OCU-1',
+                    vehicle: { id: 'veh-1', code: 'V1', plateNumber: 'ABC' },
+                    stops: [
+                        located('s1', 1, 14.5, 121.0),
+                        located('s2', 2, 14.6, 121.1),
+                        located('s3', 3, 14.7, 121.2),
+                    ],
+                }),
+            )
+            osrm.getRoute.mockResolvedValue({
+                totalDistanceM: 3000,
+                totalDurationSec: 600,
+                polyline: [[14.5, 121.0], [14.7, 121.2]],
+                legDurationsSec: [300, 300],
+                legDistancesM: [1000, 2000],
+            })
+
+            const out = await service.routePreview('trip-1')
+
+            expect(osrm.getRoute).toHaveBeenCalledWith([
+                { lat: 14.5, lng: 121.0 },
+                { lat: 14.6, lng: 121.1 },
+                { lat: 14.7, lng: 121.2 },
+            ])
+            expect(out.router).toBe('osrm')
+            expect(out.routable).toBe(true)
+            expect(out.totalDistanceM).toBe(3000)
+            expect(out.stops.map((s) => s.id)).toEqual(['s1', 's2', 's3'])
+            // First stop arrives at the planned start (09:00 UTC); 30 min dwell per stop by default.
+            expect(out.stops[0].etaAt).toBe(at(9))
+            expect(out.stops[1].legDistanceM).toBe(1000)
+            expect(new Date(out.stops[1].etaAt as string).getTime()).toBe(
+                new Date(at(9)).getTime() + 30 * 60_000 + 300_000,
+            )
+        })
+
+        it('falls back to haversine when OSRM is unavailable', async () => {
+            const { service } = setup(
+                trip({ stops: [located('s1', 1, 14.5, 121.0), located('s2', 2, 14.6, 121.1)] }),
+            )
+            const out = await service.routePreview('trip-1')
+            expect(out.router).toBe('haversine')
+            expect(out.routerFallbackReason).toMatch(/haversine/)
+            expect(out.polyline).toHaveLength(2)
+        })
+
+        it('is not routable with fewer than two pinned stops and flags the unpinned one', async () => {
+            const { service, osrm } = setup(
+                trip({ stops: [located('s1', 1, 14.5, 121.0), located('s2', 2, null, null)] }),
+            )
+            const out = await service.routePreview('trip-1')
+            expect(osrm.getRoute).not.toHaveBeenCalled()
+            expect(out.routable).toBe(false)
+            expect(out.polyline).toEqual([])
+            expect(out.missingCoordsCount).toBe(1)
+            expect(out.stops[1].missingCoords).toBe(true)
+            expect(out.stops[1].etaAt).toBeNull()
+        })
+
+        it('rejects non-ocular trips', async () => {
+            const { service } = setup(trip({ purpose: 'DELIVERY' }))
+            await expect(service.routePreview('trip-1')).rejects.toBeInstanceOf(BadRequestException)
+        })
+    })
+
+    describe('route preview schedule', () => {
+        const pin = (id: string, sequence: number, lat: number, lng: number) => ({
+            id,
+            sequence,
+            name: null,
+            address: `addr ${id}`,
+            lat,
+            lng,
+            status: 'PENDING',
+            stopType: 'TO',
+            createdLeadId: null,
+        })
+        const route = (legs: number) => ({
+            totalDistanceM: 1000 * legs,
+            totalDurationSec: 600 * legs,
+            polyline: [] as [number, number][],
+            legDurationsSec: Array(legs).fill(600),
+            legDistancesM: Array(legs).fill(1000),
+        })
+        const iso = (hour: number, minute = 0) =>
+            new Date(Date.UTC(2026, 10, 20, hour, minute)).toISOString()
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: new Date(at(6)) })
+        })
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const twoStops = () =>
+            setup(trip({ stops: [pin('s1', 1, 14.5, 121.0), pin('s2', 2, 14.6, 121.1)] }))
+
+        it('recommends the latest start that still finishes inside the trip window', async () => {
+            const { service, osrm } = twoStops()
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1')
+            // Window ends 17:00: last visit starts by 16:30, the first by 16:30 − 10 min leg − 30 min visit.
+            expect(out.recommendedDeparture).toMatchObject({
+                at: iso(15, 50),
+                feasible: true,
+                basis: 'LATEST_MEETING_WINDOWS',
+            })
+            // The run itself starts at the planned window start unless overridden.
+            expect(out.departAt).toBe(at(9))
+            expect(out.feasible).toBe(true)
+            expect(out.violations).toEqual([])
+        })
+
+        it('EARLY mode recommends the earliest practical start', async () => {
+            const { service, osrm } = twoStops()
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1', { departureMode: 'EARLY' })
+            expect(out.departureMode).toBe('EARLY')
+            expect(out.recommendedDeparture).toMatchObject({
+                at: at(6),
+                basis: 'EARLIEST_MEETING_WINDOWS',
+            })
+        })
+
+        it('uses a departAt override for the schedule', async () => {
+            const { service, osrm } = twoStops()
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1', { departAt: at(12) })
+            expect(out.departAt).toBe(at(12))
+            expect(out.stops[0].etaAt).toBe(at(12))
+            // 12:00 + 30 min visit + 10 min leg
+            expect(out.stops[1].etaAt).toBe(iso(12, 40))
+        })
+
+        it('flags visits that finish after the trip window ends', async () => {
+            const { service, osrm } = setup(
+                trip({
+                    plannedEndAt: new Date(at(10)),
+                    stops: [pin('s1', 1, 14.5, 121.0), pin('s2', 2, 14.6, 121.1)],
+                }),
+            )
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1')
+            // s1 09:00–09:30 fits; s2 arrives 09:40, done 10:10 = 10 min late.
+            expect(out.stops[0].windowStatus).toBe('OK')
+            expect(out.stops[1].windowStatus).toBe('LATE')
+            expect(out.stops[1].lateBySec).toBe(600)
+            expect(out.feasible).toBe(false)
+            expect(out.violations).toEqual([
+                expect.objectContaining({ code: 'LATE', stopId: 's2', lateBySec: 600 }),
+            ])
+            expect(out.recommendedDeparture?.feasible).toBe(true)
+        })
+
+        it('flags a start time that is already in the past', async () => {
+            jest.setSystemTime(new Date(at(10)))
+            const { service, osrm } = twoStops()
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1')
+            expect(out.violations.map((v) => v.code)).toContain('DEPARTURE_IN_PAST')
+        })
+
+        it('uses the actual start and gives no recommendation once the trip is running', async () => {
+            const { service, osrm } = setup(
+                trip({
+                    status: 'IN_TRANSIT',
+                    startedAt: new Date(iso(9, 15)),
+                    stops: [pin('s1', 1, 14.5, 121.0), pin('s2', 2, 14.6, 121.1)],
+                }),
+            )
+            osrm.getRoute.mockResolvedValue(route(1))
+            const out = await service.routePreview('trip-1')
+            expect(out.recommendedDeparture).toBeNull()
+            expect(out.departAt).toBe(iso(9, 15))
+            expect(out.violations.map((v) => v.code)).not.toContain('DEPARTURE_IN_PAST')
+        })
+
+        it('still schedules a single pinned stop (no route line)', async () => {
+            const { service } = setup(trip({ stops: [pin('s1', 1, 14.5, 121.0)] }))
+            const out = await service.routePreview('trip-1')
+            expect(out.routable).toBe(false)
+            expect(out.stops[0].etaAt).toBe(at(9))
+            expect(out.arrivalAt).toBe(iso(9, 30))
+        })
+
+        describe('return to the first pickup', () => {
+            const withPickup = () =>
+                setup(
+                    trip({
+                        stops: [
+                            { ...pin('p1', 1, 14.5, 121.0), stopType: 'SHIP' },
+                            pin('d1', 2, 14.6, 121.1),
+                            pin('d2', 3, 14.7, 121.2),
+                        ],
+                    }),
+                )
+
+            it('routes back to the first pickup and counts the drive home', async () => {
+                const { service, osrm } = withPickup()
+                osrm.getRoute.mockResolvedValue(route(3))
+                const out = await service.routePreview('trip-1')
+
+                expect(osrm.getRoute).toHaveBeenCalledWith([
+                    { lat: 14.5, lng: 121.0 },
+                    { lat: 14.6, lng: 121.1 },
+                    { lat: 14.7, lng: 121.2 },
+                    { lat: 14.5, lng: 121.0 },
+                ])
+                expect(out.returnToOrigin).toBe(true)
+                expect(out.returnStop).toMatchObject({
+                    label: 'Pickup point',
+                    lat: 14.5,
+                    lng: 121.0,
+                    legDistanceM: 1000,
+                    legDurationSec: 600,
+                })
+                // 09:00 pickup done 09:30; +10 → d1 09:40 done 10:10; +10 → d2 10:20 done 10:50; +10 → home 11:00.
+                expect(out.stops.map((s) => s.id)).toEqual(['p1', 'd1', 'd2'])
+                expect(out.returnStop?.etaAt).toBe(iso(11, 0))
+                expect(out.arrivalAt).toBe(iso(11, 0))
+                expect(out.totalDistanceM).toBe(3000)
+                expect(out.violations).toEqual([])
+            })
+
+            it('can be switched off, ending at the last visit', async () => {
+                const { service, osrm } = withPickup()
+                osrm.getRoute.mockResolvedValue(route(2))
+                const out = await service.routePreview('trip-1', { returnToOrigin: 'false' })
+
+                expect(osrm.getRoute).toHaveBeenCalledWith([
+                    { lat: 14.5, lng: 121.0 },
+                    { lat: 14.6, lng: 121.1 },
+                    { lat: 14.7, lng: 121.2 },
+                ])
+                expect(out.returnToOrigin).toBe(false)
+                expect(out.returnStop).toBeNull()
+                expect(out.arrivalAt).toBe(iso(10, 50))
+            })
+
+            it('has no return without a located pickup', async () => {
+                const { service, osrm } = twoStops()
+                osrm.getRoute.mockResolvedValue(route(1))
+                const out = await service.routePreview('trip-1')
+                expect(out.returnToOrigin).toBe(false)
+                expect(out.returnStop).toBeNull()
+            })
+
+            it('rejects an invalid returnToOrigin flag', async () => {
+                const { service } = withPickup()
+                await expect(
+                    service.routePreview('trip-1', { returnToOrigin: 'maybe' }),
+                ).rejects.toBeInstanceOf(BadRequestException)
+            })
+        })
+
+        it('rejects an invalid departure mode or service time', async () => {
+            const { service } = twoStops()
+            await expect(
+                service.routePreview('trip-1', { departureMode: 'LATE' }),
+            ).rejects.toBeInstanceOf(BadRequestException)
+            await expect(
+                service.routePreview('trip-1', { serviceTimeMin: 9999 }),
+            ).rejects.toBeInstanceOf(BadRequestException)
         })
     })
 

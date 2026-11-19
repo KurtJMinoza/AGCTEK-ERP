@@ -447,6 +447,96 @@ export type RoutePreview = {
     violations: RoutePreviewViolation[]
 }
 
+/** What the shared route map reads; delivery and ocular previews both satisfy it. */
+export type RouteMapPreview = Pick<RoutePreview, 'polyline' | 'router'> & {
+    stops: Array<
+        Pick<
+            RoutePreviewStop,
+            'key' | 'sequence' | 'type' | 'label' | 'address' | 'lat' | 'lng' | 'etaAt' | 'windowStatus'
+        >
+    >
+}
+
+export type OcularRouteStop = {
+    id: string
+    sequence: number
+    kind: 'PICKUP' | 'DROPOFF'
+    label: string
+    address: string
+    lat: number | null
+    lng: number | null
+    status: StopStatus
+    missingCoords: boolean
+    legDistanceM: number | null
+    legDurationSec: number | null
+    /** Effective deadline: the stop's own window, else the trip window. */
+    windowStart: string | null
+    windowEnd: string | null
+    etaAt: string | null
+    waitingTimeSec: number
+    serviceStartAt: string | null
+    departureAt: string | null
+    windowStatus: RouteWindowStatus | null
+    lateBySec: number
+}
+
+export type OcularRouteViolation = {
+    code: 'LATE' | 'WINDOW_CONFLICT' | 'DEPARTURE_IN_PAST'
+    message: string
+    stopId?: string
+    sequence?: number
+    lateBySec?: number
+}
+
+/** `GET /scm/ocular-trips/:id/route-preview` — stops in manual order, nothing persisted. */
+export type OcularRoutePreview = {
+    tripId: string
+    tripCode: string
+    status: TripStatus
+    vehicle: { id: string; code: string; plateNumber: string } | null
+    serviceTimeMin: number
+    departureMode: DepartureMode
+    generatedAt: string
+    routable: boolean
+    router: 'osrm' | 'haversine' | null
+    routerFallbackReason: string | null
+    /** null once the trip is running / finished */
+    recommendedDeparture: {
+        at: string
+        feasible: boolean
+        basis:
+            | 'LATEST_MEETING_WINDOWS'
+            | 'EARLIEST_MEETING_WINDOWS'
+            | 'NO_DEADLINES'
+            | 'EARLIEST_PRACTICAL'
+        reason: string | null
+    } | null
+    /** Start used for the schedule (override, else actual start, else planned window start) */
+    departAt: string | null
+    /** Back at the first pickup when `returnToOrigin`, else when the last visit is done */
+    arrivalAt: string | null
+    /** The drive back to the first pickup is part of the route (preview only, never a saved stop) */
+    returnToOrigin: boolean
+    returnStop: {
+        label: string
+        address: string
+        lat: number | null
+        lng: number | null
+        legDistanceM: number | null
+        legDurationSec: number | null
+        etaAt: string | null
+    } | null
+    tripDurationSec: number | null
+    feasible: boolean
+    violations: OcularRouteViolation[]
+    stops: OcularRouteStop[]
+    /** [lat, lng] pairs */
+    polyline: Array<[number, number]>
+    totalDistanceM: number | null
+    totalDurationSec: number | null
+    missingCoordsCount: number
+}
+
 export type RoutePreviewRequest = {
     stopOrder?: string[]
     departAt?: string

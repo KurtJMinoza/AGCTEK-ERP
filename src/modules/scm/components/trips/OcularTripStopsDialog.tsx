@@ -7,6 +7,7 @@ import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import Input from '@/components/ui/Input'
+import Segment from '@/components/ui/Segment'
 import Spinner from '@/components/ui/Spinner'
 import StatusBadge from '@/components/shared/StatusBadge'
 import CrmSelect from '@/modules/crm/components/CrmSelect'
@@ -34,6 +35,7 @@ type OcularTripStopsDialogProps = {
 }
 
 type StopDraft = {
+    type: 'PICKUP' | 'DROPOFF'
     address: string
     lat: number | null
     lng: number | null
@@ -46,6 +48,7 @@ type LeadDraft = { stopId: string; name: string; phone: string; email: string }
 type OutcomeDraft = { stopId: string; action: 'COMPLETED' | 'SKIPPED'; notes: string }
 
 const emptyStop: StopDraft = {
+    type: 'DROPOFF',
     address: '',
     lat: null,
     lng: null,
@@ -53,6 +56,9 @@ const emptyStop: StopDraft = {
     notes: '',
     existingLeadId: null,
 }
+
+/** Pickup point (stopType SHIP): done before the trip leaves; every other stop is a dropoff. */
+const isPickup = (stop: TripStop) => stop.stopType === 'SHIP'
 
 const TERMINAL_TRIP = new Set(['COMPLETED', 'CANCELLED'])
 const TERMINAL_STOP = new Set(['COMPLETED', 'SKIPPED', 'FAILED'])
@@ -117,6 +123,10 @@ export default function OcularTripStopsDialog({
     const planLocked = cancelledOrDone || !canEdit
     const started = trip?.status === 'IN_TRANSIT'
     const allTerminal = stops.length > 0 && stops.every((s) => TERMINAL_STOP.has(s.status))
+    const openPickups = stops.filter((s) => isPickup(s) && s.status !== 'COMPLETED')
+    const dropoffCount = stops.filter((s) => !isPickup(s)).length
+    // Pickups can only be added while the trip is still being prepared.
+    const addType: StopDraft['type'] = started ? 'DROPOFF' : draft.type
 
     const run = async (action: () => Promise<unknown>, fallback: string) => {
         setBusy(true)
@@ -149,7 +159,9 @@ export default function OcularTripStopsDialog({
                 lng: draft.lng,
                 name: draft.name.trim() || undefined,
                 notes: draft.notes.trim() || undefined,
-                existingLeadId: draft.existingLeadId || undefined,
+                type: addType,
+                existingLeadId:
+                    addType === 'DROPOFF' ? draft.existingLeadId || undefined : undefined,
             })
             setDraft(emptyStop)
         }, 'Failed to add stop')
@@ -182,8 +194,12 @@ export default function OcularTripStopsDialog({
     const renderStopActions = (stop: TripStop) => {
         if (cancelledOrDone || !canEdit) return null
         const done = TERMINAL_STOP.has(stop.status)
+        // Leads are captured at dropoff points (the visits), never at pickups.
         const canCapture =
-            stop.status !== 'SKIPPED' && !stop.createdLeadId && !stop.existingLeadId
+            !isPickup(stop) &&
+            stop.status !== 'SKIPPED' &&
+            !stop.createdLeadId &&
+            !stop.existingLeadId
 
         if (outcome?.stopId === stop.id) {
             return (
@@ -245,7 +261,7 @@ export default function OcularTripStopsDialog({
 
         return (
             <div className="mt-2 flex flex-wrap gap-2">
-                {started && stop.status === 'PENDING' ? (
+                {(started || isPickup(stop)) && stop.status === 'PENDING' ? (
                     <Button
                         size="xs"
                         disabled={busy}
@@ -259,7 +275,7 @@ export default function OcularTripStopsDialog({
                         Arrived
                     </Button>
                 ) : null}
-                {started && !done ? (
+                {(started || isPickup(stop)) && !done ? (
                     <>
                         <Button
                             size="xs"
@@ -270,15 +286,17 @@ export default function OcularTripStopsDialog({
                         >
                             Done
                         </Button>
-                        <Button
-                            size="xs"
-                            disabled={busy}
-                            onClick={() =>
-                                setOutcome({ stopId: stop.id, action: 'SKIPPED', notes: '' })
-                            }
-                        >
-                            Skip
-                        </Button>
+                        {!isPickup(stop) ? (
+                            <Button
+                                size="xs"
+                                disabled={busy}
+                                onClick={() =>
+                                    setOutcome({ stopId: stop.id, action: 'SKIPPED', notes: '' })
+                                }
+                            >
+                                Skip
+                            </Button>
+                        ) : null}
                     </>
                 ) : null}
                 {canCapture ? (
@@ -341,7 +359,7 @@ export default function OcularTripStopsDialog({
                     <>
                         {stops.length === 0 ? (
                             <p className="text-sm text-gray-500">
-                                No stops yet. Add the places to visit below, in visiting order.
+                                No stops yet. Add pickup points (done before the trip leaves) and dropoff points (the places to visit), in visiting order.
                             </p>
                         ) : (
                             <ol className="flex flex-col gap-2">
@@ -355,7 +373,7 @@ export default function OcularTripStopsDialog({
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-semibold">
-                                                        {stop.sequence}. {stop.name ?? 'Ocular visit'}
+                                                        {stop.sequence}. {stop.name ?? (isPickup(stop) ? 'Pickup point' : 'Ocular visit')}
                                                     </p>
                                                     <p className="truncate text-xs text-gray-500">
                                                         {stop.address}
@@ -381,6 +399,9 @@ export default function OcularTripStopsDialog({
                                                     ) : null}
                                                 </div>
                                                 <div className="flex shrink-0 items-center gap-1">
+                                                    <StatusBadge tone={isPickup(stop) ? 'warning' : 'info'}>
+                                                        {isPickup(stop) ? 'Pickup' : 'Dropoff'}
+                                                    </StatusBadge>
                                                     <StatusBadge tone={statusTone(stop.status)}>
                                                         {formatStatusLabel(stop.status)}
                                                     </StatusBadge>
@@ -391,7 +412,11 @@ export default function OcularTripStopsDialog({
                                                                 variant="plain"
                                                                 icon={<HiOutlineArrowUp />}
                                                                 aria-label="Move up"
-                                                                disabled={busy || index === 0}
+                                                                disabled={
+                                                                    busy ||
+                                                                    index === 0 ||
+                                                                    isPickup(stops[index - 1]) !== isPickup(stop)
+                                                                }
                                                                 onClick={() => move(index, -1)}
                                                             />
                                                             <Button
@@ -400,7 +425,9 @@ export default function OcularTripStopsDialog({
                                                                 icon={<HiOutlineArrowDown />}
                                                                 aria-label="Move down"
                                                                 disabled={
-                                                                    busy || index === stops.length - 1
+                                                                    busy ||
+                                                                    index === stops.length - 1 ||
+                                                                    isPickup(stops[index + 1]) !== isPickup(stop)
                                                                 }
                                                                 onClick={() => move(index, 1)}
                                                             />
@@ -437,13 +464,33 @@ export default function OcularTripStopsDialog({
 
                         {!planLocked ? (
                             <div className="rounded-lg border border-dashed border-gray-300 p-3 dark:border-gray-600">
-                                <p className="mb-2 text-xs font-semibold text-gray-500">
-                                    Add stop (appended at the end)
-                                </p>
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold text-gray-500">
+                                        {addType === 'PICKUP'
+                                            ? 'Add pickup point (placed before the dropoffs)'
+                                            : 'Add dropoff point (appended at the end)'}
+                                    </p>
+                                    {!started ? (
+                                        <Segment
+                                            size="sm"
+                                            value={draft.type}
+                                            onChange={(v) =>
+                                                v && setDraft({ ...draft, type: v as StopDraft['type'] })
+                                            }
+                                        >
+                                            <Segment.Item value="DROPOFF">Dropoff</Segment.Item>
+                                            <Segment.Item value="PICKUP">Pickup</Segment.Item>
+                                        </Segment>
+                                    ) : null}
+                                </div>
                                 <div className="flex flex-col gap-2">
                                     <LocationSearchField
                                         value={draft.address}
-                                        placeholder="Search the address to visit…"
+                                        placeholder={
+                                            addType === 'PICKUP'
+                                                ? 'Search the pickup address…'
+                                                : 'Search the address to visit…'
+                                        }
                                         onChange={(next) =>
                                             setDraft((current) => ({
                                                 ...current,
@@ -456,7 +503,11 @@ export default function OcularTripStopsDialog({
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                         <Input
                                             size="sm"
-                                            placeholder="Place / prospect name (optional)"
+                                            placeholder={
+                                                addType === 'PICKUP'
+                                                    ? 'Pickup name (optional)'
+                                                    : 'Place / prospect name (optional)'
+                                            }
                                             value={draft.name}
                                             onChange={(e) =>
                                                 setDraft({ ...draft, name: e.target.value })
@@ -471,15 +522,17 @@ export default function OcularTripStopsDialog({
                                             }
                                         />
                                     </div>
-                                    <CrmSelect
-                                        options={leadOptions}
-                                        value={draft.existingLeadId}
-                                        onChange={(value) =>
-                                            setDraft({ ...draft, existingLeadId: value })
-                                        }
-                                        isClearable
-                                        placeholder="Visiting an existing lead? (optional)"
-                                    />
+                                    {addType === 'DROPOFF' ? (
+                                        <CrmSelect
+                                            options={leadOptions}
+                                            value={draft.existingLeadId}
+                                            onChange={(value) =>
+                                                setDraft({ ...draft, existingLeadId: value })
+                                            }
+                                            isClearable
+                                            placeholder="Visiting an existing lead? (optional)"
+                                        />
+                                    ) : null}
                                     {draft.address.trim() && draft.lat == null ? (
                                         <p className="text-xs text-amber-600">
                                             No map position for this address; the stop will not show
@@ -492,7 +545,7 @@ export default function OcularTripStopsDialog({
                                             disabled={!draft.address.trim() || busy}
                                             onClick={() => void addStop()}
                                         >
-                                            Add stop
+                                            {addType === 'PICKUP' ? 'Add pickup point' : 'Add dropoff point'}
                                         </Button>
                                     </div>
                                 </div>
@@ -500,6 +553,13 @@ export default function OcularTripStopsDialog({
                         ) : null}
                     </>
                 )}
+
+                {!planLocked && !started && openPickups.length > 0 ? (
+                    <Alert showIcon type="warning">
+                        Mark {openPickups.length} pickup point{openPickups.length > 1 ? 's' : ''} done
+                        before the trip can start.
+                    </Alert>
+                ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-gray-600">
                     <Link
@@ -513,7 +573,14 @@ export default function OcularTripStopsDialog({
                             <Button
                                 size="sm"
                                 variant="solid"
-                                disabled={busy || stops.length === 0}
+                                disabled={busy || dropoffCount === 0 || openPickups.length > 0}
+                                title={
+                                    openPickups.length > 0
+                                        ? 'Mark every pickup point done first'
+                                        : dropoffCount === 0
+                                          ? 'Add at least one dropoff point'
+                                          : undefined
+                                }
                                 onClick={() =>
                                     void run(
                                         () => apiUpdateTripStatus(trip!.id, 'IN_TRANSIT'),

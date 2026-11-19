@@ -14,13 +14,11 @@ import PageHeader from '@/components/shared/PageHeader'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
 import TripLoadManifestDialog from '../components/trips/TripLoadManifestDialog'
-import OcularTripFormDialog from '../components/trips/OcularTripFormDialog'
 import OcularTripStopsDialog from '../components/trips/OcularTripStopsDialog'
 import { useTrips } from '../hooks/useTrips'
 import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { Trip } from '../types'
-import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 type Option = { value: string; label: string }
 
@@ -45,10 +43,8 @@ const purposeOptions: Option[] = [
 export default function TripsPage() {
     const { data, total, page, pageSize, loading, error, params, setParams, reload } =
         useTrips()
-    const { canCreate } = useResourceAccess()
 
     const [manifestTripId, setManifestTripId] = useState<string | null>(null)
-    const [createOpen, setCreateOpen] = useState(false)
     const [ocularTripId, setOcularTripId] = useState<string | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
@@ -158,15 +154,8 @@ export default function TripsPage() {
         <PageContainer>
             <PageHeader
                 title="Trips"
-                description="Trip list and history. Delivery trips come from Trip Planning; ocular trips are planned here (vehicle + stops) and any lead captured on site is created with source Ocular."
+                description="Trip list and history. Delivery and ocular trips are both created in Trip Planning; use Plan stops on an ocular trip to manage or follow it."
                 breadcrumbs={scmPageBreadcrumbs('Trips')}
-                actions={
-                    canCreate ? (
-                        <Button size="sm" variant="solid" onClick={() => setCreateOpen(true)}>
-                            New ocular trip
-                        </Button>
-                    ) : null
-                }
             />
 
             {error ? (
@@ -258,14 +247,6 @@ export default function TripsPage() {
                 tripId={ocularTripId}
                 onClose={() => setOcularTripId(null)}
                 onChanged={() => void reload()}
-            />
-            <OcularTripFormDialog
-                open={createOpen}
-                onClose={() => setCreateOpen(false)}
-                onCreated={(id) => {
-                    void reload()
-                    setOcularTripId(id)
-                }}
             />
         </PageContainer>
     )

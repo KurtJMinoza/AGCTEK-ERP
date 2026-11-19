@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { RequirePermission } from '../../permissions/permission.guard'
 import { OcularTripsService } from './ocular-trips.service'
 
@@ -11,6 +11,16 @@ const OCULAR_TRIP_RESOURCES = ['scm.trips', 'scm.trip-planning'] as const
 @Controller('scm/ocular-trips')
 export class OcularTripsController {
     constructor(private readonly ocular: OcularTripsService) {}
+
+    /**
+     * Planning-only route (stops in manual order) with the same schedule algorithm as the
+     * delivery preview. Optional `departAt`, `departureMode` (ON_TIME|EARLY), `serviceTimeMin`.
+     */
+    @Get(':id/route-preview')
+    @RequirePermission([...OCULAR_TRIP_RESOURCES, 'scm.tracking'], 'read')
+    routePreview(@Param('id') id: string, @Query() query: Record<string, unknown>) {
+        return this.ocular.routePreview(id, query)
+    }
 
     @Post()
     @RequirePermission(OCULAR_TRIP_RESOURCES, 'create')

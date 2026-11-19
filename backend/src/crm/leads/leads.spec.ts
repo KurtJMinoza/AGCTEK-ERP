@@ -412,6 +412,15 @@ describe('CrmLeadsService ocular capture', () => {
         return prisma
     }
 
+    it('rejects capturing a lead at a pickup point', async () => {
+        await expect(
+            service(withStop(stop({ stopType: 'SHIP' }))).create(
+                { name: 'X', originTripStopId: 's' },
+                'user-1',
+            ),
+        ).rejects.toThrow(/dropoff/)
+    })
+
     it('accepts OCULAR as a lead source', async () => {
         const prisma = mockPrisma()
         await service(prisma).create({ name: 'Field prospect', source: 'OCULAR' }, 'user-1')

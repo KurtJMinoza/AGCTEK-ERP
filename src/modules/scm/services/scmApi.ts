@@ -34,6 +34,8 @@ import type {
     CreateTripInput,
     TelematicsHistoryQuery,
     TelematicsHistoryResponse,
+    DepartureMode,
+    OcularRoutePreview,
     RoutePreview,
     RoutePreviewRequest,
     Vehicle,
@@ -53,6 +55,8 @@ function toQuery(params?: ListParams) {
     if (params.vehicleId) query.vehicleId = params.vehicleId
     if (params.movementType) query.movementType = params.movementType
     if (params.type) query.type = params.type
+    if (params.purpose) query.purpose = params.purpose
+    if (params.driverId) query.driverId = params.driverId
     return query
 }
 
@@ -494,6 +498,8 @@ export async function apiGetAvailableVehicles(params?: {
 
 /** Stop fields an ocular run accepts (address is required; lat/lng come together). */
 export type OcularStopInput = {
+    /** PICKUP: done before the trip leaves (gates Start). DROPOFF (default): the visit. */
+    type?: 'PICKUP' | 'DROPOFF'
     address?: string
     lat?: number | null
     lng?: number | null
@@ -524,6 +530,23 @@ export async function apiUpdateOcularTrip(
     body: Partial<Omit<CreateOcularTripInput, 'stops'>>,
 ) {
     const { data } = await ErpAxiosBase.patch<Trip>(`/scm/ocular-trips/${tripId}`, body)
+    return data
+}
+
+/** Planning-only route for an ocular trip (stops in manual order). */
+export async function apiGetOcularRoutePreview(
+    tripId: string,
+    params?: {
+        departAt?: string
+        departureMode?: DepartureMode
+        serviceTimeMin?: number
+        returnToOrigin?: boolean
+    },
+) {
+    const { data } = await ErpAxiosBase.get<OcularRoutePreview>(
+        `/scm/ocular-trips/${tripId}/route-preview`,
+        { params },
+    )
     return data
 }
 

@@ -204,7 +204,7 @@ describe('CrmDashboardService.leadSources', () => {
         const periodFrom = new Date(NOW.getTime() - 30 * DAY_MS)
 
         expect(result.periodFrom).toEqual(periodFrom)
-        expect(result.sources).toHaveLength(7)
+        expect(result.sources).toHaveLength(8)
         expect(result.sources.map((s) => s.source)).toEqual([
             'WEBSITE',
             'REFERRAL',
@@ -212,6 +212,7 @@ describe('CrmDashboardService.leadSources', () => {
             'CAMPAIGN',
             'EVENT',
             'COLD_CALL',
+            'OCULAR',
             'OTHER',
         ])
         expect(result.sources.find((s) => s.source === 'WEBSITE')).toEqual({

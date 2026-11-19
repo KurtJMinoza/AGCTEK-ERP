@@ -35,6 +35,7 @@ import {
     type ExecutionMeta,
 } from './trip-execution.rules'
 import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
+import { assertPickupsDone } from './ocular-stops.rules'
 import {
     TRIP_EVENTS,
     type TripStartedEvent,
@@ -1070,6 +1071,13 @@ export class TripsService {
 
     async update(id: string, body: CreateTripBody) {
         const existing = await this.findOne(id)
+        if (
+            existing.purpose === 'OCULAR' &&
+            body.status === TripStatus.IN_TRANSIT &&
+            existing.status !== TripStatus.IN_TRANSIT
+        ) {
+            assertPickupsDone(existing.stops ?? [])
+        }
         if (existing.loadPlanId) {
             if (body.vehicleId !== undefined && body.vehicleId !== existing.vehicleId) {
                 throw new BadRequestException(
@@ -1133,6 +1141,14 @@ export class TripsService {
         }
 
         const trip = await this.findOne(id)
+        // Ocular start gate: every pickup point must be marked done first.
+        if (
+            trip.purpose === 'OCULAR' &&
+            status === TripStatus.IN_TRANSIT &&
+            trip.status !== TripStatus.IN_TRANSIT
+        ) {
+            assertPickupsDone(trip.stops ?? [])
+        }
         const completing =
             status === TripStatus.COMPLETED &&
             trip.status !== TripStatus.COMPLETED

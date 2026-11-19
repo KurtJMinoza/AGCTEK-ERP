@@ -168,10 +168,14 @@ export class CrmLeadsService {
     private async assertOcularStopOpen(tripStopId: string) {
         const stop = await this.prisma.tripStop.findUnique({
             where: { id: tripStopId },
-            select: { createdLeadId: true, trip: { select: { purpose: true } } },
+            select: { createdLeadId: true, stopType: true, trip: { select: { purpose: true } } },
         })
         if (!stop || stop.trip.purpose !== 'OCULAR') {
             throw new BadRequestException('Ocular trip stop not found')
+        }
+        // SHIP = pickup point; leads are captured at dropoff points (the visits).
+        if (stop.stopType === 'SHIP') {
+            throw new BadRequestException('Leads are captured at dropoff points, not pickup points')
         }
         if (stop.createdLeadId) {
             throw new ConflictException('A lead was already captured at this stop')
