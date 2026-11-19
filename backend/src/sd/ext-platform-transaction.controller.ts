@@ -8,6 +8,7 @@ import {
     Post,
     Query,
 } from '@nestjs/common'
+import { CurrentUser, type AuthRequestUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 import {
@@ -19,6 +20,7 @@ import {
     UpdateExtPlatformTransactionDto,
     UpdateExtPlatformTransactionStatusDto,
     UpdateSalesSourceDto,
+    VoidExtPlatformTransactionDto,
 } from './dto/ext-platform-transaction.dto'
 
 @Controller('sd/ext-platform')
@@ -105,8 +107,20 @@ export class ExtPlatformTransactionController {
     updateStatus(
         @Param('id') id: string,
         @Body() dto: UpdateExtPlatformTransactionStatusDto,
+        @CurrentUser() user: AuthRequestUser,
     ) {
-        return this.service.updateStatus(id, dto)
+        return this.service.updateStatus(id, dto, user?.userName ?? user?.id)
+    }
+
+    /** Voids a confirmed / approved sale with a required reason; an approved company-owned sale returns its stock. */
+    @Post('transactions/:id/void')
+    @RequirePermission('sd.ext-platform-sales', 'update')
+    void(
+        @Param('id') id: string,
+        @Body() dto: VoidExtPlatformTransactionDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.service.voidTransaction(id, dto, user?.userName ?? user?.id)
     }
 
     @Delete('transactions/:id')

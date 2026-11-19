@@ -326,12 +326,21 @@ export const EXT_PLATFORM_TX_STATUSES = [
 export type ExtPlatformTxStatus = (typeof EXT_PLATFORM_TX_STATUSES)[number]
 
 export class UpdateExtPlatformTransactionStatusDto {
-    @IsIn(['CONFIRMED', 'APPROVED', 'CANCELLED'])
-    status!: 'CONFIRMED' | 'APPROVED' | 'CANCELLED'
+    /** Cancelling a sale is a void: it needs a reason, so it has its own endpoint. */
+    @IsIn(['CONFIRMED', 'APPROVED'])
+    status!: 'CONFIRMED' | 'APPROVED'
 
     @IsOptional()
     @IsString()
     updatedBy?: string
+}
+
+export class VoidExtPlatformTransactionDto {
+    @IsString()
+    @IsNotEmpty({ message: 'Enter why the sale is voided.' })
+    @MaxLength(500)
+    @Transform(trim)
+    reason!: string
 }
 
 export class ListExtPlatformTransactionsQueryDto {

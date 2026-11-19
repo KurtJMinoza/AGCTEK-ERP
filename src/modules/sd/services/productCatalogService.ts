@@ -214,6 +214,8 @@ export type StorefrontAvailability = {
     materialId?: string | null
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode?: string | null
     state?:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -689,6 +691,7 @@ export type CatalogStockSnapshot = {
     materialId?: string | null
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    barcode?: string | null
 }
 
 /** MM-backed available qty per product (storefront ATP by division + SKU). */
@@ -720,6 +723,7 @@ export async function fetchProductCatalogStock(
                         materialId: data.materialId ?? null,
                         primaryBatchNumber: data.primaryBatchNumber ?? null,
                         primaryLotNumber: data.primaryLotNumber ?? null,
+                        barcode: data.barcode ?? null,
                     },
                 ] as const
             } catch (error) {

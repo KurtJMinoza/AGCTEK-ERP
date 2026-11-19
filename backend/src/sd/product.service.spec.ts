@@ -15,6 +15,9 @@ describe('ProductService.getStorefrontAvailability', () => {
             findFirst: jest.fn(),
         },
         sdProductVariant: { findMany: jest.fn() },
+        // Batch / lot / barcode display lookups: nothing on file in these tests.
+        mmBatch: { findMany: jest.fn().mockResolvedValue([]) },
+        mmBarcode: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const availability = {
         getCompanyMaterialLedger: jest.fn(),
@@ -305,6 +308,8 @@ describe('ProductService.getStorefrontAvailabilityBatch', () => {
         sdProduct: { findMany: jest.fn() },
         sdProductMaterialAssignment: { findMany: jest.fn() },
         sdProductVariant: { findMany: jest.fn() },
+        mmBatch: { findMany: jest.fn().mockResolvedValue([]) },
+        mmBarcode: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const availability = {
         getCompanyMaterialLedgerBatch: jest.fn(),
@@ -431,6 +436,46 @@ describe('ProductService.getStorefrontAvailabilityBatch', () => {
         expect(
             availability.getCompanyMaterialLedgerBatch,
         ).toHaveBeenCalledWith('company-1', ['mat-picked'])
+    })
+
+    it('shows the variant barcode, else the primary MM barcode of its material', async () => {
+        prisma.sdProduct.findMany.mockResolvedValue([
+            { id: 'p1', sku: 'SKU-1', productType: 'STOCK_ITEM', isActive: true },
+            { id: 'p2', sku: 'SKU-2', productType: 'STOCK_ITEM', isActive: true },
+        ])
+        const variant = (id: string, productId: string, materialId: string, barcode: string | null) => ({
+            id,
+            productId,
+            materialId,
+            barcode,
+            companyId: 'company-1',
+            isActive: true,
+            isDefault: true,
+        })
+        prisma.sdProductVariant.findMany.mockResolvedValue([
+            variant('v1', 'p1', 'mat-1', '4800001'),
+            variant('v2', 'p2', 'mat-2', null),
+        ])
+        prisma.sdProductMaterialAssignment.findMany.mockResolvedValue([])
+        prisma.mmBarcode.findMany.mockResolvedValue([{ materialId: 'mat-2', barcodeValue: 'MM-2' }])
+        availability.getCompanyMaterialLedgerBatch.mockResolvedValue(
+            new Map([
+                ['mat-1', { onHandQty: 5, reservedQty: 0, availableQty: 5 }],
+                ['mat-2', { onHandQty: 5, reservedQty: 0, availableQty: 5 }],
+            ]),
+        )
+
+        const result = await service.getStorefrontAvailabilityBatch(
+            'DIV_RETAIL',
+            [{ sku: 'SKU-1' }, { sku: 'SKU-2' }],
+            availability as never,
+        )
+
+        expect(result.map((r) => r.barcode)).toEqual(['4800001', 'MM-2'])
+        // Only the material without a variant barcode is looked up in MM.
+        expect(prisma.mmBarcode.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ materialId: { in: ['mat-2'] } }) }),
+        )
     })
 
     it('reports NOT_MAPPED without reading the ledger for an unmapped product', async () => {

@@ -47,6 +47,7 @@ import {
     sharePercent,
 } from '../components/SalesAnalysisWidgets'
 import SalesLineReportDialog from '../components/SalesLineReportDialog'
+import SalesPerformanceScorecard from '../components/SalesPerformanceScorecard'
 import SalesAnalyticsPeriodFilters, {
     toYmd,
 } from '../components/SalesAnalyticsPeriodFilters'
@@ -194,6 +195,13 @@ const SalesAnalysisDashboard = () => {
         setLoading(true)
         setReloadKey((key) => key + 1)
     }
+
+    // The scorecard reports on one calendar month, taken from the period filter:
+    // the month a custom range ends in, otherwise the current month.
+    const scorecardMonth =
+        dateRange === 'custom' && appliedCustomTo
+            ? appliedCustomTo.slice(0, 7)
+            : dayjs().format('YYYY-MM')
 
     const currency = data?.currency ?? 'PHP'
     const money = (value: number) => formatSdMoney(value, currency)
@@ -539,6 +547,12 @@ const SalesAnalysisDashboard = () => {
                     <KpiCard key={kpi.label} loading={loading} {...kpi} />
                 ))}
             </div>
+
+            <SalesPerformanceScorecard
+                channel={channel}
+                month={scorecardMonth}
+                reloadKey={reloadKey}
+            />
 
             <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <AdaptiveCard className="xl:col-span-2">

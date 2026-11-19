@@ -8,8 +8,8 @@ import type {
 } from './dto/sales-analytics.dto'
 
 /** Business calendar: the Philippines has no daylight saving, so a fixed offset is exact. */
-const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000
-const DAY_MS = 24 * 60 * 60 * 1000
+export const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000
+export const DAY_MS = 24 * 60 * 60 * 1000
 const TOP_PRODUCT_LIMIT = 10
 const TOP_CUSTOMER_LIMIT = 10
 const TOP_RECEIVABLE_LIMIT = 10
@@ -17,7 +17,7 @@ const BUYERS_PER_PRODUCT = 8
 const RECENT_ORDER_LIMIT = 10
 const LINE_REPORT_LIMIT = 2000
 
-const LINE_AMOUNT = Prisma.raw(
+export const LINE_AMOUNT = Prisma.raw(
     'COALESCE(l."lineTotal", l."unitPrice" * l."quantity")',
 )
 const PRODUCT_KEY = Prisma.raw('COALESCE(l."productSkuSnapshot", l."sku")')
@@ -352,7 +352,7 @@ type RecentOrderRow = {
 }
 
 /** External platform sale date as a UTC instant (Manila midnight), comparable with `createdAt`. */
-const EXT_SALE_AT = Prisma.raw(`(t."transactionDate"::timestamp - interval '8 hours')`)
+export const EXT_SALE_AT = Prisma.raw(`(t."transactionDate"::timestamp - interval '8 hours')`)
 
 /**
  * Revenue-recognised sales of a window, one row per document (`src`):
@@ -365,7 +365,7 @@ const EXT_SALE_AT = Prisma.raw(`(t."transactionDate"::timestamp - interval '8 ho
  * collection is posted); external platform sales are settled, so it is 0.
  * `slines` is every line of those documents in one shape (product, qty, amount).
  */
-function scopedOrders(
+export function scopedOrders(
     from: Date,
     to: Date,
     toInclusive: boolean,
@@ -464,7 +464,7 @@ function scopedOrders(
         )`
 }
 
-const roundMoney = (value: number) =>
+export const roundMoney = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
 const toTotals = (row: Totals | undefined) => {
@@ -829,6 +829,7 @@ export class SalesAnalyticsService {
                     s.customer_name,
                     COALESCE(NULLIF(TRIM(b."name"), ''), UPPER(s."channel")) AS location,
                     COALESCE(
+                        NULLIF(TRIM(el."barcode"), ''),
                         (
                             SELECT bc."barcodeValue"
                             FROM "mm_barcodes" bc

@@ -13,6 +13,7 @@ export function downloadProductCatalogCsv(
 ) {
     const header = [
         'SKU',
+        'Barcode',
         'Name',
         'Company',
         'Category',
@@ -27,6 +28,7 @@ export function downloadProductCatalogCsv(
         const stock = stockByProductId[p.id]
         return [
             p.sku,
+            stock?.barcode ?? '',
             p.name,
             productSellerLabel(p),
             p.category,

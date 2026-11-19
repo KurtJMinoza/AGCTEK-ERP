@@ -45,6 +45,8 @@ export type ExtPlatformTransactionLine = {
     batchId: string | null
     batchNumber: string | null
     lotNumber: string | null
+    /** Barcode at sale time: the variant's, else the material's primary MM barcode. */
+    barcode: string | null
 }
 
 export type ExtPlatformTransaction = {
@@ -80,6 +82,10 @@ export type ExtPlatformTransaction = {
     createdBy: string | null
     approvedBy: string | null
     approvedAt: string | null
+    /** Set when a confirmed / approved sale was voided (status CANCELLED). */
+    voidedAt: string | null
+    voidedBy: string | null
+    voidReason: string | null
     createdAt: string
     updatedAt: string
     lines: ExtPlatformTransactionLine[]
@@ -144,6 +150,8 @@ export type ExtPlatformStock = {
     /** Latest MM batch on the resolved material (catalog ATP path). */
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode?: string | null
 }
 
 export type ExtPlatformTaxPreviewLine =

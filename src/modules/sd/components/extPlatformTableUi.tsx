@@ -4,6 +4,7 @@ import {
     HiOutlineClipboardList,
     HiOutlineHashtag,
     HiOutlineOfficeBuilding,
+    HiOutlineQrcode,
     HiOutlineTag,
 } from 'react-icons/hi'
 import type { StatusTone } from '@/components/shared/StatusBadge'
@@ -98,26 +99,40 @@ export function ExtPlatformLinesCell({ count }: { count: number }) {
     )
 }
 
-/** Batch / lot values across a transaction's lines (first value + “+N more”). */
+const TRACKING_STYLE = {
+    batch: {
+        Icon: HiOutlineClipboardList,
+        shell: 'bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200',
+        delay: 70,
+    },
+    lot: {
+        Icon: HiOutlineTag,
+        shell: 'bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200',
+        delay: 85,
+    },
+    barcode: {
+        Icon: HiOutlineQrcode,
+        shell: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200',
+        delay: 100,
+    },
+} as const
+
+/** Batch / lot / barcode values across a transaction's lines (first value + “+N more”). */
 export function ExtPlatformTrackingCell({
     values,
     variant,
 }: {
     values: string[]
-    variant: 'batch' | 'lot'
+    variant: 'batch' | 'lot' | 'barcode'
 }) {
     if (!values.length) {
         return <span className="text-sm text-gray-400">—</span>
     }
-    const Icon = variant === 'batch' ? HiOutlineClipboardList : HiOutlineTag
-    const shell =
-        variant === 'batch'
-            ? 'bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200'
-            : 'bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'
+    const { Icon, shell, delay } = TRACKING_STYLE[variant]
     return (
         <div className="flex min-w-0 items-center gap-2" title={values.join(', ')}>
             <span
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${shell} ${rcvIconPopClass(variant === 'batch' ? 70 : 85)}`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${shell} ${rcvIconPopClass(delay)}`}
             >
                 <Icon className="text-sm" />
             </span>
@@ -150,8 +165,8 @@ export function ExtPlatformTotalCell({
 }
 
 export const uniqueLineValues = (
-    lines: Array<{ batchNumber: string | null; lotNumber: string | null }> | undefined,
-    key: 'batchNumber' | 'lotNumber',
+    lines: Array<Partial<Record<'batchNumber' | 'lotNumber' | 'barcode', string | null>>> | undefined,
+    key: 'batchNumber' | 'lotNumber' | 'barcode',
 ): string[] => [
     ...new Set(
         (lines ?? [])

@@ -268,6 +268,24 @@ const ProductCatalogTableSection = ({
                 ),
             },
             {
+                id: 'barcode',
+                header: 'Barcode',
+                enableSorting: false,
+                size: 140,
+                minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.barcode
+                    return v ? (
+                        <span className="truncate font-mono text-xs" title={v}>
+                            {v}
+                        </span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
                 id: 'batchNumber',
                 header: 'Batch #',
                 enableSorting: false,

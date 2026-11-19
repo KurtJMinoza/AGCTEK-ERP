@@ -64,6 +64,8 @@ type CatalogOption = Option & {
     stockState: string | null
     primaryBatchNumber: string | null
     primaryLotNumber: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode: string | null
 }
 
 /** Max catalog items per stock request (backend limit). */
@@ -86,6 +88,8 @@ type DraftLine = {
     discount: string
     batchNumber: string
     lotNumber: string
+    /** Read-only: filled from the chosen product (saved lines show what was recorded). */
+    barcode: string
 }
 
 const catalogKey = (productId: string, variantId: string) => `${productId}:${variantId}`
@@ -106,6 +110,7 @@ const blankLine = (): DraftLine => ({
     discount: '',
     batchNumber: '',
     lotNumber: '',
+    barcode: '',
 })
 
 const num = (value: string) => (value.trim() === '' ? 0 : Number(value))
@@ -290,6 +295,7 @@ export default function ExtPlatformTransactionDialog({
                     discount: Number(l.discount) ? String(Number(l.discount)) : '',
                     batchNumber: l.batchNumber ?? '',
                     lotNumber: l.lotNumber ?? '',
+                    barcode: l.barcode ?? '',
                 })),
             )
         } else {
@@ -330,6 +336,7 @@ export default function ExtPlatformTransactionDialog({
                         stockState: null,
                         primaryBatchNumber: null,
                         primaryLotNumber: null,
+                        barcode: null,
                     })
                     return p.productConfig === 'VARIABLE' && p.variants?.length
                         ? p.variants.map(entry)
@@ -357,6 +364,7 @@ export default function ExtPlatformTransactionDialog({
                                   stockState: row.state,
                                   primaryBatchNumber: row.primaryBatchNumber ?? null,
                                   primaryLotNumber: row.primaryLotNumber ?? null,
+                                  barcode: row.barcode ?? null,
                               }
                             : o
                     }),
@@ -842,6 +850,7 @@ export default function ExtPlatformTransactionDialog({
                                                             unitPrice: o ? String(o.price) : line.unitPrice,
                                                             batchNumber: o?.primaryBatchNumber ?? '',
                                                             lotNumber: o?.primaryLotNumber ?? '',
+                                                            barcode: o?.barcode ?? '',
                                                         })
                                                     }
                                                 />
@@ -910,7 +919,16 @@ export default function ExtPlatformTransactionDialog({
                                                 />
                                             </div>
                                         </div>
-                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                            <FormItem label="Barcode (from product)">
+                                                <Input
+                                                    size="sm"
+                                                    readOnly
+                                                    className="font-mono"
+                                                    value={line.barcode}
+                                                    placeholder={line.productId ? 'No barcode on file' : 'Choose a product'}
+                                                />
+                                            </FormItem>
                                             <FormItem label="Batch # (optional)">
                                                 <TrackingNumberInput
                                                     size="sm"

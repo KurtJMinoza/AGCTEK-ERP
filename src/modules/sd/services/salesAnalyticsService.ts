@@ -220,3 +220,96 @@ export async function fetchSalesAnalytics(params: {
         throw toApiError(error, 'Unable to load sales analytics')
     }
 }
+
+/** BRANCH = physical store, ONLINE = e-commerce storefront or external platform, OTHER = unassigned direct sales. */
+export type SalesLocationKind = 'BRANCH' | 'ONLINE' | 'OTHER'
+
+export type SalesPerformanceLocation = {
+    kind: SalesLocationKind
+    /** Branch name, "E-commerce", or the external platform (Shopee, Lazada, …). */
+    location: string
+    sales: number
+    /** Share of the window's located sales (0–100). */
+    share: number
+}
+
+export type SalesPerformanceWindow = {
+    from: string
+    to: string
+    sales: number
+    qty: number
+    /** (Sales − cost) / sales over lines with a known standard cost; null when none. */
+    grossProfitRate: number | null
+    /** Share of line sales whose material has a standard cost (0–100). */
+    costCoverage: number | null
+    salesTarget: number
+    /** Sales as a % of the target; null when no target is set. */
+    targetPercent: number | null
+    collected: number
+    collectionQuota: number
+    /** Collected as a % of the quota; null when no quota is set. */
+    quotaPercent: number | null
+    byLocation: SalesPerformanceLocation[]
+}
+
+export type SalesPerformance = {
+    /** `YYYY-MM` */
+    month: string
+    year: number
+    monthNumber: number
+    channel: SalesAnalyticsChannel
+    currency: string
+    targetsConfigured: boolean
+    ytd: SalesPerformanceWindow
+    mth: SalesPerformanceWindow
+}
+
+export type SalesTargetMonth = {
+    /** 1..12 */
+    month: number
+    salesTarget: number
+    collectionQuota: number
+}
+
+export type SalesTargets = { year: number; months: SalesTargetMonth[] }
+
+export async function fetchSalesPerformance(params: {
+    month: string
+    channel: SalesAnalyticsChannel
+}): Promise<SalesPerformance> {
+    try {
+        const { data } = await ErpAxiosBase.get<SalesPerformance>(
+            '/sd/analytics/performance',
+            { params },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load the sales scorecard')
+    }
+}
+
+export async function fetchSalesTargets(year: number): Promise<SalesTargets> {
+    try {
+        const { data } = await ErpAxiosBase.get<SalesTargets>(
+            '/sd/analytics/targets',
+            { params: { year } },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to load sales targets')
+    }
+}
+
+export async function saveSalesTargets(
+    payload: SalesTargets,
+): Promise<SalesTargets> {
+    try {
+        const { data } = await ErpAxiosBase.put<SalesTargets>(
+            '/sd/analytics/targets',
+            payload,
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to save sales targets')
+    }
+}

@@ -52,6 +52,8 @@ export type ProductAvailability = {
     /** Latest MM batch for the resolved material (display only). */
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode (display only). */
+    barcode?: string | null
     state:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -652,7 +654,64 @@ export class ProductService {
             .map((row) => row.materialId)
             .filter((id): id is string => Boolean(id))
         const batchByMaterial = await this.primaryBatchByMaterialIds(materialIds)
-        return this.attachPrimaryBatchTracking(rows, batchByMaterial)
+        const tracked = this.attachPrimaryBatchTracking(rows, batchByMaterial)
+        return this.attachBarcodes(tracked)
+    }
+
+    /** Variant barcode, else the material's primary MM barcode, on each availability row. */
+    private async attachBarcodes(
+        rows: ProductAvailability[],
+    ): Promise<ProductAvailability[]> {
+        const variantIds = [
+            ...new Set(rows.map((r) => r.variantId).filter((id): id is string => !!id)),
+        ]
+        const variants = variantIds.length
+            ? await this.prisma.sdProductVariant.findMany({
+                  where: { id: { in: variantIds } },
+                  select: { id: true, barcode: true },
+              })
+            : []
+        const variantBarcode = new Map(
+            variants.map((v) => [v.id, v.barcode?.trim() || null]),
+        )
+        const missing = rows.filter(
+            (r) => r.materialId && !(r.variantId && variantBarcode.get(r.variantId)),
+        )
+        const materialBarcode = await this.primaryMaterialBarcodes(
+            missing.map((r) => r.materialId!),
+        )
+        return rows.map((row) => ({
+            ...row,
+            barcode:
+                (row.variantId ? variantBarcode.get(row.variantId) : null) ||
+                (row.materialId ? materialBarcode.get(row.materialId) : null) ||
+                null,
+        }))
+    }
+
+    /** Primary active MM barcode per material (company-specific or shared); first created wins. */
+    async primaryMaterialBarcodes(
+        materialIds: string[],
+        companyId?: string,
+    ): Promise<Map<string, string>> {
+        const ids = [...new Set(materialIds.filter(Boolean))]
+        const map = new Map<string, string>()
+        if (!ids.length) return map
+        const rows = await this.prisma.mmBarcode.findMany({
+            where: {
+                materialId: { in: ids },
+                entityType: 'MATERIAL',
+                status: 'ACTIVE',
+                deletedAt: null,
+                ...(companyId ? { OR: [{ companyId: null }, { companyId }] } : {}),
+            },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+            select: { materialId: true, barcodeValue: true },
+        })
+        for (const row of rows) {
+            if (!map.has(row.materialId)) map.set(row.materialId, row.barcodeValue)
+        }
+        return map
     }
 
     private async availabilityForMaterial(args: {

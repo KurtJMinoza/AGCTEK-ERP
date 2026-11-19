@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
+    HiOutlineBan,
     HiOutlineClipboardCheck,
     HiOutlineDocumentAdd,
     HiOutlineEye,
@@ -42,6 +43,8 @@ import {
 import ExtPlatformTransactionDialog from '../components/ExtPlatformTransactionDialog'
 import ExtPlatformTransactionDetailDialog from '../components/ExtPlatformTransactionDetailDialog'
 import { SourceBadge } from '../components/extPlatformUi'
+import POSVoidDialog from '../components/POSVoidDialog'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import {
     fetchSalesSources,
@@ -49,6 +52,7 @@ import {
     fetchExtPlatformReportSummary,
     updateExtPlatformTransactionStatus,
     deleteExtPlatformTransaction,
+    voidExtPlatformTransaction,
 } from '../services/extPlatformService'
 import type {
     SalesSource,
@@ -65,7 +69,17 @@ const formatMoney = (v: number | string | null | undefined) => {
 
 // ── Main page ──
 
+/** Quick-pick reasons when a confirmed / approved platform sale is voided. */
+const VOID_REASONS = [
+    'Order cancelled on the platform',
+    'Customer returned the order',
+    'Wrong item or quantity recorded',
+    'Duplicate transaction',
+    'Payment problem',
+]
+
 export default function ExtPlatformSalesDashboard() {
+    const { canUpdate } = useResourceAccess('sd.ext-platform-sales')
     // Master data
     const [sources, setSources] = useState<SalesSource[]>([])
     const [companies, setCompanies] = useState<{ value: string; label: string }[]>([])
@@ -90,6 +104,10 @@ export default function ExtPlatformSalesDashboard() {
 
     // Delete confirm
     const [deleteTx, setDeleteTx] = useState<ExtPlatformTransaction | null>(null)
+
+    // Void (confirmed / approved sales; needs a reason)
+    const [voidTx, setVoidTx] = useState<ExtPlatformTransaction | null>(null)
+    const [voiding, setVoiding] = useState(false)
 
     // ── Load master data ──
 
@@ -242,6 +260,19 @@ export default function ExtPlatformSalesDashboard() {
                 ),
             },
             {
+                header: 'Barcode',
+                id: 'lineBarcodes',
+                size: 170,
+                minSize: 150,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="barcode"
+                        values={uniqueLineValues(row.original.lines, 'barcode')}
+                    />
+                ),
+            },
+            {
                 header: 'Batch #',
                 id: 'lineBatches',
                 size: 160,
@@ -341,13 +372,25 @@ export default function ExtPlatformSalesDashboard() {
                                 onClick={() => handleApprove(row.original)}
                             />
                         )}
+                        {canUpdate &&
+                            (row.original.status === 'CONFIRMED' ||
+                                row.original.status === 'APPROVED') && (
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    title="Void"
+                                    className="text-red-500"
+                                    icon={<HiOutlineBan />}
+                                    onClick={() => setVoidTx(row.original)}
+                                />
+                            )}
                     </div>
                 ),
             },
         ],
         // Row actions reload with the current filters.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [loadTransactions, loadSummary],
+        [loadTransactions, loadSummary, canUpdate],
     )
 
     const transactionsMobile = useMemo(
@@ -385,6 +428,11 @@ export default function ExtPlatformSalesDashboard() {
                     label: 'Customer',
                     value: (tx: ExtPlatformTransaction) =>
                         tx.customer?.companyName || tx.customerName || '—',
+                },
+                {
+                    label: 'Barcode',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'barcode').join(', ') || '—',
                 },
                 {
                     label: 'Batch #',
@@ -440,6 +488,28 @@ export default function ExtPlatformSalesDashboard() {
                     {msg}
                 </Notification>,
             )
+        }
+    }
+
+    // Errors propagate to POSVoidDialog, which shows them next to the reason.
+    const handleVoid = async (reason: string) => {
+        if (!voidTx) return
+        setVoiding(true)
+        try {
+            await voidExtPlatformTransaction(voidTx.id, reason)
+            toast.push(
+                <Notification type="success" title="Voided">
+                    {voidTx.transactionNumber} voided
+                    {voidTx.status === 'APPROVED' && voidTx.isCompanyInventory
+                        ? ' — stock returned to MM.'
+                        : '.'}
+                </Notification>,
+            )
+            setVoidTx(null)
+            loadTransactions()
+            loadSummary()
+        } finally {
+            setVoiding(false)
         }
     }
 
@@ -676,6 +746,32 @@ export default function ExtPlatformSalesDashboard() {
                     setDetailTx(null)
                     setDeleteTx(tx)
                 }}
+                onVoid={
+                    canUpdate
+                        ? (tx) => {
+                              setDetailTx(null)
+                              setVoidTx(tx)
+                          }
+                        : undefined
+                }
+            />
+
+            {/* ── Void (reason required) ── */}
+            <POSVoidDialog
+                isOpen={!!voidTx}
+                documentLabel="Sale"
+                receiptNumber={voidTx?.transactionNumber}
+                amount={voidTx ? Number(voidTx.grandTotal) : undefined}
+                consequence={
+                    voidTx?.status === 'APPROVED' && voidTx.isCompanyInventory
+                        ? 'is voided: the MM goods issue is reversed and the stock returns to inventory.'
+                        : 'is voided and leaves the sales totals. No stock moves.'
+                }
+                reasons={VOID_REASONS}
+                saving={voiding}
+                onVoid={handleVoid}
+                onClose={() => setVoidTx(null)}
+                formatPrice={formatMoney}
             />
 
             {/* ── Delete confirm ── */}

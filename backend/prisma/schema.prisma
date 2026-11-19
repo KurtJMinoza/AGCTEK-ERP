@@ -6091,6 +6091,24 @@ model SdPosCollection {
   @@map("sd_pos_collections")
 }
 
+/// Monthly sales target and collection quota for the Sales Analysis scorecard.
+/// One row per calendar month (Manila); YTD figures are the sum of Jan..month.
+/// Reporting reference only — never read by order, inventory or accounting flows.
+model SdSalesTarget {
+  id              String   @id @default(cuid())
+  year            Int
+  /// 1..12
+  month           Int
+  salesTarget     Decimal  @default(0) @db.Decimal(18, 2)
+  collectionQuota Decimal  @default(0) @db.Decimal(18, 2)
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([year, month])
+  @@map("sd_sales_targets")
+}
+
 /// Item-level salary-loan tracking for SALARY_LOAN POS tenders.
 model SdEmployeeLoanItem {
   id               String       @id @default(cuid())
@@ -9531,6 +9549,10 @@ model SdExtPlatformTransaction {
   createdBy             String?
   approvedBy            String?
   approvedAt            DateTime?
+  /// Void of a confirmed / approved sale (status becomes CANCELLED): when, by whom and why.
+  voidedAt              DateTime?
+  voidedBy              String?
+  voidReason            String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   lines                 SdExtPlatformTransactionLine[]
@@ -9585,6 +9607,8 @@ model SdExtPlatformTransactionLine {
   batch                 MmBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
   batchNumber           String?
   lotNumber             String?
+  /// Barcode snapshot at sale time: the sold variant's barcode, else the material's primary MM barcode.
+  barcode               String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
