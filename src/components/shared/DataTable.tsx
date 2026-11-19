@@ -337,10 +337,9 @@ function DataTable<T>(props: DataTableProps<T>) {
         <Loading loading={Boolean(loading && data.length !== 0)} type="cover">
             <Table
                 {...rest}
-                overflow={fit ? false : (rest.overflow ?? false)}
+                overflow={fit ? false : rest.overflow}
                 className={classNames(
                     fit && 'w-full table-fixed',
-                    !fit && 'w-max max-w-none',
                     rest.className,
                 )}
             >

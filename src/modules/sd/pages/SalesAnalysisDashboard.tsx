@@ -865,6 +865,7 @@ const SalesAnalysisDashboard = () => {
                         </div>
                     ) : (
                         <SdDataTable
+                            wide
                             columns={
                                 lineReportSummaryColumns as ColumnDef<unknown>[]
                             }

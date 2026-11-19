@@ -34,6 +34,8 @@ function SdDataTable<T>({
         <DataTable<T>
             {...SD_DATA_TABLE_LAYOUT}
             fit={resolvedFit}
+            // The shell below is the single horizontal scroller; a second one would draw a doubled scrollbar.
+            overflow={wide ? false : undefined}
             className={classNames(wide && 'w-max max-w-none', className)}
             rowClassName={(row, index) =>
                 [sdTableRowClassName(row, index), rowClassName?.(row, index)]

@@ -613,7 +613,8 @@ const BatchesPage = () => {
                                 handleSelectAllChange(checked, rows as { original: MmBatch }[])
                             }
                             mobile={batchesMobile}
-                            noData={
+                            noData={filteredItems.length === 0}
+                            customNoDataIcon={
                                 <div className="flex w-full flex-col items-center gap-3 py-10 text-center">
                                     <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-subtle text-primary-deep">
                                         <HiOutlineBeaker className="text-2xl" />

@@ -14,8 +14,7 @@ import {
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import { type ColumnDef } from '@/components/shared/DataTable'
-import SdDataTable from '../components/SdDataTable'
-import { type StatusTone } from '@/components/shared/StatusBadge'
+import ExtPlatformResponsiveTable from '@/modules/mm/receiving/components/ReceivingResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import Card from '@/components/ui/Card'
@@ -25,16 +24,21 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { sdParentBreadcrumbs } from '../utils/sdPageUi'
+import { SdDocCell } from '../components/SdDataTableCells'
 import {
-    SdCompanyIdentityCell,
-    SdDateCell,
-    SdDocCell,
-    SdMoneyCell,
-    SdStatusBadgeCell,
-    SdTrackingValuesCell,
-} from '../components/SdDataTableCells'
-import Loading from '@/components/shared/Loading'
-import { rcvMobileCardEnterClass } from '@/modules/mm/receiving/components/receivingTableUi'
+    RcvPartyCell,
+    rcvMobileCardEnterClass,
+} from '@/modules/mm/receiving/components/receivingTableUi'
+import {
+    EXT_PLATFORM_STATUS,
+    ExtPlatformCompanyCell,
+    ExtPlatformLinesCell,
+    ExtPlatformRefCell,
+    ExtPlatformStatusCell,
+    ExtPlatformTotalCell,
+    ExtPlatformTrackingCell,
+    uniqueLineValues,
+} from '../components/extPlatformTableUi'
 import ExtPlatformTransactionDialog from '../components/ExtPlatformTransactionDialog'
 import ExtPlatformTransactionDetailDialog from '../components/ExtPlatformTransactionDetailDialog'
 import { SourceBadge } from '../components/extPlatformUi'
@@ -53,15 +57,6 @@ import type {
 } from '../types/extPlatform'
 
 const ROUTE_PATH = '/modules/sd/ext-platform-sales'
-
-// ── Status styling ──
-
-const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
-    DRAFT: { label: 'Draft', tone: 'default' },
-    CONFIRMED: { label: 'Confirmed', tone: 'info' },
-    APPROVED: { label: 'Approved', tone: 'success' },
-    CANCELLED: { label: 'Cancelled', tone: 'danger' },
-}
 
 const formatMoney = (v: number | string | null | undefined) => {
     const n = Number(v ?? 0)
@@ -165,11 +160,6 @@ export default function ExtPlatformSalesDashboard() {
         [sources],
     )
 
-    const sourceMap = useMemo(
-        () => Object.fromEntries(sources.map((s) => [s.id, s])),
-        [sources],
-    )
-
     // ── Table columns ──
 
     const columns = useMemo<ColumnDef<ExtPlatformTransaction>[]>(
@@ -177,8 +167,8 @@ export default function ExtPlatformSalesDashboard() {
             {
                 header: 'Transaction',
                 accessorKey: 'transactionNumber',
-                size: 188,
-                minSize: 168,
+                size: 200,
+                minSize: 180,
                 enableSorting: false,
                 cell: ({ row }) => (
                     <button
@@ -194,164 +184,111 @@ export default function ExtPlatformSalesDashboard() {
                 ),
             },
             {
-                header: 'Date',
-                accessorKey: 'transactionDate',
-                size: 132,
-                minSize: 120,
-                meta: { className: 'hidden xl:table-cell' },
-                cell: ({ row }) => (
-                    <SdDateCell value={row.original.transactionDate} />
-                ),
-            },
-            {
                 header: 'Source',
                 accessorKey: 'salesSource',
-                size: 156,
-                minSize: 132,
+                size: 170,
+                minSize: 150,
                 enableSorting: false,
-                cell: ({ row }) => (
-                    <SourceBadge source={row.original.salesSource} />
-                ),
+                cell: ({ row }) => <SourceBadge source={row.original.salesSource} />,
             },
             {
-                header: 'Ref',
+                header: 'Reference',
                 accessorKey: 'externalOrderRef',
-                size: 132,
-                minSize: 112,
-                meta: { className: 'hidden 2xl:table-cell' },
-                cell: ({ row }) =>
-                    row.original.externalOrderRef ? (
-                        <span className="block max-w-[7.5rem] truncate font-mono text-xs text-gray-700 dark:text-gray-300 xl:max-w-[9rem]">
-                            {row.original.externalOrderRef}
-                        </span>
-                    ) : (
-                        <span className="text-gray-400">—</span>
-                    ),
+                size: 190,
+                minSize: 160,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformRefCell value={row.original.externalOrderRef} />
+                ),
             },
             {
                 header: 'Company',
                 accessorKey: 'company.name',
-                size: 160,
-                minSize: 140,
-                meta: { className: 'hidden 2xl:table-cell' },
+                size: 230,
+                minSize: 200,
+                enableSorting: false,
                 cell: ({ row }) => (
-                    <SdCompanyIdentityCell
-                        title={row.original.company?.name ?? '—'}
-                        subtitle={row.original.company?.code}
+                    <ExtPlatformCompanyCell
+                        name={row.original.company?.name}
+                        code={row.original.company?.code}
                     />
                 ),
             },
             {
                 header: 'Customer',
                 accessorKey: 'customerName',
-                size: 172,
-                minSize: 148,
-                meta: { className: 'hidden xl:table-cell' },
-                cell: ({ row }) => {
-                    const name =
-                        row.original.customer?.companyName ||
-                        row.original.customerName ||
-                        '—'
-                    return (
-                        <SdCompanyIdentityCell
-                            title={name}
-                            subtitle={row.original.customer?.customerNumber ?? undefined}
-                        />
-                    )
-                },
-            },
-            {
-                header: 'Lines',
-                accessorKey: 'lines',
-                size: 76,
-                minSize: 68,
-                meta: { className: 'hidden lg:table-cell' },
+                size: 210,
+                minSize: 180,
                 enableSorting: false,
                 cell: ({ row }) => (
-                    <span className="tabular-nums text-sm font-medium">
-                        {row.original.lines?.length ?? 0}
-                    </span>
-                ),
-            },
-            {
-                header: 'Batch',
-                id: 'lineBatches',
-                size: 128,
-                minSize: 108,
-                meta: { className: 'hidden lg:table-cell' },
-                enableSorting: false,
-                cell: ({ row }) => (
-                    <SdTrackingValuesCell
-                        values={[
-                            ...new Set(
-                                (row.original.lines ?? [])
-                                    .map((l) => l.batchNumber)
-                                    .filter((v): v is string => Boolean(v)),
-                            ),
-                        ]}
+                    <RcvPartyCell
+                        kind="user"
+                        name={
+                            row.original.customer?.companyName ||
+                            row.original.customerName
+                        }
+                        subtitle={row.original.customer?.customerNumber ?? undefined}
                     />
                 ),
             },
             {
-                header: 'Lot',
-                id: 'lineLots',
-                size: 120,
-                minSize: 100,
-                meta: { className: 'hidden lg:table-cell' },
+                header: 'Items',
+                accessorKey: 'lines',
+                size: 110,
+                minSize: 96,
                 enableSorting: false,
                 cell: ({ row }) => (
-                    <SdTrackingValuesCell
-                        values={[
-                            ...new Set(
-                                (row.original.lines ?? [])
-                                    .map((l) => l.lotNumber)
-                                    .filter((v): v is string => Boolean(v)),
-                            ),
-                        ]}
+                    <ExtPlatformLinesCell count={row.original.lines?.length ?? 0} />
+                ),
+            },
+            {
+                header: 'Batch #',
+                id: 'lineBatches',
+                size: 160,
+                minSize: 140,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="batch"
+                        values={uniqueLineValues(row.original.lines, 'batchNumber')}
+                    />
+                ),
+            },
+            {
+                header: 'Lot #',
+                id: 'lineLots',
+                size: 150,
+                minSize: 130,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="lot"
+                        values={uniqueLineValues(row.original.lines, 'lotNumber')}
                     />
                 ),
             },
             {
                 header: 'Total',
                 accessorKey: 'grandTotal',
-                size: 118,
-                minSize: 104,
+                size: 150,
+                minSize: 136,
                 enableSorting: false,
                 cell: ({ row }) => (
-                    <SdMoneyCell
-                        amount={Number(row.original.grandTotal)}
-                        emphasize
+                    <ExtPlatformTotalCell
+                        total={Number(row.original.grandTotal)}
+                        tax={Number(row.original.taxTotal)}
                     />
-                ),
-            },
-            {
-                header: 'Tax',
-                accessorKey: 'taxTotal',
-                size: 112,
-                minSize: 100,
-                meta: { className: 'hidden xl:table-cell' },
-                enableSorting: false,
-                cell: ({ row }) => (
-                    <SdMoneyCell amount={Number(row.original.taxTotal)} />
                 ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
-                size: 120,
-                minSize: 100,
-                cell: ({ row }) => {
-                    const meta = STATUS_META[row.original.status] ?? {
-                        label: row.original.status,
-                        tone: 'default' as StatusTone,
-                    }
-                    return (
-                        <SdStatusBadgeCell
-                            label={meta.label}
-                            tone={meta.tone}
-                        />
-                    )
-                },
+                size: 130,
+                minSize: 116,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformStatusCell status={row.original.status} />
+                ),
             },
             {
                 header: '',
@@ -364,6 +301,7 @@ export default function ExtPlatformSalesDashboard() {
                         <Button
                             size="xs"
                             variant="plain"
+                            title="View"
                             icon={<HiOutlineEye />}
                             onClick={() => setDetailTx(row.original)}
                         />
@@ -398,6 +336,7 @@ export default function ExtPlatformSalesDashboard() {
                             <Button
                                 size="xs"
                                 variant="plain"
+                                title="Approve"
                                 icon={<HiOutlineClipboardCheck />}
                                 onClick={() => handleApprove(row.original)}
                             />
@@ -409,6 +348,57 @@ export default function ExtPlatformSalesDashboard() {
         // Row actions reload with the current filters.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [loadTransactions, loadSummary],
+    )
+
+    const transactionsMobile = useMemo(
+        () => ({
+            title: (tx: ExtPlatformTransaction) => tx.transactionNumber,
+            subtitle: (tx: ExtPlatformTransaction) =>
+                [
+                    tx.salesSource?.name,
+                    dayjs(tx.transactionDate).format('MMM D, YYYY'),
+                ]
+                    .filter(Boolean)
+                    .join(' · '),
+            status: (tx: ExtPlatformTransaction) => {
+                const meta = EXT_PLATFORM_STATUS[tx.status]
+                return {
+                    text: meta?.label ?? tx.status,
+                    tone: meta?.tone ?? ('default' as const),
+                }
+            },
+            onPress: (tx: ExtPlatformTransaction) => setDetailTx(tx),
+            fields: [
+                {
+                    label: 'Total',
+                    value: (tx: ExtPlatformTransaction) => formatMoney(tx.grandTotal),
+                },
+                {
+                    label: 'Items',
+                    value: (tx: ExtPlatformTransaction) => tx.lines?.length ?? 0,
+                },
+                {
+                    label: 'Reference',
+                    value: (tx: ExtPlatformTransaction) => tx.externalOrderRef || '—',
+                },
+                {
+                    label: 'Customer',
+                    value: (tx: ExtPlatformTransaction) =>
+                        tx.customer?.companyName || tx.customerName || '—',
+                },
+                {
+                    label: 'Batch #',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'batchNumber').join(', ') || '—',
+                },
+                {
+                    label: 'Lot #',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'lotNumber').join(', ') || '—',
+                },
+            ],
+        }),
+        [],
     )
 
     // ── Actions ──
@@ -497,7 +487,7 @@ export default function ExtPlatformSalesDashboard() {
             {/* ── Summary cards ── */}
             {summary && (
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(0)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Transactions
                         </div>
@@ -505,7 +495,7 @@ export default function ExtPlatformSalesDashboard() {
                             {summary.totalTransactions}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(1)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Total Sales
                         </div>
@@ -513,7 +503,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalSales)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(2)}>
                         <div className="text-gray-500 text-xs mb-1">
                             VAT / Tax
                         </div>
@@ -521,7 +511,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalTax)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(3)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Discounts
                         </div>
@@ -529,7 +519,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalDiscount)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(4)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Platform Fees
                         </div>
@@ -537,7 +527,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalPlatformFees)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(5)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Net Settlement
                         </div>
@@ -546,62 +536,6 @@ export default function ExtPlatformSalesDashboard() {
                         </div>
                     </AdaptiveCard>
                 </div>
-            )}
-
-            {/* ── Per-source breakdown ── */}
-            {summary && summary.bySource.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 mb-6">
-                    {summary.bySource.map((s) => (
-                        <Card key={s.salesSourceId} bodyClass="p-3">
-                            <SourceBadge
-                                source={{
-                                    name: s.salesSourceName,
-                                    code: s.salesSourceCode,
-                                    badgeColor:
-                                        sourceMap[s.salesSourceId]
-                                            ?.badgeColor ?? 'gray',
-                                }}
-                            />
-                            <div className="mt-2 text-sm font-semibold">
-                                {formatMoney(s.totalSales)}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                                {s.transactions} txn
-                                {s.transactions !== 1 ? 's' : ''}
-                            </div>
-                        </Card>
-                    ))}
-                </div>
-            )}
-
-            {/* ── Tax breakdown summary ── */}
-            {summary && summary.taxBreakdown.length > 0 && (
-                <Card className="mb-6" bodyClass="p-4">
-                    <h4 className="text-sm font-semibold mb-3">
-                        Tax Breakdown
-                    </h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        {summary.taxBreakdown.map((t) => (
-                            <div key={t.taxClassification}>
-                                <div className="text-gray-500 text-xs mb-1">
-                                    {t.taxClassification === 'VATABLE'
-                                        ? 'VATable Sales'
-                                        : t.taxClassification === 'VAT_EXEMPT'
-                                          ? 'VAT-Exempt Sales'
-                                          : t.taxClassification === 'ZERO_RATED'
-                                            ? 'Zero-Rated Sales'
-                                            : t.taxClassification}
-                                </div>
-                                <div className="font-semibold">
-                                    {formatMoney(t.taxableAmount)}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                    VAT: {formatMoney(t.taxAmount)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </Card>
             )}
 
             {/* ── Filters + Actions bar ── */}
@@ -678,140 +612,38 @@ export default function ExtPlatformSalesDashboard() {
             {/* ── Transactions table ── */}
             <Card bodyClass="p-0">
                 <div className="p-3 sm:p-4">
-                    <p className="mb-3 hidden text-xs text-gray-500 lg:block">
-                        Wide register — scroll horizontally to see batch, lot, tax,
-                        and reference columns.
-                    </p>
-
-                    <div className="lg:hidden">
-                        {loading ? (
-                            <div className="flex min-h-[12rem] items-center justify-center">
-                                <Loading loading />
+                    <ExtPlatformResponsiveTable<ExtPlatformTransaction>
+                        columns={columns}
+                        data={transactions}
+                        compact
+                        loading={loading}
+                        hidePagination
+                        tableMinWidthClass="min-w-0"
+                        overflow={false}
+                        getRowId={(row) => row.id}
+                        skeletonAvatarColumns={[]}
+                        pagingData={{
+                            total,
+                            pageIndex: 0,
+                            pageSize: 200,
+                        }}
+                        mobile={transactionsMobile}
+                        noData={transactions.length === 0}
+                        customNoDataIcon={
+                            <div className="flex w-full flex-col items-center gap-3 py-10 text-center">
+                                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-subtle text-primary-deep">
+                                    <HiOutlineDocumentAdd className="text-2xl" />
+                                </span>
+                                <p className="text-base font-semibold heading-text">
+                                    No transactions found
+                                </p>
+                                <p className="max-w-md text-sm text-gray-500">
+                                    Adjust the filters or record a sale made on Shopee,
+                                    Lazada, TikTok Shop or another channel.
+                                </p>
                             </div>
-                        ) : transactions.length === 0 ? (
-                            <p className="py-10 text-center text-sm text-gray-500">
-                                No transactions match your filters.
-                            </p>
-                        ) : (
-                            <ul className="space-y-3">
-                                {transactions.map((tx, index) => {
-                                    const meta = STATUS_META[tx.status] ?? {
-                                        label: tx.status,
-                                        tone: 'default' as StatusTone,
-                                    }
-                                    const batch = [
-                                        ...new Set(
-                                            (tx.lines ?? [])
-                                                .map((l) => l.batchNumber)
-                                                .filter((v): v is string =>
-                                                    Boolean(v),
-                                                ),
-                                        ),
-                                    ]
-                                    const lot = [
-                                        ...new Set(
-                                            (tx.lines ?? [])
-                                                .map((l) => l.lotNumber)
-                                                .filter((v): v is string =>
-                                                    Boolean(v),
-                                                ),
-                                        ),
-                                    ]
-                                    return (
-                                        <li key={tx.id}>
-                                            <button
-                                                type="button"
-                                                onClick={() => setDetailTx(tx)}
-                                                className={`w-full rounded-xl border border-gray-200/90 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-900/40 ${rcvMobileCardEnterClass(index)}`}
-                                            >
-                                                <div className="mb-2 flex items-start justify-between gap-2">
-                                                    <SdDocCell
-                                                        primary={tx.transactionNumber}
-                                                        secondary={dayjs(
-                                                            tx.transactionDate,
-                                                        ).format('MMM D, YYYY')}
-                                                    />
-                                                    <SdStatusBadgeCell
-                                                        label={meta.label}
-                                                        tone={meta.tone}
-                                                    />
-                                                </div>
-                                                <div className="mb-2">
-                                                    <SourceBadge
-                                                        source={tx.salesSource}
-                                                    />
-                                                </div>
-                                                <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                                                    <div>
-                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                            Total
-                                                        </dt>
-                                                        <dd className="mt-0.5">
-                                                            <SdMoneyCell
-                                                                amount={Number(
-                                                                    tx.grandTotal,
-                                                                )}
-                                                                emphasize
-                                                            />
-                                                        </dd>
-                                                    </div>
-                                                    <div>
-                                                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                            Lines
-                                                        </dt>
-                                                        <dd className="mt-0.5 tabular-nums font-medium">
-                                                            {tx.lines?.length ?? 0}
-                                                        </dd>
-                                                    </div>
-                                                    {batch.length ? (
-                                                        <div className="col-span-2">
-                                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                                Batch
-                                                            </dt>
-                                                            <dd className="mt-0.5">
-                                                                <SdTrackingValuesCell
-                                                                    values={batch}
-                                                                />
-                                                            </dd>
-                                                        </div>
-                                                    ) : null}
-                                                    {lot.length ? (
-                                                        <div className="col-span-2">
-                                                            <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                                Lot
-                                                            </dt>
-                                                            <dd className="mt-0.5">
-                                                                <SdTrackingValuesCell
-                                                                    values={lot}
-                                                                />
-                                                            </dd>
-                                                        </div>
-                                                    ) : null}
-                                                </dl>
-                                            </button>
-                                        </li>
-                                    )
-                                })}
-                            </ul>
-                        )}
-                    </div>
-
-                    <div className="hidden lg:block">
-                        <SdDataTable<ExtPlatformTransaction>
-                            wide
-                            columns={columns}
-                            data={transactions}
-                            loading={loading}
-                            hidePagination
-                            getRowId={(row) => row.id}
-                            skeletonAvatarColumns={[]}
-                            pagingData={{
-                                total,
-                                pageIndex: 0,
-                                pageSize: 200,
-                            }}
-                        />
-                    </div>
+                        }
+                    />
                 </div>
             </Card>
 
