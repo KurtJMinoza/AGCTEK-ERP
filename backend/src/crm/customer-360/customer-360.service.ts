@@ -84,16 +84,19 @@ export class CrmCustomer360Service {
         if (!customer) throw new NotFoundException('Customer not found')
 
         const ordersRead = this.section(customerId, 'orders', EMPTY_ORDERS, () => this.readOrders(customerId))
-        const [profile, opportunities, tickets, loyalty, orders, shipments] = await Promise.all([
-            this.section(customerId, 'profile', null, () =>
-                this.prisma.crmProfile.findUnique({ where: { customerId } }),
-            ),
-            this.section(customerId, 'opportunities', null, () => this.readOpportunities(customerId)),
-            this.section(customerId, 'tickets', null, () => this.readTickets(customerId)),
-            this.section(customerId, 'loyalty', null, () => this.loyalty.summary(customerId)),
-            ordersRead,
-            this.readShipments(customerId, ordersRead),
-        ])
+        const [profile, opportunities, tickets, loyalty, orders, shipments] =
+            await Promise.all([
+                this.section(customerId, 'profile', null, () =>
+                    this.prisma.crmProfile.findUnique({ where: { customerId } }),
+                ),
+                this.section(customerId, 'opportunities', null, () =>
+                    this.readOpportunities(customerId),
+                ),
+                this.section(customerId, 'tickets', null, () => this.readTickets(customerId)),
+                this.section(customerId, 'loyalty', null, () => this.loyalty.summary(customerId)),
+                ordersRead,
+                this.readShipments(customerId, ordersRead),
+            ])
 
         const opportunityBySalesOrder = new Map(
             (opportunities[0]?.rows ?? [])

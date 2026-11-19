@@ -40,6 +40,7 @@ export const LEAD_SOURCES = [
     'CAMPAIGN',
     'EVENT',
     'COLD_CALL',
+    'OCULAR',
     'OTHER',
 ] as const
 export type LeadSource = (typeof LEAD_SOURCES)[number]
@@ -52,6 +53,8 @@ export type Lead = {
     email: string | null
     phone: string | null
     source: LeadSource
+    /** SCM ocular-trip stop where the lead was captured (source OCULAR). */
+    originTripStopId?: string | null
     status: LeadStatus
     assignedTo: string | null
     score: number | null
@@ -84,6 +87,8 @@ export type CreateLeadInput = {
     source?: LeadSource
     customerId?: string
     score?: number
+    /** Capture from an SCM ocular stop: forces source OCULAR and links the stop. */
+    originTripStopId?: string
 }
 
 export type UpdateLeadInput = {
@@ -154,6 +159,8 @@ export type Opportunity = {
     amount: number | null
     currency: string
     stage: OpportunityStage
+    /** When the opportunity entered its current stage (stall clock). */
+    stageEnteredAt: string
     probability: number | null
     expectedCloseDate: string | null
     closedAt: string | null
@@ -310,7 +317,42 @@ export type CreateActivityInput = {
     assignedTo?: string
 }
 
+export type CompleteActivityInput = {
+    next?: CreateActivityInput
+}
+
 export type ActivityParent = { kind: 'opportunity' | 'ticket' | 'lead'; id: string }
+
+/** `GET /crm/activities` — calendar feed (due dates on Asia/Manila calendar days). */
+export type CrmCalendarActivity = {
+    id: string
+    type: ActivityType
+    summary: string
+    dueAt: string
+    /** YYYY-MM-DD in Asia/Manila. */
+    dueDay: string
+    dueStatus: Exclude<NextActivityStatus, 'NONE'> | 'DONE'
+    doneAt: string | null
+    assignedTo: string
+    assignee: CrmUserRef | null
+    parent: {
+        kind: 'opportunity' | 'ticket' | 'lead'
+        id: string
+        label: string
+    } | null
+}
+
+export type CrmActivityCalendar = {
+    generatedAt: string
+    timeZone: string
+    scope: 'mine' | 'all'
+    assignedTo: string | null
+    from: string
+    to: string
+    includeDone: boolean
+    truncated: boolean
+    items: CrmCalendarActivity[]
+}
 
 /**
  * Chatter feed entry (Odoo-style): CRM notes / SYSTEM audit rows plus activities, SD quotes
@@ -740,4 +782,111 @@ export type CrmDashboard = {
         inProgress: number
         conversionRate: number | null
     }
+}
+
+/** `GET /crm/dashboard/cadence` — personal “what to do today”. */
+export type CrmCadenceActivity = {
+    id: string
+    type: string
+    summary: string
+    dueAt: string
+    assignedTo: string
+    parent: {
+        kind: 'opportunity' | 'ticket' | 'lead'
+        id: string
+        label: string
+    } | null
+}
+
+export type CrmCadence = {
+    generatedAt: string
+    scope: 'mine' | 'all'
+    assignedTo: string | null
+    overdueActivities: { count: number; items: CrmCadenceActivity[] }
+    dueTodayActivities: { count: number; items: CrmCadenceActivity[] }
+    openOpportunities: {
+        count: number
+        items: {
+            id: string
+            name: string
+            stage: string
+            amount: string | null
+            currency: string
+            expectedCloseDate: string | null
+        }[]
+    }
+    openTickets: {
+        count: number
+        items: {
+            id: string
+            subject: string
+            priority: string
+            status: string
+        }[]
+    }
+}
+
+/** `GET /crm/dashboard/lead-sources` — source mix for leads created in a period. */
+export type CrmLeadSources = {
+    generatedAt: string
+    scope: 'mine' | 'all'
+    assignedTo: string | null
+    periodFrom: string
+    periodTo: string
+    sources: {
+        source: LeadSource
+        leadsCreated: number
+        converted: number
+        conversionRate: number | null
+        won: {
+            count: number
+            byCurrency: { currency: string; count: number; amount: string }[]
+        }
+    }[]
+    totals: {
+        leadsCreated: number
+        converted: number
+        conversionRate: number | null
+        wonCount: number
+    }
+}
+
+/** `GET /crm/dashboard/stalled` — open opps past stage-age threshold. */
+export type CrmStalled = {
+    generatedAt: string
+    scope: 'mine' | 'all'
+    assignedTo: string | null
+    thresholdDays: number
+    count: number
+    items: {
+        id: string
+        name: string
+        stage: string
+        amount: string | null
+        currency: string
+        expectedCloseDate: string | null
+        stageEnteredAt: string
+        daysInStage: number
+        assignedTo: string | null
+    }[]
+}
+
+export const STALL_DEFAULT_THRESHOLD_DAYS = 14
+
+/** `GET /crm/dashboard/pipeline` — open funnel + period win rate. */
+export type CrmPipelineMetrics = {
+    generatedAt: string
+    scope: 'mine' | 'all'
+    assignedTo: string | null
+    periodFrom: string
+    periodTo: string
+    stages: {
+        stage: string
+        count: number
+        byCurrency: { currency: string; count: number; totalAmount: string }[]
+    }[]
+    totals: { currency: string; count: number; totalAmount: string }[]
+    winRate: number | null
+    won: number
+    lost: number
 }

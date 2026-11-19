@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
     ConflictException,
     Injectable,
     NotFoundException,
@@ -9,11 +10,18 @@ import { assertUserExists, CRM_USER_SUMMARY_SELECT } from '../crm-references'
 import { OPPORTUNITY_OPEN_STAGES } from '../opportunities/dto/opportunity.dto'
 import {
     activityDueStatus,
+    CRM_BUSINESS_TIME_ZONE,
     NextActivitySummary,
     NO_NEXT_ACTIVITY,
     summarizeNextActivity,
 } from './activity-status'
-import { CompleteActivityDto, CreateActivityDto } from './dto/activity.dto'
+import {
+    CALENDAR_MAX_ITEMS,
+    CALENDAR_MAX_RANGE_DAYS,
+    CalendarActivitiesQueryDto,
+    CompleteActivityDto,
+    CreateActivityDto,
+} from './dto/activity.dto'
 
 const OPEN_STAGES: ReadonlySet<string> = new Set(OPPORTUNITY_OPEN_STAGES)
 /** Matches the ticket rule: CLOSED / CANCELLED are read-only; RESOLVED may still get follow-ups. */
@@ -105,6 +113,88 @@ export class CrmActivitiesService {
         return this.completeFor({ kind: 'lead', id: leadId }, activityId, dto, userId)
     }
 
+    /**
+     * Cross-parent calendar feed for planning.
+     * Days are stored as UTC instants; `dueDay` is the Asia/Manila calendar date (YYYY-MM-DD).
+     */
+    async calendar(userId: string, query: CalendarActivitiesQueryDto, now = new Date()) {
+        if (query.to.getTime() < query.from.getTime()) {
+            throw new BadRequestException('`to` must be on or after `from`')
+        }
+        const spanDays =
+            (query.to.getTime() - query.from.getTime()) / (24 * 60 * 60 * 1000)
+        if (spanDays > CALENDAR_MAX_RANGE_DAYS) {
+            throw new BadRequestException(
+                `Calendar range cannot exceed ${CALENDAR_MAX_RANGE_DAYS} days`,
+            )
+        }
+
+        const assignedTo =
+            query.scope === 'all' ? undefined : (query.assignedTo?.trim() || userId)
+        const where: Prisma.CrmActivityWhereInput = {
+            dueAt: { gte: query.from, lte: query.to },
+            ...(assignedTo ? { assignedTo } : {}),
+            ...(query.includeDone ? {} : { doneAt: null }),
+        }
+
+        const rows = await this.prisma.crmActivity.findMany({
+            where,
+            include: {
+                opportunity: { select: { id: true, name: true } },
+                lead: { select: { id: true, name: true } },
+                ticket: { select: { id: true, subject: true } },
+            },
+            orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
+            take: CALENDAR_MAX_ITEMS,
+        })
+
+        const presented = await this.present(rows as CrmActivity[], now)
+        return {
+            generatedAt: now,
+            timeZone: CRM_BUSINESS_TIME_ZONE,
+            scope: query.scope === 'all' ? 'all' : 'mine',
+            assignedTo: assignedTo ?? null,
+            from: query.from,
+            to: query.to,
+            includeDone: Boolean(query.includeDone),
+            truncated: rows.length >= CALENDAR_MAX_ITEMS,
+            items: presented.map((row, i) => {
+                const raw = rows[i]
+                const parent = raw.opportunity
+                    ? {
+                          kind: 'opportunity' as const,
+                          id: raw.opportunity.id,
+                          label: raw.opportunity.name,
+                      }
+                    : raw.ticket
+                      ? {
+                            kind: 'ticket' as const,
+                            id: raw.ticket.id,
+                            label: raw.ticket.subject,
+                        }
+                      : raw.lead
+                        ? {
+                              kind: 'lead' as const,
+                              id: raw.lead.id,
+                              label: raw.lead.name,
+                          }
+                        : null
+                return {
+                    id: row.id,
+                    type: row.type,
+                    summary: row.summary,
+                    dueAt: row.dueAt,
+                    dueDay: businessCalendarDay(row.dueAt),
+                    dueStatus: row.dueStatus,
+                    doneAt: row.doneAt,
+                    assignedTo: row.assignedTo,
+                    assignee: row.assignee,
+                    parent,
+                }
+            }),
+        }
+    }
+
     /** Open activities first (earliest due first), then completed ones. */
     private async list(parent: ActivityParent, now: Date) {
         await this.findParent(parent)
@@ -151,6 +241,7 @@ export class CrmActivitiesService {
                 throw new ConflictException('Activity is already completed')
             }
             const done = await tx.crmActivity.findUniqueOrThrow({ where: { id: activityId } })
+
             const created =
                 dto.next && nextAssignee
                     ? await tx.crmActivity.create({
@@ -285,7 +376,10 @@ export class CrmActivitiesService {
     private async present(rows: CrmActivity[], now = new Date()) {
         const ids = [...new Set(rows.map((r) => r.assignedTo))]
         const users = ids.length
-            ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: CRM_USER_SUMMARY_SELECT })
+            ? await this.prisma.user.findMany({
+                  where: { id: { in: ids } },
+                  select: CRM_USER_SUMMARY_SELECT,
+              })
             : []
         const byId = new Map(users.map((u) => [u.id, u]))
         return rows.map((row) => ({
@@ -294,4 +388,14 @@ export class CrmActivitiesService {
             assignee: byId.get(row.assignedTo) ?? null,
         }))
     }
+}
+
+/** YYYY-MM-DD on the CRM business calendar (Asia/Manila). */
+function businessCalendarDay(date: Date, timeZone = CRM_BUSINESS_TIME_ZONE) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date)
 }

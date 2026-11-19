@@ -13,6 +13,8 @@ export type ListParams = {
     vehicleId?: string
     movementType?: string
     type?: string
+    purpose?: string
+    driverId?: string
 }
 
 export type VehicleStatus =
@@ -297,6 +299,10 @@ export type TripStop = {
     locationKey?: string | null
     warehouseId?: string | null
     warehouse?: { id: string; code: string; name: string } | null
+    /** OCULAR trips: known lead / customer visited here, and the lead captured here */
+    existingLeadId?: string | null
+    customerId?: string | null
+    createdLeadId?: string | null
     shipments?: TripStopShipment[]
     lines?: TripStopLine[]
 }
@@ -307,9 +313,11 @@ export type Trip = {
     vehicleId: string | null
     driverId: string | null
     status: TripStatus
-    /** Cargo-first: trip built from this load plan (null = legacy trip) */
+    /** Cargo-first: trip built from this load plan (null = legacy / ocular) */
     loadPlanId?: string | null
     loadPlan?: Pick<LoadPlan, 'id' | 'code' | 'status' | 'totalQty'> | null
+    /** DELIVERY (default) | OCULAR */
+    purpose?: string
     plannedEndAt?: string | null
     dispatchedAt?: string | null
     plannedStartAt: string | null
@@ -492,6 +500,7 @@ export type FleetActiveTrip = {
     id: string
     code: string
     status: TripStatus
+    purpose?: string
     stops?: FleetActiveTripStop[]
 }
 

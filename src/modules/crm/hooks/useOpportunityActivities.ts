@@ -1,11 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { apiCompleteActivity, apiCreateActivity, apiGetActivities } from '../services/crmApi'
-import type { Activity, ActivityParent, CreateActivityInput } from '../types'
+import {
+    apiCompleteActivity,
+    apiCreateActivity,
+    apiGetActivities,
+} from '../services/crmApi'
+import type {
+    Activity,
+    ActivityParent,
+    CreateActivityInput,
+} from '../types'
 import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 
-/** Activities for one opportunity or ticket; `parent = null` keeps the hook idle. */
+/** Activities for one opportunity, lead, or ticket; `parent = null` keeps the hook idle. */
 export function useActivities(parent: ActivityParent | null) {
     const kind = parent?.kind ?? null
     const id = parent?.id ?? null

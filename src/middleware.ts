@@ -27,7 +27,19 @@ import {
 } from '@/modules/storefront/retail/brand'
 import { repairErpModulePath } from '@/utils/erp-path'
 
-const { auth } = NextAuth(authConfig)
+/**
+ * Edge middleware needs a static NextAuth instance. Keep cookie Secure aligned with
+ * `src/auth.ts`: AUTH_URL=http://… must never use `__Secure-` session cookies.
+ */
+const { auth } = NextAuth({
+    ...authConfig,
+    trustHost: true,
+    useSecureCookies: !(
+        process.env.AUTH_URL ??
+        process.env.NEXTAUTH_URL ??
+        ''
+    ).startsWith('http://'),
+})
 
 const publicRoutes = Object.entries(_publicRoutes).map(([key]) => key)
 const authRoutes = Object.entries(_authRoutes).map(([key]) => key)

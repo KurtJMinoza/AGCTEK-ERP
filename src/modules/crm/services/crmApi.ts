@@ -12,6 +12,11 @@ import type {
     WinOpportunityInput,
     CreateOpportunitySalesOrderResult,
     CreateTicketInput,
+    CrmCadence,
+    CrmPipelineMetrics,
+    CrmActivityCalendar,
+    CrmLeadSources,
+    CrmStalled,
     CrmDashboard,
     CrmMessage,
     Customer360,
@@ -211,6 +216,41 @@ export async function apiGetCrmDashboard(days?: number) {
     return get<CrmDashboard>('/crm/dashboard', compact({ days }))
 }
 
+export async function apiGetCrmCadence(params?: {
+    scope?: 'mine' | 'all'
+    assignedTo?: string
+}) {
+    return get<CrmCadence>('/crm/dashboard/cadence', compact(params))
+}
+
+export async function apiGetCrmPipelineMetrics(params?: {
+    scope?: 'mine' | 'all'
+    assignedTo?: string
+    days?: number
+    from?: string
+    to?: string
+}) {
+    return get<CrmPipelineMetrics>('/crm/dashboard/pipeline', compact(params))
+}
+
+export async function apiGetCrmStalled(params?: {
+    scope?: 'mine' | 'all'
+    assignedTo?: string
+    thresholdDays?: number
+}) {
+    return get<CrmStalled>('/crm/dashboard/stalled', compact(params))
+}
+
+export async function apiGetCrmLeadSources(params?: {
+    scope?: 'mine' | 'all'
+    assignedTo?: string
+    days?: number
+    from?: string
+    to?: string
+}) {
+    return get<CrmLeadSources>('/crm/dashboard/lead-sources', compact(params))
+}
+
 const ACTIVITY_PARENT_ROOT: Record<ActivityParent['kind'], string> = {
     opportunity: '/crm/opportunities',
     ticket: '/crm/tickets',
@@ -263,6 +303,17 @@ const activitiesPath = (parent: ActivityParent) =>
 
 export async function apiGetActivities(parent: ActivityParent) {
     return get<Activity[]>(activitiesPath(parent))
+}
+
+/** Cross-parent calendar feed (`from` / `to` ISO instants). */
+export async function apiGetCrmActivityCalendar(params: {
+    from: string
+    to: string
+    scope?: 'mine' | 'all'
+    assignedTo?: string
+    includeDone?: boolean
+}) {
+    return get<CrmActivityCalendar>('/crm/activities', compact(params))
 }
 
 export async function apiCreateActivity(

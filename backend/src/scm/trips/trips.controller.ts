@@ -22,7 +22,13 @@ export class TripsController {
     @Get()
     @RequirePermission(['scm.trips', 'scm.trip-planning', 'scm.tracking'], 'read')
     findAll(
-        @Query() query: ListQuery & { vehicleId?: string; driverId?: string },
+        @Query()
+        query: ListQuery & {
+            vehicleId?: string
+            driverId?: string
+            purpose?: string
+            crmActivityId?: string
+        },
     ) {
         return this.tripsService.findAll(query)
     }

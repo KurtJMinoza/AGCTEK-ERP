@@ -110,6 +110,18 @@ Then open `/scm/tracking` — pin appears with other GPS vehicles when none sele
 - Unknown ident → `{ ignored: true }` + warning
 - MQTT disconnects reconnect with backoff; they do **not** crash the API
 
+## 7. Ocular trips (trip-first, SCM → CRM)
+
+Field ocular runs are planned and tracked in **SCM** as a `Trip` with `purpose = OCULAR`. CRM has **no** ocular activity type; it only receives leads.
+
+- `GET /scm/vehicles/available[?from&to]` lists vehicles with no overlapping reserving trip (PLANNED/READY/DISPATCHED/ASSIGNED/IN_TRANSIT). Without a window every in-service vehicle is returned.
+- `POST /scm/ocular-trips` creates the run (vehicle + window + optional driver/notes). `PATCH /scm/ocular-trips/:id` edits it. No load plan, shipments or goods issue.
+- Stops (`TripStop`) are in **manual order**: `POST :id/stops`, `PATCH :id/stops/:stopId`, `PATCH :id/stops/sequence` (`{ stopIds }`), `DELETE :id/stops/:stopId`, `PATCH :id/stops/:stopId/status` (ARRIVED / COMPLETED / SKIPPED, trip must be started). A stop may reference an existing lead/customer (`existingLeadId`, `customerId`: soft references, visit only).
+- Start / cancel / complete use `PATCH /scm/trips/:id/status`; the trip auto-completes when every stop is done or skipped. List with `GET /scm/trips?purpose=OCULAR`.
+- **Create lead from a stop:** the UI calls CRM `POST /crm/leads` with `originTripStopId`; CRM forces `source = OCULAR`, stores `originTripStopId`, and emits `crm.lead.captured-at-ocular-stop`; SCM links `TripStop.createdLeadId` (idempotent). Duplicate stops capture is rejected (409). After that, follow-up is normal CRM activities (call / task / meeting).
+- Live position is the normal path above: vehicle `telematicsDeviceId` → `GpsLog`; `/scm/tracking?purpose=OCULAR&tripId=…` filters the map, which shows the selected unit's stop markers.
+- Leads from ocular runs: CRM leads list, filter `source = OCULAR`.
+
 ## Out of scope
 
 - flespi UI inside `src/modules/scm`

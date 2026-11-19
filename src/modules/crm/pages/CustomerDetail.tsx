@@ -523,6 +523,7 @@ export default function CustomerDetailPage() {
                         />
                     </Section>
                 </TabContent>
+
             </Tabs>
 
             <OpportunityFormDialog

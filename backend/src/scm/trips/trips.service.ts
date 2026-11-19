@@ -250,7 +250,12 @@ export class TripsService {
     ) {}
 
     async findAll(
-        query: ListQuery & { vehicleId?: string; driverId?: string },
+        query: ListQuery & {
+            vehicleId?: string
+            driverId?: string
+            purpose?: string
+            crmActivityId?: string
+        },
     ): Promise<PaginatedResult<unknown>> {
         const { page, pageSize, skip } = parsePagination(query)
         const where: Prisma.TripWhereInput = {}
@@ -260,6 +265,9 @@ export class TripsService {
         }
         if (query.driverId) {
             where.driverId = query.driverId
+        }
+        if (query.purpose?.trim()) {
+            where.purpose = query.purpose.trim().toUpperCase()
         }
 
         if (query.status) {
@@ -1040,6 +1048,7 @@ export class TripsService {
                     vehicleId: body.vehicleId || null,
                     driverId: body.driverId || null,
                     status,
+                    purpose: 'DELIVERY',
                     plannedStartAt: optionalDate(body.plannedStartAt),
                     notes: optionalString(body.notes) ?? null,
                     totalQty: totalQty ?? null,
@@ -1239,6 +1248,19 @@ export class TripsService {
 
         if (completing && trip.vehicleId) {
             await this.finalizeTripOdometer(trip.id, trip.vehicleId)
+        }
+
+        // Ocular trips carry no shipments, so the shipment branches above never free the driver.
+        if (
+            trip.purpose === 'OCULAR' &&
+            trip.driverId &&
+            (completing || status === TripStatus.CANCELLED) &&
+            trip.status !== status
+        ) {
+            await this.prisma.driver.updateMany({
+                where: { id: trip.driverId, status: DriverStatus.ON_TRIP },
+                data: { status: DriverStatus.AVAILABLE },
+            })
         }
 
         return this.findOne(id)

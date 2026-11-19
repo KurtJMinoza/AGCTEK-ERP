@@ -1,8 +1,27 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common'
 import { CurrentUser, type AuthRequestUser } from '../../auth/auth.decorator'
 import { RequirePermission } from '../../permissions/permission.guard'
 import { CrmActivitiesService } from './activities.service'
-import { CompleteActivityDto, CreateActivityDto } from './dto/activity.dto'
+import {
+    CalendarActivitiesQueryDto,
+    CompleteActivityDto,
+    CreateActivityDto,
+} from './dto/activity.dto'
+
+/** Cross-parent calendar feed (`from` / `to` required). */
+@Controller('crm/activities')
+export class CrmCalendarActivitiesController {
+    constructor(private readonly activities: CrmActivitiesService) {}
+
+    @Get()
+    @RequirePermission('crm.activities', 'read')
+    calendar(
+        @Query() query: CalendarActivitiesQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.activities.calendar(user.id, query)
+    }
+}
 
 @Controller('crm/opportunities/:opportunityId/activities')
 export class CrmActivitiesController {

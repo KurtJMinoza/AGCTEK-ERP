@@ -120,7 +120,6 @@ export type PosReceipt = {
         status: string
         verificationStatus: string
     }>
-    paymentStatus?: string | null
     warnings: string[]
     /** Partial payment fields (null for full-payment sales). */
     paymentMode: string | null
@@ -129,7 +128,7 @@ export type PosReceipt = {
     downPaymentAmount: number | null
     outstandingBalance: number
     dueDate: string | null
-    paymentStatus: string
+    paymentStatus: string | null
 }
 
 /**
@@ -1364,7 +1363,6 @@ export class PosCheckoutService {
                 status: payment.status,
                 verificationStatus: payment.verificationStatus,
             })),
-            paymentStatus: resolvePosOrderPaymentStatus(payments),
             warnings,
             paymentMode: order.downPaymentType ? 'DOWN_PAYMENT' : null,
             downPaymentType: order.downPaymentType ?? null,
@@ -1376,7 +1374,10 @@ export class PosCheckoutService {
                 : null,
             outstandingBalance: Number(order.outstandingBalance ?? 0),
             dueDate: order.dueDate?.toISOString() ?? null,
-            paymentStatus: order.paymentStatus ?? order.status,
+            paymentStatus:
+                resolvePosOrderPaymentStatus(payments) ??
+                order.paymentStatus ??
+                order.status,
         }
     }
 }

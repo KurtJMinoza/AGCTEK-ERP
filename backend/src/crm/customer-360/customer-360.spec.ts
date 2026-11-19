@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common'
+﻿import { NotFoundException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
@@ -96,7 +96,12 @@ describe('CrmCustomer360Service', () => {
         await expect(service.get('cust-1')).resolves.toEqual({
             customer,
             profile: null,
-            summary: { openOpportunities: 0, wonOpportunities: 0, openTickets: 0, salesOrders: 0 },
+            summary: {
+                openOpportunities: 0,
+                wonOpportunities: 0,
+                openTickets: 0,
+                salesOrders: 0,
+            },
             opportunities: [],
             tickets: [],
             loyalty: {
@@ -137,7 +142,12 @@ describe('CrmCustomer360Service', () => {
         ])
         expect(result.shipments).toEqual([shipment])
         expect(result.opportunities[0].amount).toBe('2500.00')
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: 1, salesOrders: 1 })
+        expect(result.summary).toEqual({
+            openOpportunities: 1,
+            wonOpportunities: 1,
+            openTickets: 1,
+            salesOrders: 1,
+        })
         expect(result.sections).toEqual(allOk)
     })
 
@@ -199,7 +209,12 @@ describe('CrmCustomer360Service', () => {
         expect(result.profile).toBeNull()
         expect(result.tickets).toEqual([])
         expect(result.loyalty).toBeNull()
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: null, salesOrders: 1 })
+        expect(result.summary).toEqual({
+            openOpportunities: 1,
+            wonOpportunities: 1,
+            openTickets: null,
+            salesOrders: 1,
+        })
         expect(result.sections).toMatchObject({
             profile: { status: 'unavailable' },
             tickets: { status: 'unavailable' },

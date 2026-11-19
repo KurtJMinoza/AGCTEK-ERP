@@ -2,11 +2,15 @@ import {
     BadRequestException,
     ConflictException,
     Injectable,
+    Logger,
     NotFoundException,
+    Optional,
 } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { PrismaService } from '../../prisma/prisma.service'
+import { OCULAR_EVENTS, type OcularLeadCapturedEvent } from '../../scm/trips/ocular-trip.events'
 import { CustomerService } from '../../sd/customer.service'
 import type { CreateCustomerDto } from '../../sd/dto/customer.dto'
 import { CrmActivitiesService } from '../activities/activities.service'
@@ -56,6 +60,8 @@ const leadInclude = {
 
 @Injectable()
 export class CrmLeadsService {
+    private readonly logger = new Logger(CrmLeadsService.name)
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly opportunities: CrmOpportunitiesService,
@@ -63,6 +69,8 @@ export class CrmLeadsService {
         private readonly customers: CustomerService,
         private readonly permissions: PermissionsService,
         private readonly messages: CrmMessagesService,
+        /** Optional so unit specs can build the service without the event bus. */
+        @Optional() private readonly events?: EventEmitter2,
     ) {}
 
     async list(query: ListLeadsQueryDto) {
@@ -111,14 +119,16 @@ export class CrmLeadsService {
     async create(dto: CreateLeadDto, userId: string) {
         if (dto.customerId) await assertCustomerExists(this.prisma, dto.customerId)
         if (dto.assignedTo) await assertUserExists(this.prisma, dto.assignedTo)
+        if (dto.originTripStopId) await this.assertOcularStopOpen(dto.originTripStopId)
 
-        return this.prisma.$transaction(async (tx) => {
+        const lead = await this.prisma.$transaction(async (tx) => {
             const lead = await tx.crmLead.create({
                 data: {
                     name: dto.name,
                     email: dto.email ?? null,
                     phone: dto.phone ?? null,
-                    source: dto.source ?? 'OTHER',
+                    source: dto.originTripStopId ? 'OCULAR' : (dto.source ?? 'OTHER'),
+                    originTripStopId: dto.originTripStopId ?? null,
                     customerId: dto.customerId ?? null,
                     assignedTo: dto.assignedTo ?? null,
                     score: dto.score ?? null,
@@ -135,6 +145,37 @@ export class CrmLeadsService {
             )
             return lead
         })
+
+        if (dto.originTripStopId) {
+            // SCM links the stop; a failure here must not undo the captured lead.
+            try {
+                await this.events?.emitAsync(OCULAR_EVENTS.LEAD_CAPTURED, {
+                    leadId: lead.id,
+                    tripStopId: dto.originTripStopId,
+                } satisfies OcularLeadCapturedEvent)
+            } catch (err) {
+                this.logger.warn(
+                    `Lead ${lead.id} captured at stop ${dto.originTripStopId} but SCM could not link it: ${
+                        err instanceof Error ? err.message : String(err)
+                    }`,
+                )
+            }
+        }
+        return lead
+    }
+
+    /** Read-only check of the SCM stop (owned by SCM): it must exist, be an ocular stop, and have no lead yet. */
+    private async assertOcularStopOpen(tripStopId: string) {
+        const stop = await this.prisma.tripStop.findUnique({
+            where: { id: tripStopId },
+            select: { createdLeadId: true, trip: { select: { purpose: true } } },
+        })
+        if (!stop || stop.trip.purpose !== 'OCULAR') {
+            throw new BadRequestException('Ocular trip stop not found')
+        }
+        if (stop.createdLeadId) {
+            throw new ConflictException('A lead was already captured at this stop')
+        }
     }
 
     async update(id: string, dto: UpdateLeadDto, userId: string) {

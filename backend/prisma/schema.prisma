@@ -8673,9 +8673,11 @@ model Trip {
   driverId        String?
   driver          Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
   status          TripStatus      @default(DRAFT)
-  /// Cargo-first TMS: trip built from this READY load plan (null = legacy trip)
+  /// Cargo-first TMS: trip built from this READY load plan (null = legacy / ocular trip)
   loadPlanId      String?
   loadPlan        LoadPlan?       @relation(fields: [loadPlanId], references: [id], onDelete: SetNull)
+  /// DELIVERY (cargo / default) | OCULAR (field site-visit run — vehicle + stops, no shipments)
+  purpose         String          @default("DELIVERY")
   plannedStartAt  DateTime?
   plannedEndAt    DateTime?
   dispatchedAt    DateTime?
@@ -8697,6 +8699,7 @@ model Trip {
   @@index([vehicleId])
   @@index([driverId])
   @@index([loadPlanId])
+  @@index([purpose, status])
 }
 
 model TripStop {
@@ -8738,6 +8741,11 @@ model TripStop {
   locationSnapshotAt DateTime?
   warehouseId        String?
   warehouse          Warehouse?             @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+  /// OCULAR trips (soft references to CRM / SD; SCM never writes those tables):
+  /// known lead or customer visited at this stop, and the lead captured here.
+  existingLeadId     String?
+  customerId         String?
+  createdLeadId      String?
   shipments          TripStopShipment[]
   lines              TripStopLine[]
   events             TripStopEvent[]
@@ -9154,8 +9162,10 @@ model CrmLead {
   name          String
   email         String?
   phone         String?
-  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OTHER
+  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OCULAR | OTHER
   source        String           @default("OTHER")
+  /// SCM ocular-trip stop this lead was captured at (soft reference; SCM owns the stop)
+  originTripStopId String?
   /// NEW | CONTACTED | QUALIFIED | UNQUALIFIED | CONVERTED | LOST
   status        String           @default("NEW")
   assignedTo    String?
@@ -9188,6 +9198,8 @@ model CrmOpportunity {
   currency          String          @default("PHP")
   /// PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
   stage             String          @default("PROSPECTING")
+  /// When the opportunity entered its current stage (stall clock). Set on create and every stage change.
+  stageEnteredAt    DateTime        @default(now())
   /// 0–100
   probability       Int?
   expectedCloseDate DateTime?
@@ -9211,6 +9223,7 @@ model CrmOpportunity {
   @@index([stage])
   @@index([assignedTo])
   @@index([leadId])
+  @@index([stage, stageEnteredAt])
   @@map("crm_opportunities")
 }
 
@@ -9347,6 +9360,7 @@ model CrmActivity {
   @@index([leadId, dueAt])
   @@index([ticketId, dueAt])
   @@index([assignedTo, dueAt])
+  @@index([type, dueAt])
   @@map("crm_activities")
 }
 

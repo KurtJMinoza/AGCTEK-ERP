@@ -369,6 +369,15 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'barChart',
                     },
                     {
+                        code: 'calendar',
+                        title: 'Activity calendar',
+                        description:
+                            'Week and month view of calls, meetings and tasks (Asia/Manila).',
+                        path: '/crm/calendar',
+                        icon: 'calendar',
+                        permissionCode: 'crm.activities',
+                    },
+                    {
                         code: 'customers',
                         title: 'Customers',
                         description:

@@ -14,10 +14,13 @@ import PageHeader from '@/components/shared/PageHeader'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
 import TripLoadManifestDialog from '../components/trips/TripLoadManifestDialog'
+import OcularTripFormDialog from '../components/trips/OcularTripFormDialog'
+import OcularTripStopsDialog from '../components/trips/OcularTripStopsDialog'
 import { useTrips } from '../hooks/useTrips'
 import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
 import type { Trip } from '../types'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 
 type Option = { value: string; label: string }
 
@@ -33,15 +36,34 @@ const statusOptions: Option[] = [
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
+const purposeOptions: Option[] = [
+    { value: '', label: 'All purposes' },
+    { value: 'DELIVERY', label: 'Delivery' },
+    { value: 'OCULAR', label: 'Ocular' },
+]
+
 export default function TripsPage() {
-    const { data, total, page, pageSize, loading, error, params, setParams } =
+    const { data, total, page, pageSize, loading, error, params, setParams, reload } =
         useTrips()
+    const { canCreate } = useResourceAccess()
 
     const [manifestTripId, setManifestTripId] = useState<string | null>(null)
+    const [createOpen, setCreateOpen] = useState(false)
+    const [ocularTripId, setOcularTripId] = useState<string | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
         () => [
             { header: 'Code', accessorKey: 'code' },
+            {
+                header: 'Purpose',
+                cell: ({ row }) => (
+                    <StatusBadge
+                        tone={row.original.purpose === 'OCULAR' ? 'info' : undefined}
+                    >
+                        {formatStatusLabel(row.original.purpose ?? 'DELIVERY')}
+                    </StatusBadge>
+                ),
+            },
             {
                 header: 'Vehicle',
                 cell: ({ row }) =>
@@ -107,15 +129,26 @@ export default function TripsPage() {
             {
                 header: '',
                 id: 'actions',
-                cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        variant="plain"
-                        icon={<HiOutlineEye />}
-                        aria-label={`View load manifest for ${row.original.code}`}
-                        onClick={() => setManifestTripId(row.original.id)}
-                    />
-                ),
+                cell: ({ row }) =>
+                    row.original.purpose === 'OCULAR' ? (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineEye />}
+                            aria-label={`Manage ocular stops for ${row.original.code}`}
+                            onClick={() => setOcularTripId(row.original.id)}
+                        >
+                            Plan stops
+                        </Button>
+                    ) : (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineEye />}
+                            aria-label={`View load manifest for ${row.original.code}`}
+                            onClick={() => setManifestTripId(row.original.id)}
+                        />
+                    ),
             },
         ],
         [],
@@ -125,8 +158,15 @@ export default function TripsPage() {
         <PageContainer>
             <PageHeader
                 title="Trips"
-                description="Trip list and history. Trips are planned and dispatched in Trip Planning; drivers start and complete them in the driver app."
+                description="Trip list and history. Delivery trips come from Trip Planning; ocular trips are planned here (vehicle + stops) and any lead captured on site is created with source Ocular."
                 breadcrumbs={scmPageBreadcrumbs('Trips')}
+                actions={
+                    canCreate ? (
+                        <Button size="sm" variant="solid" onClick={() => setCreateOpen(true)}>
+                            New ocular trip
+                        </Button>
+                    ) : null
+                }
             />
 
             {error ? (
@@ -165,6 +205,22 @@ export default function TripsPage() {
                             }))
                         }
                     />
+                    <Select
+                        className="md:w-48"
+                        options={purposeOptions}
+                        value={
+                            purposeOptions.find(
+                                (option) => option.value === (params.purpose ?? ''),
+                            ) ?? purposeOptions[0]
+                        }
+                        onChange={(option) =>
+                            setParams((current) => ({
+                                ...current,
+                                page: 1,
+                                purpose: (option as Option | null)?.value || undefined,
+                            }))
+                        }
+                    />
                 </div>
             </AdaptiveCard>
 
@@ -196,6 +252,20 @@ export default function TripsPage() {
                 isOpen={Boolean(manifestTripId)}
                 tripId={manifestTripId}
                 onClose={() => setManifestTripId(null)}
+            />
+            <OcularTripStopsDialog
+                isOpen={Boolean(ocularTripId)}
+                tripId={ocularTripId}
+                onClose={() => setOcularTripId(null)}
+                onChanged={() => void reload()}
+            />
+            <OcularTripFormDialog
+                open={createOpen}
+                onClose={() => setCreateOpen(false)}
+                onCreated={(id) => {
+                    void reload()
+                    setOcularTripId(id)
+                }}
             />
         </PageContainer>
     )

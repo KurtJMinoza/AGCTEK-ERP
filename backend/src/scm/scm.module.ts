@@ -10,6 +10,8 @@ import { DamageReportsService } from './damage-reports/damage-reports.service'
 import { DriverDamageReportsController } from './damage-reports/driver-damage-reports.controller'
 import { TripsController } from './trips/trips.controller'
 import { TripsService } from './trips/trips.service'
+import { OcularTripsController } from './trips/ocular-trips.controller'
+import { OcularTripsService } from './trips/ocular-trips.service'
 import { TrackingController } from './tracking/tracking.controller'
 import { TrackingService } from './tracking/tracking.service'
 import { TrackingGateway } from './tracking/tracking.gateway'
@@ -51,6 +53,7 @@ import { SdModule } from '../sd/sd.module'
         DamageReportsController,
         DriverDamageReportsController,
         TripsController,
+        OcularTripsController,
         TrackingController,
         MaintenanceController,
         VehicleDocumentsController,
@@ -69,6 +72,7 @@ import { SdModule } from '../sd/sd.module'
         ShipmentsService,
         DamageReportsService,
         TripsService,
+        OcularTripsService,
         TrackingService,
         TrackingGateway,
         FlespiMqttService,

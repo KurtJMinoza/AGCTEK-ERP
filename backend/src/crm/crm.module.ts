@@ -18,6 +18,7 @@ import { CrmCustomer360Controller } from './customer-360/customer-360.controller
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
 import {
     CrmActivitiesController,
+    CrmCalendarActivitiesController,
     CrmLeadActivitiesController,
     CrmTicketActivitiesController,
 } from './activities/activities.controller'
@@ -56,6 +57,7 @@ import { CrmEmailInboundPoller } from './emails/crm-email-inbound.poller'
         CrmTicketsController,
         CrmLoyaltyController,
         CrmCustomer360Controller,
+        CrmCalendarActivitiesController,
         CrmActivitiesController,
         CrmTicketActivitiesController,
         CrmDashboardController,
