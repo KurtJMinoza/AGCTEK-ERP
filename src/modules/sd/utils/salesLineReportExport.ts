@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import {
+    formatSalesDueDate,
     salesPaymentMethodLabel,
     type SalesLineReportRow,
 } from '../services/salesAnalyticsService'
@@ -31,6 +32,8 @@ export function downloadSalesLineReportExcel(
         'Sales type': row.salesType,
         'Paid status': row.paidStatus || 'Unpaid',
         'Balance due': money(row.balanceDue ?? 0),
+        'Due date': formatSalesDueDate(row.dueDate),
+        Overdue: row.isOverdue ? 'Yes' : '',
         'Payment method': row.paymentMethod
             ? salesPaymentMethodLabel(row.paymentMethod)
             : '',
@@ -46,6 +49,8 @@ export function downloadSalesLineReportExcel(
         'Sold at': row.createdAt
             ? new Date(row.createdAt).toLocaleString('en-PH')
             : '',
+        'Batch number': row.batchNumber || '',
+        'Lot number': row.lotNumber || '',
         Remarks: row.remarks || '',
     }))
 

@@ -75,6 +75,24 @@ export function normalizeSalesLinePaidStatus(input: {
     return 'Unpaid'
 }
 
+/**
+ * A balance is overdue once its due day (a calendar day in Manila) has ended:
+ * a customer due on the 20th is on time all of the 20th. Due dates are stored
+ * at the start of that day, so comparing to the stored instant would flag the
+ * sale overdue on its own due day.
+ */
+export function isPastDueDay(
+    dueDate: Date | null | undefined,
+    now: Date = new Date(),
+): boolean {
+    if (!dueDate) return false
+    const dueDayEnd =
+        Math.floor((dueDate.getTime() + MANILA_OFFSET_MS) / DAY_MS) * DAY_MS +
+        DAY_MS -
+        MANILA_OFFSET_MS
+    return now.getTime() >= dueDayEnd
+}
+
 /** The comparison window: same length, immediately before the range. */
 export function previousWindow(from: Date, now: Date) {
     return {
@@ -269,9 +287,12 @@ type LineReportRow = {
     created_at: Date
     paid_status: string | null
     balance_due: Prisma.Decimal | null
+    due_date: Date | null
     payment_method: string | null
     payments: unknown
     remarks: string | null
+    batch_number: string | null
+    lot_number: string | null
 }
 
 /** One captured tender of a sale, as shown in the sales line report. */
@@ -287,6 +308,9 @@ export type SalesLinePayment = {
  * A sale is `SPLIT` when the order says so or when it was settled with more
  * than one distinct method (e.g. Cash + GCash); repeated tenders of the same
  * method (down payment + later collection) stay a single method.
+ * A `CHARGE` (pay later) sale stays a charge sale however it is settled: the
+ * payments listed are the collections made against it so far (none while the
+ * customer has not paid).
  */
 export function summarizeLinePayments(
     orderMethod: string | null | undefined,
@@ -307,9 +331,11 @@ export function summarizeLinePayments(
     const distinct = new Set(payments.map((payment) => payment.method))
     const method = (orderMethod ?? '').trim().toUpperCase()
     const paymentMethod =
-        method === 'SPLIT' || distinct.size > 1
-            ? 'SPLIT'
-            : (method || payments[0]?.method || '')
+        method === 'CHARGE'
+            ? 'CHARGE'
+            : method === 'SPLIT' || distinct.size > 1
+              ? 'SPLIT'
+              : (method || payments[0]?.method || '')
     return { paymentMethod, payments }
 }
 type RecentOrderRow = {
@@ -703,12 +729,21 @@ export class SalesAnalyticsService {
                                   AND sp."status" NOT IN ('Cancelled', 'Refunded')
                             )
                         THEN 'SALARY DEDUCTION'
+                        WHEN o."paymentMethod" = 'CHARGE'
+                        THEN 'CHARGE'
                         WHEN c."customerAccountType" = 'CREDIT'
                             OR UPPER(COALESCE(o."paymentMethod", '')) LIKE '%CREDIT%'
                         THEN 'CREDIT'
                         ELSE 'CASH'
                     END AS sales_type,
                     CASE
+                        -- Nothing collected yet (a charge sale before the customer
+                        -- pays): the whole total is still owed, so it is Unpaid,
+                        -- not Partially Paid.
+                        WHEN COALESCE(o."outstandingBalance", 0) > 0.005
+                            AND o."totalAmount" IS NOT NULL
+                            AND COALESCE(o."outstandingBalance", 0) >= o."totalAmount" - 0.005
+                        THEN 'Unpaid'
                         WHEN COALESCE(o."outstandingBalance", 0) > 0.005
                             OR o."paymentStatus" IN ('PARTIALLY_PAID', 'Partially Paid')
                         THEN 'Partially Paid'
@@ -738,6 +773,7 @@ export class SalesAnalyticsService {
                             0
                         )
                     ) AS balance_due,
+                    o."dueDate" AS due_date,
                     o."paymentMethod" AS payment_method,
                     COALESCE(
                         (
@@ -771,6 +807,8 @@ export class SalesAnalyticsService {
                     s.order_number,
                     s."createdAt" AS created_at,
                     l."lineNumber" AS line_no,
+                    COALESCE(NULLIF(TRIM(l."batchNumber"), ''), '') AS batch_number,
+                    COALESCE(NULLIF(TRIM(l."lotNumber"), ''), '') AS lot_number,
                     COALESCE(NULLIF(TRIM(o."notes"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_sales_orders" o ON o."id" = s."id"
@@ -829,6 +867,7 @@ export class SalesAnalyticsService {
                         ELSE 'Unpaid'
                     END AS paid_status,
                     0::numeric AS balance_due,
+                    NULL::timestamp AS due_date,
                     NULL::text AS payment_method,
                     '[]'::jsonb AS payments,
                     'NONE' AS invoice_type,
@@ -836,6 +875,8 @@ export class SalesAnalyticsService {
                     s.order_number,
                     s."createdAt" AS created_at,
                     el."lineNumber" AS line_no,
+                    COALESCE(NULLIF(TRIM(el."batchNumber"), ''), '') AS batch_number,
+                    COALESCE(NULLIF(TRIM(el."lotNumber"), ''), '') AS lot_number,
                     COALESCE(NULLIF(TRIM(t."remarks"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_ext_platform_transactions" t ON t."id" = s."id"
@@ -1003,8 +1044,15 @@ export class SalesAnalyticsService {
                     paymentStatus: row.paid_status,
                 }),
                 balanceDue: roundMoney(Number(row.balance_due ?? 0)),
+                // When the unpaid balance is due; overdue once that day has passed.
+                dueDate: row.due_date ?? null,
+                isOverdue:
+                    Number(row.balance_due ?? 0) > 0.005 &&
+                    isPastDueDay(row.due_date),
                 ...summarizeLinePayments(row.payment_method, row.payments),
                 remarks: row.remarks?.trim() || '',
+                batchNumber: row.batch_number?.trim() || '',
+                lotNumber: row.lot_number?.trim() || '',
             })),
         }
     }

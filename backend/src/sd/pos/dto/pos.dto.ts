@@ -12,6 +12,7 @@ import {
     IsNotEmpty,
     MaxLength,
     Min,
+    ValidateIf,
     ValidateNested,
 } from 'class-validator'
 import { RETAIL_SALES_DIVISIONS } from '../../dto/sales-order.dto'
@@ -162,16 +163,26 @@ export class PosCheckoutDto {
     @Min(0)
     discountAmount?: number
 
+    /**
+     * What the customer pays at the register. A CHARGE (pay later) sale takes
+     * no payment now, so the tenders are optional (and must be empty) there;
+     * every other mode needs at least one tender.
+     */
+    @ValidateIf((dto: PosCheckoutDto) => dto.paymentMode !== 'CHARGE')
     @IsArray()
     @ArrayMinSize(1)
     @ValidateNested({ each: true })
     @Type(() => PosTenderDto)
-    tenders!: PosTenderDto[]
+    tenders?: PosTenderDto[]
 
-    /** FULL | SPLIT | DOWN_PAYMENT — how the customer pays. */
+    /**
+     * FULL | SPLIT | DOWN_PAYMENT | CHARGE — how the customer pays.
+     * CHARGE: the customer takes the goods now and pays the whole total later
+     * (in one or several collections) against a receivable.
+     */
     @IsOptional()
-    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT'])
-    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT'
+    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT', 'CHARGE'])
+    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT' | 'CHARGE'
 
     /** PERCENTAGE | FIXED — how the down-payment amount was chosen. */
     @IsOptional()
@@ -190,7 +201,10 @@ export class PosCheckoutDto {
     @Min(0)
     downPaymentAmount?: number
 
-    /** When the remaining balance is due. */
+    /**
+     * When the remaining balance is due. Required for a CHARGE sale (ISO date,
+     * not in the past); optional for a down payment.
+     */
     @IsOptional()
     @IsString()
     dueDate?: string

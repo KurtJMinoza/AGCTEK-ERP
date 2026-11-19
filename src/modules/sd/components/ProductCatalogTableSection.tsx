@@ -268,6 +268,38 @@ const ProductCatalogTableSection = ({
                 ),
             },
             {
+                id: 'batchNumber',
+                header: 'Batch #',
+                enableSorting: false,
+                size: 110,
+                minSize: 88,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.primaryBatchNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                id: 'lotNumber',
+                header: 'Lot #',
+                enableSorting: false,
+                size: 100,
+                minSize: 80,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.primaryLotNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
                 id: 'badge',
                 header: 'Badge',
                 enableSorting: true,

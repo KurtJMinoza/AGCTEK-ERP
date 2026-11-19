@@ -56,6 +56,34 @@ split with fewer than two tenders, and the order is marked `Paid` only when the
 tenders fully cover the amount due and every tender has settled. Only cash may
 hand over more than the amount it covers; the surplus is the change.
 
+### Charge sale (pay later)
+
+`paymentMode: CHARGE` lets an identified customer take the goods now and pay
+later. It takes **no tenders**: the whole total becomes an open `SdPosReceivable`
+(balance = total), while the goods issue runs through the same MM engine as any
+other sale (stock leaves immediately).
+
+| Aspect | Rule |
+| --- | --- |
+| Request | `paymentMode: 'CHARGE'`, `dueDate` (required, `YYYY-MM-DD`, not before today in Manila time), `tenders` omitted/empty |
+| Customer | Must be identified (walk-in is rejected). `CREDIT` accounts: `creditLimit − open receivables` must cover the total. Other accounts have no limit |
+| Order | `paymentMethod = 'CHARGE'`, `paymentStatus = 'Unpaid'`, `outstandingBalance = total`, `dueDate`; no down payment fields |
+| Paying later | Existing collections (`PosCollectionService.collect`, **Collect** in POS transactions) — in full or in parts (e.g. a down payment tomorrow). Status moves `Unpaid → Partially Paid → Paid`; `paymentMethod` stays `CHARGE` |
+| Receipt | `paymentMode: 'CHARGE'`; shows "Charged (pay later)", balance due, due date and a customer acknowledgement line |
+| FICO | Unchanged: the `PosSaleCompleted` event carries `outstandingBalance`, so Accounts Receivable is debited for the unpaid part |
+
+Reporting: the Sales Orders list/detail show the method as *Charge*, the balance
+and the due date (flagged **Overdue** once the due day, in Manila time, has
+ended). The Sales Analysis detailed line report (and its Excel export) adds
+sales type `CHARGE`, paid status `Unpaid` while nothing is collected, and the
+`Due date` / `Overdue` columns. A charge sale is only valid through staged
+checkout (`deferCompletion`), so a failed goods issue can be resumed without
+losing the receivable.
+
+Known limitation: the credit check and receivable creation are not locked
+against each other, so two simultaneous charge sales for the same CREDIT
+customer could together exceed the limit by one sale.
+
 ## 4. Completion, idempotency and safety
 
 `POST /api/v1/sd/pos/checkout` performs, in order:

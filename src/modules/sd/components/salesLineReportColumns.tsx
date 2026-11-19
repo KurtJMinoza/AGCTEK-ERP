@@ -5,6 +5,7 @@ import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
 import { SdMoneyCell, formatSdMoney } from './SdDataTableCells'
 import {
+    formatSalesDueDate,
     salesChannelLabel,
     salesPaymentMethodLabel,
     type SalesLineReportRow,
@@ -383,9 +384,24 @@ const ALL_COLUMN_BUILDERS: Array<
     minSize: relaxed(opts.variant) ? 96 : 100,
     cell: ({ row }) =>
       row.original.balanceDue > 0.005 ? (
-        <span className="whitespace-nowrap text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
-          {formatSdMoney(row.original.balanceDue, opts.currency)}
-        </span>
+        <div className="leading-tight">
+          <span className="whitespace-nowrap text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
+            {formatSdMoney(row.original.balanceDue, opts.currency)}
+          </span>
+          {row.original.dueDate ? (
+            <div
+              className={classNames(
+                'whitespace-nowrap text-[10px]',
+                row.original.isOverdue
+                  ? 'font-semibold text-red-600 dark:text-red-400'
+                  : 'text-gray-500 dark:text-gray-400',
+              )}
+            >
+              {row.original.isOverdue ? 'Overdue · ' : 'Due '}
+              {formatSalesDueDate(row.original.dueDate)}
+            </div>
+          ) : null}
+        </div>
       ) : (
         <span className="text-gray-400">—</span>
       ),
@@ -402,6 +418,9 @@ const ALL_COLUMN_BUILDERS: Array<
       const { paymentMethod, payments } = row.original
       if (!paymentMethod) return <span className="text-gray-400">—</span>
       const isSplit = paymentMethod === 'SPLIT'
+      // A charge sale lists the payments collected after the sale.
+      const isCharge = paymentMethod === 'CHARGE'
+      const showPayments = isSplit || (isCharge && payments.length > 0)
       return (
         <div className="min-w-0 space-y-0.5 whitespace-normal">
           <Tag
@@ -409,12 +428,14 @@ const ALL_COLUMN_BUILDERS: Array<
               'whitespace-nowrap text-[11px]',
               isSplit &&
                 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+              isCharge &&
+                'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
             )}
           >
             {salesPaymentMethodLabel(paymentMethod)}
             {isSplit ? ` · ${payments.length}` : ''}
           </Tag>
-          {isSplit
+          {showPayments
             ? payments.map((payment, index) => (
                 <div
                   key={`${payment.method}-${index}`}
@@ -458,6 +479,8 @@ const ALL_COLUMN_BUILDERS: Array<
           (row.original.salesType === 'CREDIT' ||
             row.original.salesType === 'SALARY DEDUCTION') &&
             'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+          row.original.salesType === 'CHARGE' &&
+            'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
         )}
       >
         {row.original.salesType}
@@ -493,6 +516,34 @@ const ALL_COLUMN_BUILDERS: Array<
     ),
   }),
   (opts) => ({
+    header: 'Batch #',
+    id: 'batchNumber',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 100 : 120,
+    minSize: relaxed(opts.variant) ? 88 : 100,
+    cell: ({ row }) => (
+      <span className="font-mono text-[10px] text-gray-700 dark:text-gray-300">
+        {row.original.batchNumber || '—'}
+      </span>
+    ),
+  }),
+  (opts) => ({
+    header: 'Lot #',
+    id: 'lotNumber',
+    meta: relaxed(opts.variant)
+        ? { className: fullHeaderClass }
+        : undefined,
+    size: relaxed(opts.variant) ? 100 : 120,
+    minSize: relaxed(opts.variant) ? 88 : 100,
+    cell: ({ row }) => (
+      <span className="font-mono text-[10px] text-gray-700 dark:text-gray-300">
+        {row.original.lotNumber || '—'}
+      </span>
+    ),
+  }),
+  (opts) => ({
     header: 'Remarks',
     id: 'remarks',
     meta: relaxed(opts.variant)
@@ -522,6 +573,8 @@ const SUMMARY_IDS = new Set([
   'paidStatus',
   'balanceDue',
   'paymentMethod',
+  'batchNumber',
+  'lotNumber',
   'invoiceNumber',
 ])
 

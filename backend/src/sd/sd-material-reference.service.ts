@@ -327,8 +327,23 @@ export class SdMaterialReferenceService {
             }),
         )
 
+        const recentBatches = await this.prisma.mmBatch.findMany({
+            where: { materialId: material.id, deletedAt: null },
+            select: {
+                id: true,
+                batchNumber: true,
+                lotNumber: true,
+                status: true,
+                expiryDate: true,
+                manufacturingDate: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 12,
+        })
+
         let earliestExpiryDate: string | null = null
         let nearestBatchNumber: string | null = null
+        let nearestLotNumber: string | null = null
         if (material.expiryManaged) {
             const stockedBatches = await this.prisma.mmInventoryBalance.findMany({
                 where: {
@@ -340,7 +355,11 @@ export class SdMaterialReferenceService {
                 },
                 select: {
                     batch: {
-                        select: { expiryDate: true, batchNumber: true },
+                        select: {
+                            expiryDate: true,
+                            batchNumber: true,
+                            lotNumber: true,
+                        },
                     },
                 },
             })
@@ -353,6 +372,7 @@ export class SdMaterialReferenceService {
                 ) {
                     earliestExpiryDate = expiryDate.toISOString()
                     nearestBatchNumber = row.batch?.batchNumber ?? null
+                    nearestLotNumber = row.batch?.lotNumber ?? null
                 }
             }
         }
@@ -422,11 +442,21 @@ export class SdMaterialReferenceService {
                 sellable: material.sellable,
                 purchasable: material.purchasable,
                 qualityInspectionRequired: material.qualityInspectionRequired,
+                batches: recentBatches.map((batch) => ({
+                    id: batch.id,
+                    batchNumber: batch.batchNumber,
+                    lotNumber: batch.lotNumber,
+                    status: batch.status,
+                    expiryDate: batch.expiryDate?.toISOString() ?? null,
+                    manufacturingDate:
+                        batch.manufacturingDate?.toISOString() ?? null,
+                })),
             },
             expiry: {
                 defaultShelfLifeDays: material.defaultShelfLifeDays,
                 earliestExpiryDate,
                 nearestBatchNumber,
+                nearestLotNumber,
             },
             inventory: {
                 minimumStock: convertedThresholds.minimumStock,

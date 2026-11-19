@@ -1928,6 +1928,8 @@ export class SalesOrderService {
             | 'paymentReceived'
             | 'taxAmount'
             | 'allowPartialPayment'
+            | 'chargeSale'
+            | 'deferCompletion'
         >,
     ) {
         const money = (value: number | Decimal) =>
@@ -1978,6 +1980,31 @@ export class SalesOrderService {
                 )
             }
             const paymentReceived = money(dto.paymentReceived)
+            if (dto.chargeSale) {
+                // Charge sale: nothing is collected at the register. It must be
+                // a staged checkout so the POS checkout service books the
+                // receivable; a directly completed order would be unpaid with
+                // no receivable behind it.
+                if (dto.deferCompletion !== true) {
+                    throw new BadRequestException(
+                        'A charge sale must go through the POS checkout.',
+                    )
+                }
+                if (!paymentReceived.isZero()) {
+                    throw new BadRequestException(
+                        'A charge sale takes no payment at the register.',
+                    )
+                }
+                return {
+                    subtotal,
+                    discountAmount,
+                    shippingAmount,
+                    taxAmount,
+                    totalAmount,
+                    paymentReceived,
+                    changeAmount: new Decimal(0),
+                }
+            }
             // Down payment / partial payment: tenders cover only the initial
             // amount; the rest is an outstanding receivable. Full-payment POS
             // sales still require paymentReceived >= totalAmount.

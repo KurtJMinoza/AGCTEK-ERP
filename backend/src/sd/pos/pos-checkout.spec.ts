@@ -179,6 +179,12 @@ describe('PosCheckoutService', () => {
             sdEmployeeLoanItem: {
                 create: jest.fn().mockResolvedValue({ id: 'loan-1' }),
             },
+            sdPosReceivable: {
+                aggregate: jest
+                    .fn()
+                    .mockResolvedValue({ _sum: { balance: null } }),
+                upsert: jest.fn().mockResolvedValue({}),
+            },
             user: {
                 findFirst: jest.fn().mockResolvedValue({
                     employeeCode: 'EMP-1',
@@ -583,5 +589,229 @@ describe('PosCheckoutService', () => {
         expect(salesOrders.createRetail).toHaveBeenCalled()
         expect(receipt.paymentStatus).toBe('Unpaid')
         expect(receipt.tenders[0].employeeName).toBe('Jane Doe')
+    })
+
+    describe('charge sale (pay later)', () => {
+        const dueIn = (days: number) =>
+            new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+                .toISOString()
+                .slice(0, 10)
+
+        const chargeDto = (overrides: Record<string, unknown> = {}) =>
+            dto({
+                customerId: 'cust-1',
+                customerName: 'Ian Apusaga',
+                paymentMode: 'CHARGE',
+                tenders: [],
+                dueDate: dueIn(3),
+                ...overrides,
+            })
+
+        /** The completed charge order as the database keeps it. */
+        const chargedOrder = () => ({
+            ...order,
+            lines: order.lines.map((line) => ({
+                ...line,
+                ...lineTax[line.lineNumber],
+            })),
+            status: 'COMPLETED',
+            receiptNumber: 'RCP-000005',
+            paymentMethod: 'CHARGE',
+            paymentStatus: 'Unpaid',
+            paymentReceived: 0,
+            changeAmount: 0,
+            outstandingBalance: 7300,
+            dueDate: new Date(`${dueIn(3)}T00:00:00.000Z`),
+            payments: [],
+        })
+
+        beforeEach(() => {
+            prisma.sdSalesOrder.update.mockImplementation(async () =>
+                chargedOrder(),
+            )
+        })
+
+        it('releases the goods and books the whole total as a receivable', async () => {
+            const receipt = await service.complete(chargeDto() as never)
+
+            expect(salesOrders.createRetail).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    chargeSale: true,
+                    paymentReceived: 0,
+                    deferCompletion: true,
+                    totalAmount: 7300,
+                }),
+            )
+            // No money changed hands: no tender rows.
+            expect(prisma.sdSalesOrderPayment.upsert).not.toHaveBeenCalled()
+            // The goods still leave through the MM goods issue.
+            expect(goodsIssue.post).toHaveBeenCalledWith('gi-1')
+            expect(prisma.sdPosReceivable.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    create: expect.objectContaining({
+                        salesOrderId: 'order-1',
+                        customerId: 'cust-1',
+                        originalAmount: 7300,
+                        balance: 7300,
+                    }),
+                }),
+            )
+            expect(prisma.sdSalesOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: 'COMPLETED',
+                        paymentMethod: 'CHARGE',
+                        paymentStatus: 'Unpaid',
+                        outstandingBalance: 7300,
+                        downPaymentType: null,
+                        downPaymentAmount: null,
+                    }),
+                }),
+            )
+            // Accounting books Accounts Receivable for the whole total.
+            expect(sdEvents.emit).toHaveBeenCalledWith(
+                'PosSaleCompleted',
+                expect.objectContaining({
+                    outstandingBalance: '7300.00',
+                    paymentStatus: 'Unpaid',
+                    tenders: [],
+                }),
+            )
+            expect(receipt).toMatchObject({
+                paymentMode: 'CHARGE',
+                paymentStatus: 'Unpaid',
+                outstandingBalance: 7300,
+                total: 7300,
+                tenders: [],
+            })
+            expect(receipt.dueDate).toBeTruthy()
+        })
+
+        it('requires an identified customer', async () => {
+            await expect(
+                service.complete(
+                    chargeDto({
+                        customerId: 'WALK-IN',
+                        customerName: undefined,
+                    }) as never,
+                ),
+            ).rejects.toThrow('identified customer')
+            expect(salesOrders.createRetail).not.toHaveBeenCalled()
+            expect(goodsIssue.post).not.toHaveBeenCalled()
+        })
+
+        it('requires a due date that is not in the past', async () => {
+            await expect(
+                service.complete(
+                    chargeDto({ dueDate: undefined }) as never,
+                ),
+            ).rejects.toThrow('due date')
+            await expect(
+                service.complete(chargeDto({ dueDate: dueIn(-2) }) as never),
+            ).rejects.toThrow('past')
+            expect(salesOrders.createRetail).not.toHaveBeenCalled()
+        })
+
+        it('takes no payment at the register', async () => {
+            await expect(
+                service.complete(
+                    chargeDto({
+                        tenders: [{ method: 'CASH', amount: 100 }],
+                    }) as never,
+                ),
+            ).rejects.toThrow('down payment')
+            expect(salesOrders.createRetail).not.toHaveBeenCalled()
+        })
+
+        it('holds a CREDIT customer to the credit limit, counting open receivables', async () => {
+            // Limit 10,000; 5,000 already owed + 7,300 charge > 10,000.
+            prisma.sdPosReceivable.aggregate.mockResolvedValue({
+                _sum: { balance: 5000 },
+            })
+            await expect(
+                service.complete(chargeDto() as never),
+            ).rejects.toThrow('Credit limit exceeded')
+            expect(salesOrders.createRetail).not.toHaveBeenCalled()
+            expect(goodsIssue.post).not.toHaveBeenCalled()
+
+            // Within the limit the sale goes through.
+            prisma.sdPosReceivable.aggregate.mockResolvedValue({
+                _sum: { balance: 2000 },
+            })
+            await expect(
+                service.complete(chargeDto() as never),
+            ).resolves.toMatchObject({ paymentMode: 'CHARGE' })
+        })
+
+        it('does not limit a customer without a credit account', async () => {
+            prisma.sdCustomer.findUnique.mockResolvedValue({
+                id: 'cust-1',
+                customerAccountType: 'NON_CREDIT',
+                creditLimit: 0,
+            })
+            prisma.sdPosReceivable.aggregate.mockResolvedValue({
+                _sum: { balance: 99999 },
+            })
+            await expect(
+                service.complete(chargeDto() as never),
+            ).resolves.toMatchObject({ paymentMode: 'CHARGE' })
+        })
+
+        it('finishes a staged charge sale that has no tender, without a second order', async () => {
+            prisma.sdSalesOrder.findFirst.mockResolvedValue({
+                ...order,
+                status: 'CONFIRMED',
+                receiptNumber: 'RCP-000009',
+                customerId: 'cust-1',
+                currency: 'PHP',
+                posSessionId: null,
+                changeAmount: null,
+                paymentReceived: 0,
+                paymentMethod: 'CHARGE',
+                outstandingBalance: 7300,
+                dueDate: new Date(`${dueIn(3)}T00:00:00.000Z`),
+                payments: [],
+            })
+
+            const receipt = await service.finalizeStagedOrder(
+                'order-1',
+                'cashier-1',
+            )
+
+            expect(goodsIssue.post).toHaveBeenCalledWith('gi-1')
+            expect(prisma.sdPosReceivable.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { salesOrderId: 'order-1' },
+                    create: expect.objectContaining({ balance: 7300 }),
+                }),
+            )
+            expect(prisma.sdSalesOrder.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        paymentMethod: 'CHARGE',
+                        paymentStatus: 'Unpaid',
+                    }),
+                }),
+            )
+            expect(sdEvents.emit).toHaveBeenCalledWith(
+                'PosSaleCompleted',
+                expect.objectContaining({ outstandingBalance: '7300' }),
+            )
+            expect(receipt.paymentMode).toBe('CHARGE')
+            expect(salesOrders.createRetail).not.toHaveBeenCalled()
+        })
+
+        it('still refuses to finish a normal staged sale that has no tender', async () => {
+            prisma.sdSalesOrder.findFirst.mockResolvedValue({
+                ...order,
+                status: 'CONFIRMED',
+                paymentMethod: null,
+                outstandingBalance: null,
+                payments: [],
+            })
+            await expect(
+                service.finalizeStagedOrder('order-1', 'cashier-1'),
+            ).rejects.toThrow('no tender')
+        })
     })
 })

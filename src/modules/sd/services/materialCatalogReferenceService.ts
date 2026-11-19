@@ -58,11 +58,20 @@ export type MaterialCatalogReference = {
         sellable: boolean
         purchasable: boolean
         qualityInspectionRequired: boolean
+        batches: Array<{
+            id: string
+            batchNumber: string
+            lotNumber: string | null
+            status: string
+            expiryDate: string | null
+            manufacturingDate: string | null
+        }>
     }
     expiry: {
         defaultShelfLifeDays: number | null
         earliestExpiryDate: string | null
         nearestBatchNumber: string | null
+        nearestLotNumber: string | null
     }
     inventory: {
         minimumStock: number

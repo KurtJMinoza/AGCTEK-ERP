@@ -40,6 +40,8 @@ export type TenderResult = {
     downPaymentType?: 'PERCENTAGE' | 'FIXED'
     downPaymentPct?: number
     downPaymentAmount?: number
+    /** Charge (pay later) only: the day the customer will pay, YYYY-MM-DD. */
+    dueDate?: string
     /** Free-text remarks shown on the complete sales report. */
     remarks?: string
 }
@@ -125,7 +127,26 @@ const MODE_OPTIONS: Array<{
         label: 'Down payment',
         hint: 'Pay part now, balance later',
     },
+    {
+        mode: 'CHARGE',
+        label: 'Charge',
+        hint: 'Take the items now, pay later',
+    },
 ]
+
+/** Calendar day in Manila (UTC+8) as YYYY-MM-DD, `daysAhead` days from today. */
+const manilaDateIso = (daysAhead = 0) =>
+    new Date(Date.now() + 8 * 3_600_000 + daysAhead * 86_400_000)
+        .toISOString()
+        .slice(0, 10)
+
+/** Quick due dates for a charge sale. */
+const CHARGE_DUE_PRESETS = [
+    { label: 'Tomorrow', days: 1 },
+    { label: '7 days', days: 7 },
+    { label: '15 days', days: 15 },
+    { label: '30 days', days: 30 },
+] as const
 
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
@@ -247,11 +268,16 @@ const POSTenderDialog = ({
     const [verified, setVerified] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [remarks, setRemarks] = useState('')
+    // Charge (pay later): the day the customer promises to pay.
+    const [chargeDueDate, setChargeDueDate] = useState('')
     // Each sale starts with empty remarks: clear them when the dialog reopens.
     const [wasOpen, setWasOpen] = useState(isOpen)
     if (wasOpen !== isOpen) {
         setWasOpen(isOpen)
-        if (isOpen) setRemarks('')
+        if (isOpen) {
+            setRemarks('')
+            setChargeDueDate('')
+        }
     }
 
     const methodLabel = (code: string) =>
@@ -488,6 +514,28 @@ const POSTenderDialog = ({
             setError(dpCustomError)
             return
         }
+        if (paymentMode === 'CHARGE') {
+            if (!customerId || customerId === 'WALK-IN') {
+                setError('A charge sale requires an identified customer.')
+                return
+            }
+            if (!chargeDueDate) {
+                setError('Choose when the customer will pay.')
+                return
+            }
+            if (chargeDueDate < manilaDateIso(0)) {
+                setError('The due date cannot be in the past.')
+                return
+            }
+            const chargeRemarks = remarks.trim()
+            onComplete({
+                tenders: [],
+                paymentMode: 'CHARGE',
+                dueDate: chargeDueDate,
+                ...(chargeRemarks ? { remarks: chargeRemarks } : {}),
+            })
+            return
+        }
         let nextTenders = tenders
         if (!nextTenders.length) {
             if (paymentMode === 'SPLIT') {
@@ -575,7 +623,9 @@ const POSTenderDialog = ({
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                         {paymentMode === 'DOWN_PAYMENT'
                             ? 'Collect now'
-                            : 'To collect'}
+                            : paymentMode === 'CHARGE'
+                              ? 'Charge to customer'
+                              : 'To collect'}
                     </div>
                     <div className="text-xl font-bold tabular-nums heading-text">
                         {formatPrice(effectiveAmountDue)}
@@ -584,7 +634,7 @@ const POSTenderDialog = ({
             </div>
 
             {/* Mode selector */}
-            <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {MODE_OPTIONS.map((option) => (
                     <button
                         key={option.mode}
@@ -800,6 +850,100 @@ const POSTenderDialog = ({
                 </AdaptiveCard>
             )}
 
+            {/* Charge (pay later): no tender, just the due date */}
+            {paymentMode === 'CHARGE' && (
+                <AdaptiveCard className="mb-4 border border-amber-200 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5">
+                    <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
+                        The customer takes the items now and nothing is
+                        collected at the register. The full{' '}
+                        <span className="font-semibold tabular-nums heading-text">
+                            {formatPrice(amountDue)}
+                        </span>{' '}
+                        becomes a receivable that can be paid in full, or in
+                        parts (e.g. a down payment tomorrow), from the POS
+                        transactions screen.
+                    </p>
+
+                    <label
+                        htmlFor="pos-charge-due-date"
+                        className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                    >
+                        Customer will pay by
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="w-44">
+                            <Input
+                                id="pos-charge-due-date"
+                                type="date"
+                                min={manilaDateIso(0)}
+                                value={chargeDueDate}
+                                invalid={Boolean(error) && !chargeDueDate}
+                                onChange={(e) => {
+                                    setChargeDueDate(e.target.value)
+                                    setError(null)
+                                }}
+                            />
+                        </div>
+                        {CHARGE_DUE_PRESETS.map((preset) => {
+                            const iso = manilaDateIso(preset.days)
+                            return (
+                                <button
+                                    key={preset.days}
+                                    type="button"
+                                    className={classNames(
+                                        'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors',
+                                        chargeDueDate === iso
+                                            ? 'border-primary bg-primary text-white'
+                                            : 'border-gray-200 text-gray-700 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800',
+                                    )}
+                                    onClick={() => {
+                                        setChargeDueDate(iso)
+                                        setError(null)
+                                    }}
+                                >
+                                    {preset.label}
+                                </button>
+                            )
+                        })}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                Collect now
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums heading-text">
+                                {formatPrice(0)}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                                Balance due
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums text-amber-600">
+                                {formatPrice(amountDue)}
+                            </div>
+                        </div>
+                    </div>
+
+                    {(!customerId || customerId === 'WALK-IN') && (
+                        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                            A charge sale requires an identified customer.
+                            Select or create a customer first.
+                        </div>
+                    )}
+                    {error ? (
+                        <p
+                            role="alert"
+                            className="mt-2 text-xs font-medium text-red-600 dark:text-red-400"
+                        >
+                            {error}
+                        </p>
+                    ) : null}
+                </AdaptiveCard>
+            )}
+
+            {paymentMode !== 'CHARGE' && (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
                 {/* LEFT — methods + taken payments */}
                 <div className="space-y-3">
@@ -1287,6 +1431,7 @@ const POSTenderDialog = ({
                     </div>
                 </div>
             </div>
+            )}
 
             <div className="mt-4">
                 <label
@@ -1308,7 +1453,9 @@ const POSTenderDialog = ({
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-gray-500">
-                    {paymentMode === 'SPLIT' && !splitReady
+                    {paymentMode === 'CHARGE'
+                        ? 'No payment is taken now; the items are released and the amount is owed.'
+                        : paymentMode === 'SPLIT' && !splitReady
                         ? `Cover the remaining ${formatPrice(Math.max(0, remaining))} to complete.`
                         : paymentMode === 'FULL' && tenders.length === 0
                           ? 'One method can complete the sale without adding a line first.'
@@ -1331,7 +1478,9 @@ const POSTenderDialog = ({
                         }
                         onClick={complete}
                     >
-                        {paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
+                        {paymentMode === 'CHARGE'
+                            ? `Charge ${formatPrice(amountDue)} to customer`
+                            : paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
                             ? `Complete · balance ${formatPrice(balanceDue)}`
                             : paymentMode === 'SPLIT'
                               ? splitReady && tenders.length >= 2

@@ -182,6 +182,9 @@ const POSReceipt = ({
         receipt.paymentStatus || (hasBalance ? 'Partially Paid' : 'Paid'),
     )
     const settled = !hasBalance && /^paid$/i.test(paymentStatus)
+    // Charge sale: the customer took the goods and pays later.
+    const isCharge = receipt.paymentMode === 'CHARGE'
+    const hasTenders = receipt.tenders.length > 0
     const isSplit = receipt.tenders.length > 1
     const preparedBy = cashierName ?? receipt.cashierUserId ?? null
 
@@ -328,7 +331,20 @@ const POSReceipt = ({
             </div>
 
             {/* Payment */}
-            <SectionTitle>{isSplit ? 'Split payment' : 'Payment'}</SectionTitle>
+            <SectionTitle>
+                {isCharge
+                    ? hasTenders
+                        ? 'Charge sale · payments'
+                        : 'Charge sale'
+                    : isSplit
+                      ? 'Split payment'
+                      : 'Payment'}
+            </SectionTitle>
+            {isCharge ? (
+                <div className="mb-1">
+                    <Row label="Charged (pay later)" value={money(receipt.total)} bold />
+                </div>
+            ) : null}
             <div className="space-y-1">
                 {receipt.tenders.map((tender, index) => (
                     <div key={`${tender.method}-${index}`}>
@@ -364,11 +380,15 @@ const POSReceipt = ({
                     </div>
                 ))}
             </div>
-            <Divider />
-            <div className="space-y-0.5">
-                <Row label="Amount tendered" value={money(receipt.tendered)} />
-                <Row label="Change" value={money(receipt.change)} />
-            </div>
+            {!isCharge || hasTenders ? (
+                <>
+                    <Divider />
+                    <div className="space-y-0.5">
+                        <Row label="Amount tendered" value={money(receipt.tendered)} />
+                        <Row label="Change" value={money(receipt.change)} />
+                    </div>
+                </>
+            ) : null}
             <div
                 className={classNames(
                     'mt-2 py-1 text-center font-sans text-[12px] font-extrabold uppercase tracking-[0.25em]',
@@ -377,7 +397,7 @@ const POSReceipt = ({
                         : 'border-2 border-dashed border-black',
                 )}
             >
-                {paymentStatus}
+                {isCharge ? `Charge · ${paymentStatus}` : paymentStatus}
             </div>
 
             {/* Balance due — down payment / partial settlement */}
@@ -416,6 +436,21 @@ const POSReceipt = ({
                     ) : null}
                     <div className="mt-1 text-center text-[10px]">
                         Present this receipt when paying the balance.
+                    </div>
+                </div>
+            ) : null}
+
+            {/* Charge sale: the customer acknowledges the goods and the debt */}
+            {isCharge && hasBalance ? (
+                <div className="mt-3 text-[10px]">
+                    <div className="text-center">
+                        Goods received in good order. I agree to pay the balance
+                        due on the date above.
+                    </div>
+                    <div className="mt-6 border-t border-black pt-0.5 text-center">
+                        {receipt.customerName
+                            ? `${receipt.customerName} — signature`
+                            : 'Customer signature'}
                     </div>
                 </div>
             ) : null}

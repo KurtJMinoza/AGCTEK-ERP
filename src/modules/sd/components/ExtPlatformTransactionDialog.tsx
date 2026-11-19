@@ -40,6 +40,7 @@ import type {
     SalesSource,
 } from '../types/extPlatform'
 import { formatSdMoney } from './SdDataTableCells'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
 import {
     PAYMENT_METHODS,
     SourceBadge,
@@ -61,6 +62,8 @@ type CatalogOption = Option & {
     /** MM available quantity; null until loaded. */
     available: number | null
     stockState: string | null
+    primaryBatchNumber: string | null
+    primaryLotNumber: string | null
 }
 
 /** Max catalog items per stock request (backend limit). */
@@ -81,6 +84,8 @@ type DraftLine = {
     quantity: string
     unitPrice: string
     discount: string
+    batchNumber: string
+    lotNumber: string
 }
 
 const catalogKey = (productId: string, variantId: string) => `${productId}:${variantId}`
@@ -99,6 +104,8 @@ const blankLine = (): DraftLine => ({
     quantity: '1',
     unitPrice: '',
     discount: '',
+    batchNumber: '',
+    lotNumber: '',
 })
 
 const num = (value: string) => (value.trim() === '' ? 0 : Number(value))
@@ -281,6 +288,8 @@ export default function ExtPlatformTransactionDialog({
                     quantity: String(Number(l.quantity)),
                     unitPrice: String(Number(l.unitPrice)),
                     discount: Number(l.discount) ? String(Number(l.discount)) : '',
+                    batchNumber: l.batchNumber ?? '',
+                    lotNumber: l.lotNumber ?? '',
                 })),
             )
         } else {
@@ -319,6 +328,8 @@ export default function ExtPlatformTransactionDialog({
                         price: variant?.price ?? p.price,
                         available: null,
                         stockState: null,
+                        primaryBatchNumber: null,
+                        primaryLotNumber: null,
                     })
                     return p.productConfig === 'VARIABLE' && p.variants?.length
                         ? p.variants.map(entry)
@@ -339,7 +350,15 @@ export default function ExtPlatformTransactionDialog({
                 setCatalog(
                     options.map((o) => {
                         const row = stock.get(o.value)
-                        return row ? { ...o, available: row.availableQuantity, stockState: row.state } : o
+                        return row
+                            ? {
+                                  ...o,
+                                  available: row.availableQuantity,
+                                  stockState: row.state,
+                                  primaryBatchNumber: row.primaryBatchNumber ?? null,
+                                  primaryLotNumber: row.primaryLotNumber ?? null,
+                              }
+                            : o
                     }),
                 )
             })
@@ -488,6 +507,8 @@ export default function ExtPlatformTransactionDialog({
             quantity: num(l.quantity),
             unitPrice: num(l.unitPrice),
             discount: num(l.discount),
+            ...(l.batchNumber.trim() ? { batchNumber: l.batchNumber.trim() } : {}),
+            ...(l.lotNumber.trim() ? { lotNumber: l.lotNumber.trim() } : {}),
         }))
         const common = {
             salesSourceId,
@@ -819,6 +840,8 @@ export default function ExtPlatformTransactionDialog({
                                                             variantId: o?.variantId ?? '',
                                                             // Catalog price is the starting point; overwrite with what the buyer paid on the platform.
                                                             unitPrice: o ? String(o.price) : line.unitPrice,
+                                                            batchNumber: o?.primaryBatchNumber ?? '',
+                                                            lotNumber: o?.primaryLotNumber ?? '',
                                                         })
                                                     }
                                                 />
@@ -886,6 +909,28 @@ export default function ExtPlatformTransactionDialog({
                                                     onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                                                 />
                                             </div>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            <FormItem label="Batch # (optional)">
+                                                <TrackingNumberInput
+                                                    size="sm"
+                                                    value={line.batchNumber}
+                                                    placeholder="Auto if blank"
+                                                    onChange={(value) =>
+                                                        updateLine(line.key, { batchNumber: value })
+                                                    }
+                                                />
+                                            </FormItem>
+                                            <FormItem label="Lot # (optional)">
+                                                <TrackingNumberInput
+                                                    size="sm"
+                                                    value={line.lotNumber}
+                                                    placeholder="Optional"
+                                                    onChange={(value) =>
+                                                        updateLine(line.key, { lotNumber: value })
+                                                    }
+                                                />
+                                            </FormItem>
                                         </div>
                                         {tax ? (
                                             <p className="mt-1 flex flex-wrap justify-between gap-x-3 px-1 text-[11px] text-gray-500 tabular-nums">

@@ -17,6 +17,11 @@ import { SD_EVENTS } from '../sd-event.types'
 import { PosSessionService } from './pos-session.service'
 import { PosCustomerService } from './pos-customer.service'
 import { PosPaymentMethodService } from './pos-payment-method.service'
+import {
+    POS_CHARGE_PAYMENT_METHOD,
+    assertChargeAllowed,
+    resolveChargeDueDate,
+} from './pos-charge'
 import { setDynamicMethodCodes } from './pos-tender'
 import {
     allocateTenders,
@@ -409,13 +414,17 @@ export class PosCheckoutService {
         const total = round2(subtotal - discountAmount + taxAmount)
 
         await this.syncMethodCodes()
-        const enrichedTenders = await this.enrichSalaryTenders(dto.tenders)
+        const enrichedTenders = await this.enrichSalaryTenders(
+            dto.tenders ?? [],
+        )
 
         // Determine payment mode
+        const isCharge = dto.paymentMode === 'CHARGE'
         const isDownPayment = dto.paymentMode === 'DOWN_PAYMENT'
         const wantsSplit =
-            dto.paymentMode === 'SPLIT' ||
-            (!isDownPayment && (dto.tenders?.length ?? 0) > 1)
+            !isCharge &&
+            (dto.paymentMode === 'SPLIT' ||
+                (!isDownPayment && (dto.tenders?.length ?? 0) > 1))
         if (wantsSplit && (dto.tenders?.length ?? 0) < 2) {
             throw new BadRequestException(
                 'Split payment requires at least two payment methods (for example Cash + GCash).',
@@ -424,8 +433,25 @@ export class PosCheckoutService {
         let tenders: PosTender[]
         let change: number
         let outstandingBalance = 0
+        // Charge (pay later): validated before anything is created.
+        let chargeDueDate: Date | null = null
 
-        if (isDownPayment) {
+        if (isCharge) {
+            if (enrichedTenders.length > 0) {
+                throw new BadRequestException(
+                    'A charge sale takes no payment now. Use a down payment to pay part of the total at the register.',
+                )
+            }
+            if (total <= 0) {
+                throw new BadRequestException(
+                    'The sale has no payable amount to charge.',
+                )
+            }
+            chargeDueDate = resolveChargeDueDate(dto.dueDate)
+            tenders = []
+            change = 0
+            outstandingBalance = total
+        } else if (isDownPayment) {
             // Compute effective down-payment amount
             let dpAmount = round2(dto.downPaymentAmount ?? 0)
             if (dto.downPaymentType === 'PERCENTAGE' && dto.downPaymentPct) {
@@ -474,6 +500,33 @@ export class PosCheckoutService {
                 : null
         const customerId = customer?.id ?? dto.customerId
         const customerName = customer?.companyName ?? dto.customerName
+
+        // A charge sale needs a Customer Master customer; a CREDIT account is
+        // held to its limit (open POS receivables + this sale).
+        if (isCharge) {
+            const chargeCustomer =
+                customerId && customerId !== 'WALK-IN'
+                    ? await this.prisma.sdCustomer.findUnique({
+                          where: { id: customerId },
+                          select: {
+                              id: true,
+                              customerAccountType: true,
+                              creditLimit: true,
+                          },
+                      })
+                    : null
+            const exposure = chargeCustomer
+                ? await this.prisma.sdPosReceivable.aggregate({
+                      where: { customerId, status: 'OPEN' },
+                      _sum: { balance: true },
+                  })
+                : null
+            assertChargeAllowed({
+                customer: chargeCustomer,
+                total,
+                openExposure: Number(exposure?._sum.balance ?? 0),
+            })
+        }
 
         // A partial payment must have an identifiable customer
         if (isDownPayment && outstandingBalance > 0) {
@@ -526,10 +579,27 @@ export class PosCheckoutService {
             // Let createRetail accept paymentReceived < totalAmount when this
             // checkout is a down payment with an outstanding balance.
             allowPartialPayment: isDownPayment && outstandingBalance > 0.005,
+            // Charge sale: nothing is collected now; the total is the receivable.
+            chargeSale: isCharge,
             createdBy: dto.createdBy,
         })
 
         await this.saveLineTaxSnapshot(order.id, lines)
+
+        // Mark a staged charge sale right away: a checkout that stops before
+        // completion can then be resumed as a charge sale (it has no tender to
+        // recognise it by).
+        if (isCharge) {
+            await this.prisma.sdSalesOrder.update({
+                where: { id: order.id },
+                data: {
+                    paymentMethod: POS_CHARGE_PAYMENT_METHOD,
+                    paymentStatus: 'Unpaid',
+                    outstandingBalance: total,
+                    dueDate: chargeDueDate,
+                },
+            })
+        }
 
         const orderCompanyId = order.companyId ?? session.companyId
         await this.recordTenders({
@@ -548,24 +618,31 @@ export class PosCheckoutService {
 
         // Paid only when the sale is fully covered and every tender has settled.
         // Partially Paid = balance still due; Unpaid / Pending Verification otherwise.
-        const paymentStatus =
-            outstandingBalance > 0.005
-                ? 'Partially Paid'
-                : resolvePosOrderPaymentStatus(tenders)
+        // A charge sale has collected nothing yet: Unpaid, not Partially Paid.
+        const paymentStatus = isCharge
+            ? 'Unpaid'
+            : outstandingBalance > 0.005
+              ? 'Partially Paid'
+              : resolvePosOrderPaymentStatus(tenders)
 
         const receiptNumber = await this.nextReceiptNumber(orderCompanyId)
-        const dueDate = dto.dueDate ? new Date(dto.dueDate) : null
+        const dueDate = isCharge
+            ? chargeDueDate
+            : dto.dueDate
+              ? new Date(dto.dueDate)
+              : null
         const completed = await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
                 status: 'COMPLETED',
-                paymentMethod:
-                    tenders.length > 1 || wantsSplit
-                        ? 'SPLIT'
-                        : tenders[0].method,
+                paymentMethod: isCharge
+                    ? POS_CHARGE_PAYMENT_METHOD
+                    : tenders.length > 1 || wantsSplit
+                      ? 'SPLIT'
+                      : tenders[0].method,
                 paymentStatus,
-                paymentReference: tenders[0].referenceNumber ?? null,
-                paymentProvider: tenders[0].provider ?? null,
+                paymentReference: tenders[0]?.referenceNumber ?? null,
+                paymentProvider: tenders[0]?.provider ?? null,
                 changeAmount: change,
                 taxAmount,
                 posSessionId: session.id,
@@ -680,7 +757,12 @@ export class PosCheckoutService {
                 `Only a pending sale can be completed (this sale is ${order.status}).`,
             )
         }
-        if (!order.payments.length) {
+        // A staged charge sale (pay later) carries no tender by design; it is
+        // recognised by the marker written when the order was created.
+        const isCharge =
+            order.paymentMethod === POS_CHARGE_PAYMENT_METHOD &&
+            Number(order.outstandingBalance ?? 0) > 0.005
+        if (!order.payments.length && !isCharge) {
             throw new ConflictException(
                 'The pending sale has no tender; take the payment again at the register.',
             )
@@ -722,13 +804,16 @@ export class PosCheckoutService {
             where: { id: order.id },
             data: {
                 status: 'COMPLETED',
-                paymentMethod:
-                    payments.length > 1
-                        ? 'SPLIT'
-                        : payments[0].paymentMethod,
-                paymentStatus: resolvePosOrderPaymentStatus(payments),
-                paymentReference: payments[0].referenceNumber ?? null,
-                paymentProvider: payments[0].paymentProvider ?? null,
+                paymentMethod: isCharge
+                    ? POS_CHARGE_PAYMENT_METHOD
+                    : payments.length > 1
+                      ? 'SPLIT'
+                      : payments[0].paymentMethod,
+                paymentStatus: isCharge
+                    ? 'Unpaid'
+                    : resolvePosOrderPaymentStatus(payments),
+                paymentReference: payments[0]?.referenceNumber ?? null,
+                paymentProvider: payments[0]?.paymentProvider ?? null,
                 changeAmount: order.changeAmount ?? changeAmount,
                 posSessionId: session.id,
                 cashierUserId: actor ?? order.cashierUserId,
@@ -739,6 +824,23 @@ export class PosCheckoutService {
                 payments: true,
             },
         })
+
+        // A charge sale owes its whole total: book the receivable (the same
+        // one a completed checkout creates; safe to repeat).
+        if (isCharge) {
+            await this.prisma.sdPosReceivable.upsert({
+                where: { salesOrderId: order.id },
+                create: {
+                    companyId: order.companyId ?? session.companyId,
+                    salesOrderId: order.id,
+                    customerId: order.customerId,
+                    originalAmount: order.outstandingBalance as Prisma.Decimal,
+                    balance: order.outstandingBalance as Prisma.Decimal,
+                    dueDate: order.dueDate ?? null,
+                },
+                update: {},
+            })
+        }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
             salesOrderId: completed.id,
@@ -751,6 +853,15 @@ export class PosCheckoutService {
             customerId: order.customerId,
             currency: order.currency ?? 'PHP',
             totalAmount: (order.totalAmount ?? 0).toString(),
+            ...(isCharge
+                ? {
+                      outstandingBalance: (
+                          order.outstandingBalance ?? 0
+                      ).toString(),
+                      paymentStatus: 'Unpaid',
+                      tenders: [],
+                  }
+                : {}),
             resumed: true,
             idempotencyKey: order.idempotencyKey ?? `pos:${order.id}`,
         })
@@ -1464,11 +1575,14 @@ export class PosCheckoutService {
                 verificationStatus: payment.verificationStatus,
             })),
             warnings,
-            paymentMode: order.downPaymentType
-                ? 'DOWN_PAYMENT'
-                : payments.length > 1 || order.paymentMethod === 'SPLIT'
-                  ? 'SPLIT'
-                  : 'FULL',
+            paymentMode:
+                order.paymentMethod === POS_CHARGE_PAYMENT_METHOD
+                    ? 'CHARGE'
+                    : order.downPaymentType
+                      ? 'DOWN_PAYMENT'
+                      : payments.length > 1 || order.paymentMethod === 'SPLIT'
+                        ? 'SPLIT'
+                        : 'FULL',
             downPaymentType: order.downPaymentType ?? null,
             downPaymentPct: order.downPaymentPct
                 ? Number(order.downPaymentPct)

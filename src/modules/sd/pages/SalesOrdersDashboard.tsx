@@ -44,6 +44,10 @@ import {
     type SalesOrderDateRange,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
+import {
+    formatSalesDueDate,
+    isDueDatePassed,
+} from '../services/salesAnalyticsService'
 import { useSalesOrdersStore } from '../store/useSalesOrdersStore'
 import { useSalesBranches } from '../hooks/useSalesBranches'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
@@ -423,8 +427,12 @@ const SalesOrdersDashboard = () => {
                     if (!payment)
                         return <span className="text-gray-400">—</span>
                     const tenders = row.original.tenders ?? []
+                    // A charge (pay later) sale stays "Charge" however its later
+                    // collections were paid.
                     const methodLabel =
-                        tenders.length > 1
+                        payment.method === 'CHARGE'
+                            ? paymentMethodLabel('CHARGE')
+                            : tenders.length > 1
                             ? tenders
                                   .map((t) => paymentMethodLabel(t.method))
                                   .join(' + ')
@@ -451,19 +459,38 @@ const SalesOrdersDashboard = () => {
                     const payment = row.original.payment
                     if (!payment)
                         return <span className="text-gray-400">—</span>
+                    const owed = Number(row.original.outstandingBalance ?? 0)
+                    const overdue = owed > 0.005 && isDueDatePassed(row.original.dueDate)
                     return (
-                        <StatusBadge
-                            className="whitespace-nowrap"
-                            tone={
-                                payment.status === 'Paid'
-                                    ? 'success'
-                                    : payment.status === 'Failed'
-                                      ? 'danger'
-                                      : 'warning'
-                            }
-                        >
-                            {payment.status ?? '—'}
-                        </StatusBadge>
+                        <div className="leading-tight">
+                            <StatusBadge
+                                className="whitespace-nowrap"
+                                tone={
+                                    payment.status === 'Paid'
+                                        ? 'success'
+                                        : payment.status === 'Failed'
+                                          ? 'danger'
+                                          : 'warning'
+                                }
+                            >
+                                {payment.status ?? '—'}
+                            </StatusBadge>
+                            {owed > 0.005 ? (
+                                <div
+                                    className={
+                                        overdue
+                                            ? 'mt-0.5 whitespace-nowrap text-[10px] font-semibold text-red-600 dark:text-red-400'
+                                            : 'mt-0.5 whitespace-nowrap text-[10px] text-gray-500'
+                                    }
+                                >
+                                    {overdue ? 'Overdue · ' : 'Due '}
+                                    {formatOrderPrice(owed)}
+                                    {row.original.dueDate
+                                        ? ` · ${formatSalesDueDate(row.original.dueDate)}`
+                                        : ''}
+                                </div>
+                            ) : null}
+                        </div>
                     )
                 },
             },

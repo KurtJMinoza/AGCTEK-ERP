@@ -1445,6 +1445,8 @@ model MmBatch {
   materialId        String
   material          MmMaterial       @relation(fields: [materialId], references: [id])
   batchNumber       String
+  /// Optional lot identifier (distinct from batch when both are tracked).
+  lotNumber         String?
   manufacturingDate DateTime?
   expiryDate        DateTime?
   /// Days from manufacture → expiry (optional; used to derive expiryDate)
@@ -1456,6 +1458,8 @@ model MmBatch {
   updatedAt         DateTime         @updatedAt
   deletedAt         DateTime?
   serialNumbers     MmSerialNumber[]
+  sdSalesOrderLines         SdSalesOrderLine[]
+  extPlatformLines          SdExtPlatformTransactionLine[]
 
   inventoryTransactions     MmInventoryTransaction[]
   mmInventoryBalances       MmInventoryBalance[]
@@ -1472,6 +1476,7 @@ model MmBatch {
   inspectionLots MmInspectionLot[]
 
   @@unique([materialId, batchNumber])
+  @@unique([materialId, lotNumber])
   @@index([materialId])
   @@index([supplierId])
   @@index([expiryDate])
@@ -5269,6 +5274,12 @@ model SdSalesOrderLine {
   reservationHeaderId  String?
   /// OPEN | RESERVED | SHORT | FULFILLED | CANCELLED
   integrationStatus    String                @default("OPEN")
+  /// MM batch picked for this line (nullable when not batch-managed).
+  batchId              String?
+  batch                MmBatch?              @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  /// Frozen batch / lot labels for order history and reporting.
+  batchNumber          String?
+  lotNumber            String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   fulfillmentLines     SdFulfillmentLine[]
@@ -5281,6 +5292,7 @@ model SdSalesOrderLine {
   @@index([materialId])
   @@index([productId])
   @@index([divisionId])
+  @@index([batchId])
   @@map("sd_sales_order_lines")
 }
 
@@ -9569,11 +9581,16 @@ model SdExtPlatformTransactionLine {
   zeroRatedAmount       Decimal   @default(0) @db.Decimal(18, 4)
   netAmount             Decimal   @default(0) @db.Decimal(18, 4)
   grossAmount           Decimal   @default(0) @db.Decimal(18, 4)
+  batchId               String?
+  batch                 MmBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  batchNumber           String?
+  lotNumber             String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
   @@unique([transactionId, lineNumber])
   @@index([materialId])
   @@index([productId])
+  @@index([batchId])
   @@map("sd_ext_platform_transaction_lines")
 }

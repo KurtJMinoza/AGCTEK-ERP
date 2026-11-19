@@ -31,6 +31,10 @@ import { ProductService } from './product.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { GoodsIssueService } from '../mm/stock-ops/goods-issue.service'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
+import {
+    ensureMaterialBatch,
+    resolveMaterialLineTracking,
+} from '../mm/batches/line-tracking.util'
 
 const Decimal = Prisma.Decimal
 
@@ -50,6 +54,8 @@ type StockRow = {
     variantId: string | null
     availableQuantity: number
     state: string
+    primaryBatchNumber: string | null
+    primaryLotNumber: string | null
 }
 /** MM goods-issue source type for approved company-owned external platform sales. */
 const EXT_GI_SOURCE = 'EXT_PLATFORM_SALE'
@@ -823,6 +829,8 @@ export class ExtPlatformTransactionService {
             variantId: i.variantId ?? null,
             availableQuantity: 0,
             state: 'OUT_OF_STOCK',
+            primaryBatchNumber: null,
+            primaryLotNumber: null,
         }))
 
         const indexesByDivision = new Map<string, number[]>()
@@ -847,6 +855,8 @@ export class ExtPlatformTransactionService {
                 rows.forEach((row, k) => {
                     result[chunk[k]].availableQuantity = row.availableQuantity
                     result[chunk[k]].state = row.state
+                    result[chunk[k]].primaryBatchNumber = row.primaryBatchNumber ?? null
+                    result[chunk[k]].primaryLotNumber = row.primaryLotNumber ?? null
                 })
             }
         }
@@ -1027,7 +1037,8 @@ export class ExtPlatformTransactionService {
         // The FICO rate in force on the sale date applies, so backdated entries keep historical rates.
         const rateDate = taxDateOnly(transactionDate) ?? taxTodayUtc()
 
-        return dtoLines.map((line) => {
+        return Promise.all(
+            dtoLines.map(async (line) => {
             const mat = materialMap[line.materialId]
             if (!mat) {
                 throw new BadRequestException(
@@ -1136,6 +1147,19 @@ export class ExtPlatformTransactionService {
 
             const uomId = line.uomId || mat.salesUom?.id || mat.baseUomId
 
+            const tracking =
+                (await ensureMaterialBatch(
+                    this.prisma,
+                    mat.id,
+                    line.batchNumber,
+                    line.lotNumber,
+                )) ??
+                (await resolveMaterialLineTracking(
+                    this.prisma,
+                    mat.id,
+                    companyId,
+                ))
+
             return {
                 lineNumber: line.lineNumber,
                 productId: line.productId,
@@ -1165,8 +1189,12 @@ export class ExtPlatformTransactionService {
                 zeroRatedAmount,
                 netAmount,
                 grossAmount,
+                batchId: tracking.batchId,
+                batchNumber: tracking.batchNumber,
+                lotNumber: tracking.lotNumber,
             }
-        })
+            }),
+        )
     }
 
     private async nextTransactionNumber(): Promise<string> {

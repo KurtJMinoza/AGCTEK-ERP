@@ -1,5 +1,6 @@
 import {
     bucketLabels,
+    isPastDueDay,
     normalizeSalesLinePaidStatus,
     previousWindow,
     resolveCustomRange,
@@ -40,6 +41,46 @@ describe('summarizeLinePayments', () => {
     it('falls back to the first tender and handles missing data', () => {
         expect(summarizeLinePayments(null, [{ method: 'GCASH', amount: 1 }]).paymentMethod).toBe('GCASH')
         expect(summarizeLinePayments(null, null)).toEqual({ paymentMethod: '', payments: [] })
+    })
+
+    it('reports a charge sale as CHARGE with no payments before the customer pays', () => {
+        expect(summarizeLinePayments('CHARGE', [])).toEqual({
+            paymentMethod: 'CHARGE',
+            payments: [],
+        })
+    })
+
+    it('keeps a charge sale CHARGE however its collections were paid', () => {
+        const result = summarizeLinePayments('CHARGE', [
+            { method: 'CASH', amount: 100, status: 'Paid' },
+            { method: 'GCASH', amount: 50, reference: 'G-1', status: 'Paid' },
+        ])
+        expect(result.paymentMethod).toBe('CHARGE')
+        expect(result.payments).toHaveLength(2)
+    })
+})
+
+describe('isPastDueDay (Manila calendar)', () => {
+    // Due dates are stored at UTC midnight of the due day.
+    const due = new Date('2026-11-20T00:00:00.000Z')
+
+    it('is not overdue before or during the due day', () => {
+        expect(isPastDueDay(due, new Date('2026-11-19T10:00:00.000Z'))).toBe(false)
+        // 2026-11-20 08:00 Manila - the due day has just begun.
+        expect(isPastDueDay(due, new Date('2026-11-20T00:00:00.000Z'))).toBe(false)
+        // 2026-11-20 23:59 Manila.
+        expect(isPastDueDay(due, new Date('2026-11-20T15:59:00.000Z'))).toBe(false)
+    })
+
+    it('is overdue once the due day has ended in Manila', () => {
+        // 2026-11-21 00:00 Manila.
+        expect(isPastDueDay(due, new Date('2026-11-20T16:00:00.000Z'))).toBe(true)
+        expect(isPastDueDay(due, new Date('2026-12-01T00:00:00.000Z'))).toBe(true)
+    })
+
+    it('has nothing to be overdue without a due date', () => {
+        expect(isPastDueDay(null)).toBe(false)
+        expect(isPastDueDay(undefined)).toBe(false)
     })
 })
 

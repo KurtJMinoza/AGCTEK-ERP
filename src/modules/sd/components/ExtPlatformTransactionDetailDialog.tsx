@@ -293,6 +293,8 @@ export default function ExtPlatformTransactionDetailDialog({
                                         <th className="px-3 py-2.5 text-right">Qty</th>
                                         <th className="px-3 py-2.5 text-right">Unit price</th>
                                         <th className="px-3 py-2.5 text-right">Discount</th>
+                                        <th className="px-3 py-2.5">Batch</th>
+                                        <th className="px-3 py-2.5">Lot</th>
                                         <th className="px-3 py-2.5">Tax</th>
                                         <th className="px-3 py-2.5 text-right">VAT</th>
                                         <th className="px-4 py-2.5 text-right">Amount</th>
@@ -316,6 +318,12 @@ export default function ExtPlatformTransactionDetailDialog({
                                             <td className="px-3 py-3 text-right tabular-nums">{money(line.unitPrice)}</td>
                                             <td className="px-3 py-3 text-right tabular-nums text-gray-500">
                                                 {Number(line.discount) ? `− ${money(line.discount)}` : '—'}
+                                            </td>
+                                            <td className="px-3 py-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                                                {line.batchNumber || '—'}
+                                            </td>
+                                            <td className="px-3 py-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                                                {line.lotNumber || '—'}
                                             </td>
                                             <td className="px-3 py-3">
                                                 <TaxClassTag

@@ -61,12 +61,18 @@ export type SalesLineReportRow = {
     paidStatus: string
     /** Unpaid remainder of the order, apportioned to this line (0 when settled). */
     balanceDue: number
-    /** `SPLIT` when settled with more than one method; otherwise the method code ('' if unknown). */
+    /** When the unpaid balance is due (charge sales / down payments); null if none. */
+    dueDate: string | null
+    /** The balance is still owed and its due day has passed. */
+    isOverdue: boolean
+    /** `SPLIT` when settled with more than one method, `CHARGE` for a pay-later sale; otherwise the method code ('' if unknown). */
     paymentMethod: string
     /** Tenders captured for the sale, in the order they were taken. */
     payments: SalesLinePayment[]
     /** Payment remarks from Take Payment (POS) or platform sale notes. */
     remarks: string
+    batchNumber: string
+    lotNumber: string
 }
 
 export type SalesLinePayment = {
@@ -88,6 +94,25 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 }
 
 /** Display name of a payment method code; unknown codes are title-cased. */
+/** A due date as a Manila calendar day, e.g. "Nov 20, 2026". */
+export const formatSalesDueDate = (value: string | null | undefined) =>
+    value
+        ? new Date(value).toLocaleDateString('en-PH', {
+              month: 'short',
+              day: '2-digit',
+              year: 'numeric',
+              timeZone: 'Asia/Manila',
+          })
+        : ''
+
+/** The due day (Manila calendar) has fully passed — mirrors the server's overdue rule. */
+export const isDueDatePassed = (value: string | null | undefined) => {
+    if (!value) return false
+    const manilaDay = (date: Date) =>
+        new Date(date.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
+    return manilaDay(new Date()) > manilaDay(new Date(value))
+}
+
 export const salesPaymentMethodLabel = (code: string) => {
     const key = (code ?? '').trim().toUpperCase()
     if (!key) return '—'

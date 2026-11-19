@@ -105,6 +105,18 @@ export class ExtPlatformTransactionLineDto {
     @IsOptional()
     @IsString()
     description?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(80)
+    @Transform(trim)
+    batchNumber?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(80)
+    @Transform(trim)
+    lotNumber?: string
 }
 
 export class CreateExtPlatformTransactionDto {

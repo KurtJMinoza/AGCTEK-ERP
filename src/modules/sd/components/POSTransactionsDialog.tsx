@@ -364,12 +364,15 @@ function TransactionRow({
         receipt.paymentStatus === 'Partially Paid' ||
         Number(receipt.outstandingBalance ?? 0) > 0.005
     const outstanding = Number(receipt.outstandingBalance ?? 0)
+    // Charge sale (pay later): the customer took the goods and owes the total.
+    const isCharge = receipt.paymentMode === 'CHARGE'
     const hasUnpaidSalary =
-        receipt.paymentStatus === 'Unpaid' ||
-        receipt.tenders.some(
-            (tender) =>
-                tender.method === 'SALARY_LOAN' && tender.status === 'Unpaid',
-        )
+        !isCharge &&
+        (receipt.paymentStatus === 'Unpaid' ||
+            receipt.tenders.some(
+                (tender) =>
+                    tender.method === 'SALARY_LOAN' && tender.status === 'Unpaid',
+            ))
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
     const statusLabel = voidTransaction
         ? 'Void transaction'
@@ -377,7 +380,11 @@ function TransactionRow({
           ? 'Voided'
           : pending
             ? 'Pending'
-            : partiallyPaid
+            : isCharge && partiallyPaid
+              ? receipt.paymentStatus === 'Unpaid'
+                  ? 'Charge · unpaid'
+                  : 'Charge · partially paid'
+              : partiallyPaid
               ? 'Partially paid'
               : receipt.status === 'COMPLETED'
                 ? 'Completed'
@@ -392,9 +399,11 @@ function TransactionRow({
                 : receipt.status === 'COMPLETED'
                   ? 'success'
                   : 'default'
-    const tenders = receipt.tenders
-        .map((tender) => TENDER_LABEL[tender.method] ?? tender.method)
-        .join(' + ')
+    const tenders = isCharge
+        ? ['Charge', ...receipt.tenders.map((tender) => TENDER_LABEL[tender.method] ?? tender.method)].join(' → ')
+        : receipt.tenders
+              .map((tender) => TENDER_LABEL[tender.method] ?? tender.method)
+              .join(' + ')
     const reason = voidTransaction || (voided && !receipt.voidTransactionNumber) ? receipt.voidReason : null
 
     return (
@@ -476,6 +485,9 @@ function TransactionRow({
                     {partiallyPaid && outstanding > 0 ? (
                         <div className="text-[11px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                             Due {formatPrice(outstanding)}
+                            {isCharge && receipt.dueDate
+                                ? ` by ${new Date(String(receipt.dueDate)).toLocaleDateString('en-PH', { month: 'short', day: '2-digit' })}`
+                                : ''}
                         </div>
                     ) : null}
                     {hasUnpaidSalary ? (

@@ -125,6 +125,32 @@ const MaterialCatalogReferenceDetails = ({ data }: Props) => (
                 </Link>
             </p>
         </Section>
+        {data.tracking.batchManaged && data.tracking.batches.length > 0 ? (
+            <Section title="Batch / lot (MM)">
+                <ul className="space-y-1 text-xs">
+                    {data.tracking.batches.slice(0, 6).map((batch) => (
+                        <li
+                            key={batch.id}
+                            className="flex flex-wrap justify-between gap-2 rounded border border-gray-200 px-2 py-1 dark:border-gray-700"
+                        >
+                            <span className="font-mono font-medium text-gray-800 dark:text-gray-200">
+                                {batch.batchNumber}
+                                {batch.lotNumber ? ` · Lot ${batch.lotNumber}` : ''}
+                            </span>
+                            <span className="text-gray-500">{batch.status}</span>
+                        </li>
+                    ))}
+                </ul>
+                {data.expiry.nearestBatchNumber ? (
+                    <p className="mt-2 text-[11px] text-gray-500">
+                        Nearest stocked batch: {data.expiry.nearestBatchNumber}
+                        {data.expiry.nearestLotNumber
+                            ? ` (lot ${data.expiry.nearestLotNumber})`
+                            : ''}
+                    </p>
+                ) : null}
+            </Section>
+        ) : null}
     </div>
 )
 

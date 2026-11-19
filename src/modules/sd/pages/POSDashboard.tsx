@@ -1194,6 +1194,7 @@ const POSDashboard = () => {
             downPaymentType,
             downPaymentPct,
             downPaymentAmount,
+            dueDate,
             remarks,
         } = result
         if (!branchId || !companyId) {
@@ -1273,6 +1274,7 @@ const POSDashboard = () => {
                 ...(downPaymentType ? { downPaymentType } : {}),
                 ...(downPaymentPct !== undefined ? { downPaymentPct } : {}),
                 ...(downPaymentAmount !== undefined ? { downPaymentAmount } : {}),
+                ...(dueDate ? { dueDate } : {}),
                 ...(remarks ? { remarks } : {}),
             })
             clearCart()

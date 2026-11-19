@@ -42,6 +42,9 @@ export type ExtPlatformTransactionLine = {
     zeroRatedAmount: number
     netAmount: number
     grossAmount: number
+    batchId: string | null
+    batchNumber: string | null
+    lotNumber: string | null
 }
 
 export type ExtPlatformTransaction = {
@@ -127,6 +130,8 @@ export type CreateExtPlatformTransactionLineInput = {
     unitPrice: number
     discount?: number
     description?: string
+    batchNumber?: string
+    lotNumber?: string
 }
 
 /** Live MM availability of one catalog item (same ATP the POS uses). */
@@ -136,6 +141,9 @@ export type ExtPlatformStock = {
     availableQuantity: number
     /** IN_STOCK | LOW_STOCK | OUT_OF_STOCK | NOT_MAPPED | NON_INVENTORY */
     state: string
+    /** Latest MM batch on the resolved material (catalog ATP path). */
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
 }
 
 export type ExtPlatformTaxPreviewLine =

@@ -212,6 +212,8 @@ export type StorefrontAvailability = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
     state?:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -685,6 +687,8 @@ export type CatalogStockSnapshot = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
 }
 
 /** MM-backed available qty per product (storefront ATP by division + SKU). */
@@ -714,6 +718,8 @@ export async function fetchProductCatalogStock(
                         hasVariants: data.hasVariants ?? false,
                         variantId: data.variantId ?? null,
                         materialId: data.materialId ?? null,
+                        primaryBatchNumber: data.primaryBatchNumber ?? null,
+                        primaryLotNumber: data.primaryLotNumber ?? null,
                     },
                 ] as const
             } catch (error) {

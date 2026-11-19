@@ -96,6 +96,8 @@ export type SalesOrderRecord = {
         taxTreatment: string | null
         taxAmount: number
         taxableAmount: number | null
+        batchNumber?: string | null
+        lotNumber?: string | null
     })[]
     subtotal: number
     promoCode: string | null
@@ -205,6 +207,8 @@ type ApiSalesOrderLine = {
     taxTreatment?: string | null
     taxAmount?: DecimalString
     taxableAmount?: DecimalString
+    batchNumber?: string | null
+    lotNumber?: string | null
 }
 
 type ApiSalesOrder = {
@@ -350,6 +354,8 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             taxTreatment: line.taxTreatment ?? null,
             taxAmount: num(line.taxAmount ?? 0),
             taxableAmount: numOrNull(line.taxableAmount ?? null),
+            batchNumber: line.batchNumber ?? null,
+            lotNumber: line.lotNumber ?? null,
         })),
         subtotal: num(order.subtotal),
         promoCode: order.promoCode,

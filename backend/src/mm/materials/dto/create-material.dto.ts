@@ -52,6 +52,18 @@ export class CreateMaterialDto {
     @IsString()
     serialNumber?: string
 
+    /** Optional initial batch # — creates an `MmBatch` row (also visible under Batches). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    initialBatchNumber?: string
+
+    /** Optional initial lot # — paired with initial batch on create/update. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    initialLotNumber?: string
+
     @IsOptional()
     @IsString()
     brand?: string

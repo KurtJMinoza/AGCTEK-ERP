@@ -157,6 +157,7 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
                     { value: 'ALL', label: 'All sales types' },
                     { value: 'CASH', label: 'Cash' },
                     { value: 'CREDIT', label: 'Credit' },
+                    { value: 'CHARGE', label: 'Charge (pay later)' },
                 ],
                 className: 'w-full sm:w-36',
                 onChange: setSalesType,

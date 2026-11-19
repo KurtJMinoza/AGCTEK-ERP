@@ -15,6 +15,10 @@ import Tag from '@/components/ui/Tag'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { TaxClassTag } from './extPlatformUi'
 import {
+    formatSalesDueDate,
+    isDueDatePassed,
+} from '../services/salesAnalyticsService'
+import {
     paymentMethodLabel,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
@@ -96,6 +100,15 @@ const OrderLineRow = ({ line }: { line: Line }) => (
                     {line.variantBarcode ? (
                         <p className="mt-1 font-mono text-[11px] text-gray-500">
                             {line.variantBarcode}
+                        </p>
+                    ) : null}
+                    {line.batchNumber || line.lotNumber ? (
+                        <p className="mt-1 font-mono text-[10px] text-gray-500">
+                            {line.batchNumber
+                                ? `Batch ${line.batchNumber}`
+                                : null}
+                            {line.batchNumber && line.lotNumber ? ' · ' : null}
+                            {line.lotNumber ? `Lot ${line.lotNumber}` : null}
                         </p>
                     ) : null}
                 </div>
@@ -446,9 +459,25 @@ const SalesOrderDetailDialog = ({
                                             </span>
                                         </div>
                                         {order.dueDate ? (
+                                            <p
+                                                className={
+                                                    isDueDatePassed(order.dueDate)
+                                                        ? 'mt-1 text-[11px] font-semibold text-red-600 dark:text-red-400'
+                                                        : 'mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/80'
+                                                }
+                                            >
+                                                {isDueDatePassed(order.dueDate)
+                                                    ? 'Overdue — was due '
+                                                    : 'Due '}
+                                                {formatSalesDueDate(order.dueDate)}
+                                            </p>
+                                        ) : null}
+                                        {order.payment.method === 'CHARGE' ? (
                                             <p className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/80">
-                                                Due{' '}
-                                                {formatOrderDateTime(order.dueDate)}
+                                                Charge sale — the goods were
+                                                released and the customer pays
+                                                later. Record payments from the
+                                                POS transactions screen.
                                             </p>
                                         ) : null}
                                     </div>
