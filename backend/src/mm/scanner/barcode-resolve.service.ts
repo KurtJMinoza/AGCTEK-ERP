@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { findWithZeroTolerance } from './barcode-zero-variants'
 
 export type ResolveHitType =
     | 'MATERIAL_BARCODE'
@@ -114,16 +115,20 @@ export class BarcodeResolveService {
             throw new NotFoundException('INVALID_BARCODE: Barcode is empty')
         }
 
-        const matBc = await this.prisma.mmBarcode.findFirst({
-            where: {
-                barcodeValue: value,
-                deletedAt: null,
-                status: 'ACTIVE',
-                archivedAt: null,
-                ...(companyId ? { companyId } : {}),
-            },
-            include: { material: { select: MAT_SELECT } },
-        })
+        // Exact barcode first; then the same code with leading zeros added or
+        // removed (sheets drop them, scanners read them).
+        const matBc = await findWithZeroTolerance(value, (barcodeValue) =>
+            this.prisma.mmBarcode.findFirst({
+                where: {
+                    barcodeValue,
+                    deletedAt: null,
+                    status: 'ACTIVE',
+                    archivedAt: null,
+                    ...(companyId ? { companyId } : {}),
+                },
+                include: { material: { select: MAT_SELECT } },
+            }),
+        )
         if (matBc) {
             return {
                 type: 'MATERIAL_BARCODE',

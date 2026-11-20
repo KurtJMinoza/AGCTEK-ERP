@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
+import { barcodeZeroVariants } from '../mm/scanner/barcode-zero-variants'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import {
     UpdateProductOptionsVariantsDto,
@@ -670,24 +671,36 @@ export class ProductOptionVariantsService {
         if (!value) {
             throw new BadRequestException('Barcode is required')
         }
-        const variant = await this.prisma.sdProductVariant.findUnique({
-            where: { barcode: value },
-            include: {
-                product: { select: { id: true, divisionId: true, sku: true, name: true } },
-                material: {
-                    select: {
-                        id: true,
-                        materialCode: true,
-                        materialName: true,
-                        baseUomId: true,
-                        companyId: true,
-                    },
-                },
-                optionValues: {
-                    include: { optionValue: { include: { option: true } } },
+        const include = {
+            product: { select: { id: true, divisionId: true, sku: true, name: true } },
+            material: {
+                select: {
+                    id: true,
+                    materialCode: true,
+                    materialName: true,
+                    baseUomId: true,
+                    companyId: true,
                 },
             },
+            optionValues: {
+                include: { optionValue: { include: { option: true } } },
+            },
+        } as const
+        // Exact barcode first; on a miss, the same code with leading zeros
+        // added or removed (sheets drop them, scanners read them).
+        let variant = await this.prisma.sdProductVariant.findUnique({
+            where: { barcode: value },
+            include,
         })
+        if (!variant) {
+            const alternates = barcodeZeroVariants(value)
+            if (alternates.length) {
+                variant = await this.prisma.sdProductVariant.findFirst({
+                    where: { barcode: { in: alternates } },
+                    include,
+                })
+            }
+        }
         if (!variant) {
             throw new NotFoundException(
                 `No variant matches barcode "${value}"`,
