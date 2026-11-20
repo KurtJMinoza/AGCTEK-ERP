@@ -542,6 +542,8 @@ const ProductCatalogTableSection = ({
             ) : null}
 
             <SdDataTable
+                    // Wide register: columns keep their widths and the table scrolls horizontally (same as External Platform Sales).
+                    wide
                     columns={columns}
                     data={pagedProducts}
                     loading={(loading || stockLoading || refreshing) && products.length === 0}

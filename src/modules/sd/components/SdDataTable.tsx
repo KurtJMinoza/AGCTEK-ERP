@@ -34,6 +34,8 @@ function SdDataTable<T>({
         <DataTable<T>
             {...SD_DATA_TABLE_LAYOUT}
             fit={resolvedFit}
+            // The footer lives inside the scroll shell below, so the page-size select must stay pinned.
+            stickyPageSize
             // The shell below is the single horizontal scroller; a second one would draw a doubled scrollbar.
             overflow={wide ? false : undefined}
             className={classNames(wide && 'w-max max-w-none', className)}
