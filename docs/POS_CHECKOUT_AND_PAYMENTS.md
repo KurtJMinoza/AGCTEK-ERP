@@ -69,7 +69,7 @@ other sale (stock leaves immediately).
 | Customer | Must be identified (walk-in is rejected). `CREDIT` accounts: `creditLimit − open receivables` must cover the total. Other accounts have no limit |
 | Order | `paymentMethod = 'CHARGE'`, `paymentStatus = 'Unpaid'`, `outstandingBalance = total`, `dueDate`; no down payment fields |
 | Paying later | Existing collections (`PosCollectionService.collect`, **Collect** in POS transactions) — in full or in parts (e.g. a down payment tomorrow). Status moves `Unpaid → Partially Paid → Paid`; `paymentMethod` stays `CHARGE` |
-| Receipt | `paymentMode: 'CHARGE'`; shows "Charged (pay later)", balance due, due date and a customer acknowledgement line |
+| Receipt | `paymentMode: 'CHARGE'`; the **credit** box is ticked, status reads "Charge · …", with balance due, due date and a customer acknowledgement line |
 | FICO | Unchanged: the `PosSaleCompleted` event carries `outstandingBalance`, so Accounts Receivable is debited for the unpaid part |
 
 Reporting: the Sales Orders list/detail show the method as *Charge*, the balance
@@ -107,6 +107,26 @@ customer could together exceed the limit by one sale.
 If the stock posting fails, the sale stays `CONFIRMED` with its tenders
 recorded: the money is captured, the stock is not, and the cashier can retry
 the completion. The sale is never marked complete without the goods issue.
+
+### Sales receipt (A4)
+
+The receipt (`POSReceipt.tsx`, printed through `printPosReceipt.ts`) follows
+the company's paper **Sales Receipt** form on A4: logo, company name and
+address (from the selling company), date and time, customer name, an item
+table (barcode, category, brand, description, qty, unit price, discount,
+total), the totals box, **cash / credit** boxes, and Prepared By / Checked By /
+Received signature lines. Prepared By is the cashier's **full name**
+(`PosReceipt.cashierName`, resolved by the server from the user that served the
+sale: "First Last", else the login name). Category and brand come
+from the MM material on each line (`PosReceipt.lines[].category|brand`). A
+discount is recorded for the whole order, so the Discount column shows "—" per
+line and the order discount appears in the totals box as "Less: Discount".
+
+**Two copies per sheet.** `POSReceiptSheet` prints the receipt twice on one A4
+page (top and bottom half) with a dashed **cut line** between them.
+`printPosReceipt` fits each copy into its half (shrinking it, never below 75%).
+A sale with too many lines to fit at that size prints one copy per page
+instead, without the cut line.
 
 ## 5. Cashier shift
 

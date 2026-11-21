@@ -87,7 +87,7 @@ import {
     type PosSessionCollections,
 } from '../services/posService'
 import { PosHoldPayloadSchema, type PosTenderInput } from '../types/pos.schema'
-import POSReceipt from '../components/POSReceipt'
+import POSReceiptSheet from '../components/POSReceiptSheet'
 import POSCheckoutPanel, {
     type POSCustomerOption,
 } from '../components/POSCheckoutPanel'
@@ -1306,7 +1306,7 @@ const POSDashboard = () => {
     }, [branchId])
 
     /**
-     * Prints the open receipt to the Xprinter (or the OS default thermal).
+     * Prints the open receipt on A4 through the browser print dialog.
      * Reprint / retry only re-sends the same receipt — never another sale.
      */
     const handlePrintReceipt = useCallback(async () => {
@@ -2358,7 +2358,7 @@ const POSDashboard = () => {
 
             <Dialog
                 isOpen={receipt !== null}
-                width={380}
+                width={900}
                 shouldReturnFocusAfterClose={false}
                 onAfterClose={focusScanner}
                 onClose={() => {
@@ -2395,19 +2395,26 @@ const POSDashboard = () => {
                 ) : null}
                 {printingReceipt ? (
                     <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
-                        Sending to the Xprinter… Confirm or cancel in the print
+                        Sending to the printer… Confirm or cancel in the print
                         dialog. The sale is already saved.
                     </p>
                 ) : null}
                 {receipt ? (
                     <div className="max-h-[60vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
-                        <POSReceipt
-                            receipt={receipt}
-                            branchName={branch?.label}
-                            terminalCode={shift?.terminalCode ?? null}
-                            cashierName={session?.user?.name ?? null}
-                        />
+                        {/* Same size as the printed copies (see BASE_SCALE in printPosReceipt). */}
+                        <div style={{ zoom: 0.88 }}>
+                            <POSReceiptSheet
+                                receipt={receipt}
+                                branchName={branch?.label}
+                            />
+                        </div>
                     </div>
+                ) : null}
+                {receipt ? (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Prints two copies on one A4 sheet. Cut along the dashed
+                        line.
+                    </p>
                 ) : null}
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {canCreate && (
@@ -2446,13 +2453,11 @@ const POSDashboard = () => {
                 ? createPortal(
                       <div
                           ref={printIsolateRef}
-                          className="print-isolate hidden print:block"
+                          className="print-isolate print-isolate--a4 hidden print:block"
                       >
-                          <POSReceipt
+                          <POSReceiptSheet
                               receipt={receipt}
                               branchName={branch?.label}
-                              terminalCode={shift?.terminalCode ?? null}
-                              cashierName={session?.user?.name ?? null}
                           />
                       </div>,
                       document.body,

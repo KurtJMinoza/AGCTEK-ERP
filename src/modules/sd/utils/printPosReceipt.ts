@@ -1,5 +1,5 @@
 /**
- * POS receipt printing for 80mm thermal printers (e.g. Xprinter).
+ * POS sales receipt printing (A4 sheet, two copies per page).
  *
  * Prints an existing receipt DOM only — never creates or posts a sale.
  * Uses an off-screen iframe so dialog chrome is not sent to the printer.
@@ -15,9 +15,11 @@ export type PrintPosReceiptResult = {
 const AFTER_PRINT_FALLBACK_MS = 45_000
 
 function copyStylesInto(target: Document) {
-    document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
-        target.head.appendChild(node.cloneNode(true))
-    })
+    document
+        .querySelectorAll('style, link[rel="stylesheet"]')
+        .forEach((node) => {
+            target.head.appendChild(node.cloneNode(true))
+        })
 }
 
 function waitFrames(count = 2): Promise<void> {
@@ -44,8 +46,12 @@ function waitForImages(root: HTMLElement, timeoutMs = 3000): Promise<void> {
         .map(
             (img) =>
                 new Promise<void>((resolve) => {
-                    img.addEventListener('load', () => resolve(), { once: true })
-                    img.addEventListener('error', () => resolve(), { once: true })
+                    img.addEventListener('load', () => resolve(), {
+                        once: true,
+                    })
+                    img.addEventListener('error', () => resolve(), {
+                        once: true,
+                    })
                 }),
         )
     if (!pending.length) return Promise.resolve()
@@ -53,6 +59,71 @@ function waitForImages(root: HTMLElement, timeoutMs = 3000): Promise<void> {
         Promise.all(pending).then(() => undefined),
         new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs)),
     ])
+}
+
+const PX_PER_MM = 96 / 25.4
+/** Printable width of an A4 sheet with 10 mm margins. */
+const CONTENT_WIDTH_MM = 190
+/** Height of each half: (277 mm printable - 9 mm cut line) / 2, minus a safety gap. */
+const HALF_HEIGHT_MM = 128
+const CUT_HEIGHT_MM = 9
+/** Size of a copy relative to the form (1 = the full 190 mm wide layout). */
+const BASE_SCALE = 0.88
+/** Below this the print would be too small to read: one copy per page instead. */
+const MIN_FIT_SCALE = 0.75
+
+/**
+ * Lays the receipt copies of `POSReceiptSheet` out on the page.
+ *
+ * Each copy is shrunk (never enlarged) to fit its half of the sheet; the copy
+ * is laid out wider by the same factor, so the shrunken receipt still spans
+ * the page width. A sale too long to fit at a readable size prints its copies
+ * on separate pages and drops the cut line.
+ */
+export function layoutReceiptCopies(root: HTMLElement) {
+    const copies = Array.from(
+        root.querySelectorAll<HTMLElement>('[data-receipt-copy]'),
+    )
+    const cut = root.querySelector<HTMLElement>('[data-receipt-cut]')
+    if (copies.length < 2) return
+
+    const inners = copies.map(
+        (copy) =>
+            copy.querySelector<HTMLElement>('[data-receipt-copy-inner]') ??
+            copy,
+    )
+    const naturalHeight = Math.max(...inners.map((inner) => inner.offsetHeight))
+    const fit = Math.min(1, (HALF_HEIGHT_MM * PX_PER_MM) / naturalHeight)
+    // Every copy is printed a little smaller than the page allows; a long sale
+    // is shrunk further, down to the readable minimum.
+    const scale = Math.min(BASE_SCALE, fit)
+    const applyScale = () =>
+        inners.forEach((inner) => {
+            inner.style.width = `${CONTENT_WIDTH_MM / scale}mm`
+            inner.style.maxWidth = 'none'
+            inner.style.setProperty('zoom', String(scale))
+        })
+
+    if (fit < MIN_FIT_SCALE) {
+        copies[0].style.breakAfter = 'page'
+        copies[0].style.pageBreakAfter = 'always'
+        if (cut) cut.style.display = 'none'
+        applyScale()
+        return
+    }
+
+    copies.forEach((copy, index) => {
+        copy.style.height = `${HALF_HEIGHT_MM}mm`
+        // The first copy sits at the top of its half, the second right under the cut line.
+        copy.style.overflow = 'visible'
+        copy.style.breakInside = 'avoid'
+        if (index === 0) copy.style.breakAfter = 'avoid'
+    })
+    applyScale()
+    if (cut) {
+        cut.style.height = `${CUT_HEIGHT_MM}mm`
+        cut.style.padding = '0'
+    }
 }
 
 /** Null / SSR guards — used by the POS Print / Reprint buttons. */
@@ -81,9 +152,9 @@ export async function printPosReceipt(
     const iframe = document.createElement('iframe')
     iframe.setAttribute('title', 'POS receipt print')
     iframe.setAttribute('aria-hidden', 'true')
-    // Non-zero size: some Windows / Xprinter drivers skip empty frames.
+    // Non-zero size: some Windows printer drivers skip empty frames.
     iframe.style.cssText =
-        'position:fixed;right:0;bottom:0;width:80mm;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1'
+        'position:fixed;right:0;bottom:0;width:210mm;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1'
     document.body.appendChild(iframe)
 
     const win = iframe.contentWindow
@@ -97,7 +168,7 @@ export async function printPosReceipt(
     clone.classList.remove('hidden')
     clone.style.display = 'block'
     clone.style.visibility = 'visible'
-    clone.style.width = '72mm'
+    clone.style.width = '190mm'
     clone.style.maxWidth = '100%'
     clone.style.margin = '0 auto'
     clone.style.background = '#fff'
@@ -112,7 +183,7 @@ export async function printPosReceipt(
 
     const pageStyle = doc.createElement('style')
     pageStyle.textContent = `
-      @page { size: 80mm auto; margin: 2mm; }
+      @page { size: A4 portrait; margin: 10mm; }
       html, body {
         margin: 0 !important;
         padding: 0 !important;
@@ -127,6 +198,8 @@ export async function printPosReceipt(
 
     await waitForImages(clone)
     await waitFrames(2)
+    layoutReceiptCopies(clone)
+    await waitFrames(1)
 
     return new Promise((resolve) => {
         let settled = false
@@ -151,7 +224,7 @@ export async function printPosReceipt(
                 finish({
                     ok: true,
                     message:
-                        'Print job sent. If the Xprinter did not print, check paper/USB and tap Reprint.',
+                        'Print job sent. If nothing printed, check the paper and printer connection and tap Reprint.',
                 })
                 return
             }
@@ -177,7 +250,7 @@ export async function printPosReceipt(
             finish({
                 ok: false,
                 message:
-                    'Print timed out. Check the Xprinter connection and tap Reprint — the sale was not changed.',
+                    'Print timed out. Check the printer connection and tap Reprint — the sale was not changed.',
             })
         }, AFTER_PRINT_FALLBACK_MS)
 

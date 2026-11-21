@@ -36,9 +36,11 @@ import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
-/** Barcode of the MM material behind an order line (receipt display). */
+/** Barcode, brand and category of the MM material behind an order line (receipt display). */
 const MATERIAL_BARCODE_INCLUDE = {
     select: {
+        brand: true,
+        materialCategory: { select: { name: true } },
         barcodes: { select: { barcodeValue: true, isPrimary: true } },
     },
 } as const
@@ -70,6 +72,8 @@ export type PosReceipt = {
     branchId: string
     posSessionId: string | null
     cashierUserId: string | null
+    /** Full name of the cashier (receipt "Prepared By"); null when unknown. */
+    cashierName?: string | null
     customerName: string | null
     /** Set when the sale was voided. */
     voidedAt?: string | null
@@ -87,6 +91,10 @@ export type PosReceipt = {
         variantName: string | null
         /** Scannable barcode of the line (variant, else MM material). */
         barcode: string | null
+        /** MM material category name (receipt Category column). */
+        category: string | null
+        /** MM material brand (receipt Brand column). */
+        brand: string | null
         /** Product image snapshot of the sold line. */
         imageUrl: string | null
         quantity: number
@@ -154,6 +162,7 @@ const RECEIPT_COMPANY_SELECT = {
     address: true,
     tin: true,
     logoUrl: true,
+    receiptLogoUrl: true,
 } as const
 
 export function toReceiptBusiness(
@@ -163,6 +172,7 @@ export function toReceiptBusiness(
               address?: string | null
               tin?: string | null
               logoUrl?: string | null
+              receiptLogoUrl?: string | null
           }
         | null
         | undefined,
@@ -173,7 +183,9 @@ export function toReceiptBusiness(
         name,
         address: company.address?.trim() ?? '',
         tin: company.tin?.trim() ?? '',
-        logoUrl: company.logoUrl?.trim() || null,
+        // The receipt has its own logo; the company logo is the fallback.
+        logoUrl:
+            company.receiptLogoUrl?.trim() || company.logoUrl?.trim() || null,
     }
 }
 
@@ -270,7 +282,61 @@ export class PosCheckoutService {
             },
         })
         if (!order) throw new NotFoundException('Sale not found')
-        return this.receipt(order as never, order.payments)
+        return this.withCashierName(this.receipt(order as never, order.payments))
+    }
+
+    /**
+     * Full names ("First Last", else the login name) of the users that served
+     * the given sales, by user id. A failed lookup never blocks the receipt:
+     * the "Prepared By" line is simply left without a name.
+     */
+    private async cashierNames(
+        ids: Array<string | null | undefined>,
+    ): Promise<Map<string, string>> {
+        const unique = [
+            ...new Set(ids.filter((id): id is string => Boolean(id))),
+        ]
+        const names = new Map<string, string>()
+        if (!unique.length) return names
+        try {
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: unique } },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    userName: true,
+                },
+            })
+            for (const user of users) {
+                const fullName = [user.firstName, user.lastName]
+                    .map((part) => part.trim())
+                    .filter(Boolean)
+                    .join(' ')
+                names.set(user.id, fullName || user.userName)
+            }
+        } catch (error) {
+            this.logger.warn(
+                `Cashier name lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+        }
+        return names
+    }
+
+    private async withCashierName(receipt: PosReceipt): Promise<PosReceipt> {
+        const names = await this.cashierNames([receipt.cashierUserId])
+        return {
+            ...receipt,
+            cashierName: names.get(receipt.cashierUserId ?? '') ?? null,
+        }
+    }
+
+    /**
+     * Adds the selling company and the cashier's full name to a receipt built
+     * from an order that was not loaded with them.
+     */
+    private async withBusiness(receipt: PosReceipt): Promise<PosReceipt> {
+        return this.withCashierName(await this.withCompany(receipt))
     }
 
     /**
@@ -278,7 +344,7 @@ export class PosCheckoutService {
      * loaded with it. A failed lookup never blocks the receipt: the print
      * layout falls back to the brand name.
      */
-    private async withBusiness(receipt: PosReceipt): Promise<PosReceipt> {
+    private async withCompany(receipt: PosReceipt): Promise<PosReceipt> {
         if (receipt.business) return receipt
         try {
             const row = await this.prisma.sdSalesOrder.findUnique({
@@ -317,8 +383,14 @@ export class PosCheckoutService {
         })
         // The history is a ledger: a void is its own transaction, so it follows
         // the completed sale it reversed. The sale keeps its void stamp.
+        const names = await this.cashierNames(
+            orders.map((order) => order.cashierUserId),
+        )
         return orders.flatMap((order) => {
-            const sale = this.receipt(order as never, order.payments)
+            const sale = {
+                ...this.receipt(order as never, order.payments),
+                cashierName: names.get(order.cashierUserId ?? '') ?? null,
+            }
             if (!order.voidTransaction) return [sale]
             return [
                 {
@@ -1448,6 +1520,7 @@ export class PosCheckoutService {
                 address?: string | null
                 tin?: string | null
                 logoUrl?: string | null
+                receiptLogoUrl?: string | null
             } | null
             subtotal: Prisma.Decimal | null
             discountAmount: Prisma.Decimal | null
@@ -1471,6 +1544,8 @@ export class PosCheckoutService {
                 productImageSnapshot?: string | null
                 variantBarcode?: string | null
                 material?: {
+                    brand?: string | null
+                    materialCategory?: { name: string } | null
                     barcodes?: Array<{
                         barcodeValue: string
                         isPrimary: boolean
@@ -1539,6 +1614,8 @@ export class PosCheckoutService {
                         )?.barcodeValue ??
                         line.material?.barcodes?.[0]?.barcodeValue ??
                         null,
+                    category: line.material?.materialCategory?.name?.trim() || null,
+                    brand: line.material?.brand?.trim() || null,
                     imageUrl: line.productImageSnapshot?.trim() || null,
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),

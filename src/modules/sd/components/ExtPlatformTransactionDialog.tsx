@@ -116,6 +116,21 @@ const blankLine = (): DraftLine => ({
 const num = (value: string) => (value.trim() === '' ? 0 : Number(value))
 const money = (value: number) => formatSdMoney(value)
 
+/** Identifies the inputs a tax-preview result was calculated for, so a stale result is never shown for edited values. */
+const lineSignature = (l: DraftLine) =>
+    [l.productId, l.variantId, num(l.quantity), num(l.unitPrice), num(l.discount)].join('|')
+
+/**
+ * Provisional line amount (qty × price − discount) shown until SD tax determination
+ * answers for the current values. Display only; the saved amounts come from the backend.
+ */
+const provisionalAmount = (l: DraftLine): number | null => {
+    const qty = num(l.quantity)
+    const price = num(l.unitPrice)
+    if (!(qty > 0) || l.unitPrice.trim() === '' || !Number.isFinite(price)) return null
+    return Math.max(0, Math.round((qty * price - num(l.discount)) * 100) / 100)
+}
+
 /** Helper text under a control; FormItem's `extra` renders inside the label and breaks row alignment. */
 const Hint = ({ children }: { children: ReactNode }) => (
     <p className="mt-1 text-xs text-gray-400">{children}</p>
@@ -254,6 +269,7 @@ export default function ExtPlatformTransactionDialog({
     const [preview, setPreview] = useState<{
         data: ExtPlatformTaxPreview
         keys: string[]
+        sigs: string[]
     } | null>(null)
     const [previewing, setPreviewing] = useState(false)
     const [previewError, setPreviewError] = useState('')
@@ -410,6 +426,7 @@ export default function ExtPlatformTransactionDialog({
         )
         return {
             keys: ready.map((l) => l.key),
+            sigs: ready.map(lineSignature),
             body: {
                 companyId,
                 transactionDate: ymd,
@@ -440,7 +457,7 @@ export default function ExtPlatformTransactionDialog({
             previewExtPlatformTransaction(previewInput.body)
                 .then((data) => {
                     if (cancelled) return
-                    setPreview({ data, keys: previewInput.keys })
+                    setPreview({ data, keys: previewInput.keys, sigs: previewInput.sigs })
                     setPreviewError('')
                 })
                 .catch((err) => {
@@ -460,12 +477,14 @@ export default function ExtPlatformTransactionDialog({
 
     const previewByKey = useMemo(() => {
         const map = new Map<string, ExtPlatformTaxPreviewLine>()
+        const currentSig = new Map(lines.map((l) => [l.key, lineSignature(l)]))
         preview?.keys.forEach((key, i) => {
             const line = preview.data.lines[i]
-            if (line) map.set(key, line)
+            // Only keep results that were calculated for the line's current values.
+            if (line && currentSig.get(key) === preview.sigs[i]) map.set(key, line)
         })
         return map
-    }, [preview])
+    }, [preview, lines])
 
     const updateLine = (key: string, patch: Partial<DraftLine>) => {
         setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -804,6 +823,7 @@ export default function ExtPlatformTransactionDialog({
                                 const item = catalogByKey.get(catalogKey(line.productId, line.variantId))
                                 const result = previewByKey.get(line.key)
                                 const tax = result?.error === undefined ? result : undefined
+                                const estimate = provisionalAmount(line)
                                 const error = lineErrors[line.key] ?? result?.error
                                 return (
                                     <div
@@ -895,7 +915,18 @@ export default function ExtPlatformTransactionDialog({
                                             <div className="col-span-12 flex items-center justify-end gap-1 md:col-span-2">
                                                 <div className="min-w-0 text-right">
                                                     <div className="text-sm font-semibold tabular-nums heading-text">
-                                                        {tax ? money(tax.grossAmount) : '—'}
+                                                        {tax ? (
+                                                            money(tax.grossAmount)
+                                                        ) : estimate !== null ? (
+                                                            <span
+                                                                className="font-medium text-gray-500 dark:text-gray-400"
+                                                                title="Estimate: qty × price − discount. Tax is applied once it has been calculated."
+                                                            >
+                                                                {money(estimate)}
+                                                            </span>
+                                                        ) : (
+                                                            '—'
+                                                        )}
                                                     </div>
                                                     {tax ? (
                                                         <div className="mt-0.5 flex justify-end">
@@ -1063,7 +1094,10 @@ export default function ExtPlatformTransactionDialog({
                             </div>
 
                             {totals ? (
-                                <>
+                                <div
+                                    className={`transition-opacity ${previewing ? 'opacity-50' : ''}`}
+                                    aria-busy={previewing}
+                                >
                                     <SummaryRow label="Gross sales" value={totals.grossSales} />
                                     <SummaryRow label="Discounts" value={totals.discount} negative muted />
                                     <div className="my-2 border-t border-dashed border-gray-200 dark:border-gray-700" />
@@ -1086,7 +1120,7 @@ export default function ExtPlatformTransactionDialog({
                                         <SummaryRow label="Platform fees" value={totals.platformFees} negative muted />
                                         <SummaryRow label="Expected settlement" value={totals.netSettlement} strong />
                                     </div>
-                                </>
+                                </div>
                             ) : (
                                 <div className="rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-xs text-gray-400 dark:border-gray-700">
                                     {companyId

@@ -67,6 +67,10 @@ export type PosReceiptLine = {
     variantName: string | null
     /** Scannable barcode of the line (variant, else MM material). */
     barcode: string | null
+    /** MM material category (receipt Category column); null when unknown. */
+    category?: string | null
+    /** MM material brand (receipt Brand column); null when unknown. */
+    brand?: string | null
     /** Product image snapshot of the sold line. */
     imageUrl: string | null
     quantity: number
@@ -107,6 +111,8 @@ export type PosReceipt = {
     branchId: string
     posSessionId: string | null
     cashierUserId: string | null
+    /** Full name of the cashier (receipt "Prepared By"). */
+    cashierName?: string | null
     customerName: string | null
     /** Set when the sale was voided. */
     voidedAt?: string | null
@@ -418,13 +424,16 @@ export async function listPosOrders(params: {
     limit?: number
 }): Promise<PosReceipt[]> {
     try {
-        const { data } = await ErpAxiosBase.get<PosReceipt[]>('/sd/pos/orders', {
-            params: {
-                companyId: params.companyId || undefined,
-                branchId: params.branchId || undefined,
-                limit: params.limit,
+        const { data } = await ErpAxiosBase.get<PosReceipt[]>(
+            '/sd/pos/orders',
+            {
+                params: {
+                    companyId: params.companyId || undefined,
+                    branchId: params.branchId || undefined,
+                    limit: params.limit,
+                },
             },
-        })
+        )
         return data ?? []
     } catch (error) {
         throw toApiError(error, 'Unable to load the transactions')

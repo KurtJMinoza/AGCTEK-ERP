@@ -3,18 +3,25 @@ import classNames from '@/utils/classNames'
 import { AWIC_BRAND } from '@/modules/storefront/retail/brand'
 import type { PosReceipt as PosReceiptData } from '../services/posService'
 import { branchLabel } from '../catalogs/branchCatalog'
-import { encodeCode128, isCode128Encodable } from '../utils/code128'
 
 type POSReceiptProps = {
     receipt: PosReceiptData
     /** Selected branch name (MM Organization Branch) when available. */
     branchName?: string | null
-    /** Register of the cashier shift that collected the sale. */
-    terminalCode?: string | null
-    /** Name of the cashier that served the customer. */
-    cashierName?: string | null
+    /** Optional name printed under "Checked By"; the line stays open for a signature. */
+    checkedByName?: string | null
+    /** Tighter spacing so the form fits half an A4 sheet (two copies per page). */
+    compact?: boolean
     className?: string
 }
+
+/** Logo shown when the sale carries no company record (AWIC retail default). */
+const FALLBACK_LOGO = '/storefront/aw-logo-new.png'
+
+/** The form always shows at least this many item rows, like the paper receipt. */
+const MIN_ITEM_ROWS = 6
+/** ...and this many when two copies share one sheet. */
+const MIN_ITEM_ROWS_COMPACT = 3
 
 const money = (value: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -62,109 +69,98 @@ const initialsOf = (name: string) =>
         .map((word) => word[0]!.toUpperCase())
         .join('')
 
-/** Dashed rule between receipt blocks. */
-const Divider = ({ className }: { className?: string }) => (
-    <div
-        className={classNames(
-            'my-2 border-t border-dashed border-black',
-            className,
-        )}
-    />
-)
+const CELL = 'border border-black px-1.5 py-[3px] align-middle'
+const HEAD =
+    'whitespace-nowrap border border-black bg-white px-1 py-1.5 text-center text-[9.5px] font-bold uppercase'
 
-/** Section caption centered between two rules — "──── ITEMS ────". */
-const SectionTitle = ({ children }: { children: ReactNode }) => (
-    <div className="my-2 flex items-center gap-2">
-        <div className="h-px flex-1 bg-black" />
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em]">
+/** "LABEL:" followed by the value on a ruled line. */
+const Field = ({
+    label,
+    children,
+    className,
+}: {
+    label: string
+    children: ReactNode
+    className?: string
+}) => (
+    <div className={classNames('flex min-w-0 items-baseline gap-2', className)}>
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide">
+            {label}
+        </span>
+        <span className="min-w-0 flex-1 truncate border-b border-dotted border-black/60 pb-px font-semibold">
             {children}
         </span>
-        <div className="h-px flex-1 bg-black" />
     </div>
 )
 
-/** Label left, value right, joined by a dotted leader. */
-const Row = ({
+/** Label left, amount right inside the totals box. */
+const TotalRow = ({
     label,
     value,
-    bold,
-    small,
+    strong,
 }: {
     label: ReactNode
     value: ReactNode
-    bold?: boolean
-    small?: boolean
+    strong?: boolean
 }) => (
     <div
         className={classNames(
-            'flex items-baseline gap-1',
-            bold && 'font-bold',
-            small && 'text-[10px]',
+            'flex items-baseline justify-between gap-3 px-2 py-[3px]',
+            strong && 'font-bold',
         )}
     >
-        <span className="shrink-0">{label}</span>
-        <span className="mb-[3px] min-w-2 flex-1 border-b border-dotted border-black/60" />
-        <span className="shrink-0 text-right tabular-nums">{value}</span>
+        <span>{label}</span>
+        <span className="tabular-nums">{value}</span>
     </div>
 )
 
-/** Meta line: small caption on the left, value wrapped on the right. */
-const Meta = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex gap-2">
-        <span className="w-[68px] shrink-0 text-[10px] uppercase tracking-wide">
+/** Printable check box, marked with an X when ticked. */
+const CheckBox = ({ checked, label }: { checked: boolean; label: string }) => (
+    <span className="inline-flex items-center gap-1.5">
+        <span
+            className="inline-flex h-3.5 w-3.5 items-center justify-center border border-black text-[11px] font-black leading-none"
+            aria-hidden
+        >
+            {checked ? 'X' : ''}
+        </span>
+        <span
+            className={classNames('text-[11px]', checked && 'font-bold')}
+            aria-label={`${label}${checked ? ' (selected)' : ''}`}
+        >
             {label}
         </span>
-        <span className="min-w-0 flex-1 break-words font-semibold">{value}</span>
-    </div>
+    </span>
 )
 
-/** Code 128 of the receipt number — scannable for returns and look-ups. */
-const ReceiptBarcode = ({ value }: { value: string }) => {
-    if (!isCode128Encodable(value)) return null
-    const { bars, modules } = encodeCode128(value)
-    const quiet = 10
-    const total = modules + quiet * 2
-    return (
-        <svg
-            role="img"
-            aria-label={`Barcode ${value}`}
-            viewBox={`0 0 ${total} 40`}
-            preserveAspectRatio="none"
-            shapeRendering="crispEdges"
-            className="mx-auto block h-12 w-full max-w-[250px]"
-        >
-            <rect width={total} height="40" fill="#fff" />
-            {bars.map(([x, width]) => (
-                <rect
-                    key={x}
-                    x={x + quiet}
-                    y="0"
-                    width={width}
-                    height="40"
-                    fill="#000"
-                />
-            ))}
-        </svg>
-    )
-}
-
-/** 80mm thermal-style receipt; always black on white so it prints the same in dark mode. */
+/**
+ * A4 sales receipt (paper form layout): company header, date / customer,
+ * item table (barcode, category, brand, description, qty, unit price,
+ * discount, total), totals, payment mode and the Prepared / Checked /
+ * Received signature row. Always black on white so it prints the same in
+ * dark mode.
+ */
 const POSReceipt = ({
     receipt,
     branchName,
-    terminalCode,
-    cashierName,
+    checkedByName,
+    compact = false,
     className,
 }: POSReceiptProps) => {
     const completedAt = new Date(receipt.completedAt)
-    const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
     const voided = receipt.status === 'CANCELLED'
     // Sales recorded before the VAT snapshot existed carry no classification.
-    const hasVat = receipt.lines.some((line) => line.taxClassification)
+    // The VAT details block (and the V/E/Z markers) only appear when the sale
+    // actually includes VATable products.
+    const hasVat =
+        (receipt.vatAmount ?? 0) > 0 ||
+        receipt.lines.some((line) => line.taxClassification === 'VATABLE')
     const vatRates = [
         ...new Set(
             receipt.lines
-                .filter((line) => line.taxClassification === 'VATABLE' && line.taxRate)
+                .filter(
+                    (line) =>
+                        line.taxClassification === 'VATABLE' && line.taxRate,
+                )
                 .map((line) => line.taxRate),
         ),
     ]
@@ -172,376 +168,503 @@ const POSReceipt = ({
 
     const business = receipt.business ?? null
     const companyName = business?.name || AWIC_BRAND.fullName
-    const logoUrl = business?.logoUrl?.trim() || null
-    const monogram =
-        initialsOf(business?.name ?? '') || AWIC_BRAND.initials
+    const logoUrl = business ? business.logoUrl?.trim() || null : FALLBACK_LOGO
+    const monogram = initialsOf(business?.name ?? '') || AWIC_BRAND.initials
 
     const balance = Number(receipt.outstandingBalance ?? 0)
     const hasBalance = balance > 0.005
+    // Subtotal / total / tendered / change are not printed; the box only holds
+    // the adjustments and the balance due when there are any.
+    const hasTotalsBox =
+        Boolean(receipt.discountAmount) ||
+        Boolean(receipt.taxAmount) ||
+        hasBalance
     const paymentStatus = String(
         receipt.paymentStatus || (hasBalance ? 'Partially Paid' : 'Paid'),
     )
-    const settled = !hasBalance && /^paid$/i.test(paymentStatus)
     // Charge sale: the customer took the goods and pays later.
     const isCharge = receipt.paymentMode === 'CHARGE'
     const hasTenders = receipt.tenders.length > 0
-    const isSplit = receipt.tenders.length > 1
-    const preparedBy = cashierName ?? receipt.cashierUserId ?? null
+    const paidInCash = receipt.tenders.some(
+        (tender) => tender.method === 'CASH',
+    )
+    const otherTenders = receipt.tenders.filter(
+        (tender) => tender.method !== 'CASH',
+    )
+    const onCredit = isCharge || hasBalance
+    // Full name of the user that served the sale (resolved by the server).
+    const preparedBy = receipt.cashierName?.trim() || null
+
+    const signLineGap = compact ? 'mt-4' : 'mt-6'
+
+    const blankRows = Math.max(
+        0,
+        (compact ? MIN_ITEM_ROWS_COMPACT : MIN_ITEM_ROWS) -
+            receipt.lines.length,
+    )
 
     return (
         <div
             className={classNames(
-                'mx-auto w-full max-w-[300px] bg-white p-3 font-mono text-[11px] leading-snug text-black',
+                'relative mx-auto w-full max-w-[190mm] bg-white p-1 font-sans text-[11px] leading-snug text-black',
                 className,
             )}
         >
-            {/* Header — company, address, TIN */}
-            <div className="text-center">
-                {logoUrl ? (
-                    <img
-                        src={logoUrl}
-                        alt=""
-                        className="mx-auto mb-1.5 max-h-12 w-auto object-contain"
-                        style={{ filter: 'grayscale(1) contrast(1.6)' }}
-                    />
-                ) : (
-                    <div className="mx-auto mb-1.5 inline-flex h-10 min-w-10 items-center justify-center rounded-md border-2 border-black px-2 font-sans text-base font-black tracking-wider">
-                        {monogram}
-                    </div>
-                )}
-                <div className="font-sans text-[15px] font-extrabold uppercase leading-tight tracking-wide">
-                    {companyName}
-                </div>
-                {business?.address ? (
-                    <div className="mt-0.5 whitespace-pre-line break-words text-[10px]">
-                        {business.address}
-                    </div>
-                ) : null}
-                {business?.tin ? (
-                    <div className="text-[10px]">VAT REG TIN: {business.tin}</div>
-                ) : null}
-                <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider">
-                    {branchLabel(receipt.branchId, branchName)}
-                </div>
-            </div>
-
-            {/* Document title */}
-            <div className="mt-2 bg-black py-1 text-center font-sans text-[12px] font-bold uppercase tracking-[0.3em] text-white">
-                Official Receipt
-            </div>
             {voided ? (
-                <div className="mt-2 border-2 border-black py-1 text-center font-sans text-base font-black uppercase tracking-[0.35em]">
-                    Voided
+                <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                >
+                    <span className="-rotate-[20deg] rounded-md border-[6px] border-black/30 px-8 py-2 text-7xl font-black uppercase tracking-[0.2em] text-black/30">
+                        Voided
+                    </span>
                 </div>
             ) : null}
 
-            {/* Transaction meta */}
-            <div className="mt-2 space-y-0.5">
-                <Meta label="Receipt No." value={receipt.receiptNumber} />
-                <Meta label="Order No." value={receipt.orderNumber} />
-                <Meta
-                    label="Date"
-                    value={completedAt.toLocaleDateString('en-PH', {
+            {/* Header: logo, company, address */}
+            <header
+                className={classNames(
+                    'relative flex min-h-[100px] items-center justify-center px-28 pt-1 text-center',
+                    compact ? 'pb-1.5' : 'pb-3',
+                )}
+            >
+                <div className="absolute left-0 top-0 flex h-[100px] w-[100px] items-center justify-center">
+                    {logoUrl ? (
+                        <img
+                            src={logoUrl}
+                            alt=""
+                            className="max-h-full max-w-full object-contain"
+                        />
+                    ) : (
+                        <div className="inline-flex h-14 min-w-14 items-center justify-center rounded-full border-2 border-black px-2 text-base font-black tracking-wider">
+                            {monogram}
+                        </div>
+                    )}
+                </div>
+                <div className="min-w-0">
+                    <div className="text-[17px] font-extrabold uppercase leading-tight tracking-wide">
+                        {companyName}
+                    </div>
+                    {business?.address ? (
+                        <div className="mt-0.5 whitespace-pre-line break-words text-[10.5px] italic text-gray-800">
+                            {business.address}
+                        </div>
+                    ) : null}
+                    <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-700">
+                        {branchLabel(receipt.branchId, branchName)}
+                    </div>
+                </div>
+            </header>
+
+            {/* Title + document numbers */}
+            <div className="flex items-end justify-between gap-4 border-b-2 border-black pb-1">
+                <h1 className="text-[16px] font-extrabold uppercase tracking-[0.12em]">
+                    Sales Receipt
+                </h1>
+                <div className="text-right text-[10.5px] leading-tight">
+                    <div>
+                        <span className="font-bold uppercase tracking-wide">
+                            Receipt No.
+                        </span>{' '}
+                        <span className="font-mono text-[12px] font-bold">
+                            {receipt.receiptNumber}
+                        </span>
+                    </div>
+                    <div className="text-gray-700">
+                        Order {receipt.orderNumber}
+                    </div>
+                </div>
+            </div>
+
+            {/* Date / customer */}
+            <div
+                className={classNames(
+                    'grid grid-cols-2 gap-x-8',
+                    compact ? 'mb-2 mt-1.5 gap-y-1' : 'mb-3 mt-2.5 gap-y-1.5',
+                )}
+            >
+                <Field label="Date:">
+                    {completedAt.toLocaleDateString('en-PH', {
                         year: 'numeric',
-                        month: 'short',
+                        month: 'long',
                         day: '2-digit',
                     })}
-                />
-                <Meta
-                    label="Time"
-                    value={completedAt.toLocaleTimeString('en-PH', {
+                    <span className="mx-2 font-normal">@</span>
+                    {completedAt.toLocaleTimeString('en-PH', {
                         hour: '2-digit',
                         minute: '2-digit',
                     })}
-                />
-                {preparedBy ? <Meta label="Cashier" value={preparedBy} /> : null}
-                {terminalCode ? (
-                    <Meta label="Register" value={terminalCode} />
-                ) : null}
-                {receipt.customerName ? (
-                    <Meta label="Customer" value={receipt.customerName} />
-                ) : null}
+                </Field>
+                <Field label="Customer name:" className="col-span-2">
+                    {receipt.customerName || '—'}
+                </Field>
             </div>
 
             {/* Items */}
-            <SectionTitle>Items</SectionTitle>
-            <div className="space-y-2">
-                {receipt.lines.map((line, index) => (
-                    <div key={`${line.sku}-${index}`}>
-                        <div className="flex gap-1.5">
-                            <span className="w-4 shrink-0 text-right text-[10px]">
-                                {index + 1}.
-                            </span>
-                            <span className="min-w-0 flex-1 break-words font-semibold">
+            <table className="w-full table-fixed border-collapse border border-black">
+                <colgroup>
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '23%' }} />
+                    <col style={{ width: '5%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '13%' }} />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th className={HEAD}>Barcode</th>
+                        <th className={HEAD}>Category</th>
+                        <th className={HEAD}>Brand</th>
+                        <th className={HEAD}>Description</th>
+                        <th className={HEAD}>Qty</th>
+                        <th className={HEAD}>Unit price</th>
+                        <th className={HEAD}>Discount</th>
+                        <th className={HEAD}>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {receipt.lines.map((line, index) => (
+                        <tr
+                            key={`${line.sku}-${index}`}
+                            className="break-inside-avoid"
+                        >
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'break-all font-mono text-[9.5px]',
+                                )}
+                            >
+                                {line.barcode || line.sku}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'break-words text-[10px]',
+                                )}
+                            >
+                                {line.category || ''}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'break-words text-[10px]',
+                                )}
+                            >
+                                {line.brand || ''}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'break-words font-semibold',
+                                )}
+                            >
                                 {line.description ?? line.sku}
-                            </span>
-                        </div>
-                        {line.variantName || line.barcode ? (
-                            <div className="ml-[22px] break-words text-[10px]">
-                                {[
-                                    line.variantName,
-                                    line.barcode ? `#${line.barcode}` : null,
-                                ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                            </div>
-                        ) : null}
-                        <div className="ml-[22px]">
-                            <Row
-                                label={`${formatQty(line.quantity)} x ${money(line.unitPrice)}`}
-                                value={
-                                    <>
-                                        {money(line.lineTotal)}{' '}
-                                        <span className="inline-block w-2 text-center text-[10px] font-bold">
-                                            {VAT_CODE[line.taxClassification ?? ''] ??
-                                                ''}
-                                        </span>
-                                    </>
-                                }
-                            />
-                        </div>
-                    </div>
-                ))}
-            </div>
+                                {line.variantName ? (
+                                    <span className="block text-[10px] font-normal text-gray-700">
+                                        {line.variantName}
+                                    </span>
+                                ) : null}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'text-center tabular-nums',
+                                )}
+                            >
+                                {formatQty(line.quantity)}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'text-right tabular-nums',
+                                )}
+                            >
+                                {money(line.unitPrice)}
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'text-center text-gray-500',
+                                )}
+                            >
+                                —
+                            </td>
+                            <td
+                                className={classNames(
+                                    CELL,
+                                    'text-right font-bold tabular-nums',
+                                )}
+                            >
+                                {money(line.lineTotal)}
+                                <span className="ml-0.5 inline-block w-2 text-center text-[10px] font-bold">
+                                    {hasVat
+                                        ? (VAT_CODE[
+                                              line.taxClassification ?? ''
+                                          ] ?? '')
+                                        : ''}
+                                </span>
+                            </td>
+                        </tr>
+                    ))}
+                    {Array.from({ length: blankRows }, (_, index) => (
+                        <tr key={`blank-${index}`} aria-hidden>
+                            {Array.from({ length: 8 }, (_, cell) => (
+                                <td
+                                    key={cell}
+                                    className={classNames(
+                                        CELL,
+                                        compact ? 'h-[18px]' : 'h-[22px]',
+                                    )}
+                                />
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
 
-            {/* Totals */}
-            <Divider />
-            <div className="space-y-0.5">
-                <Row
-                    label={`Subtotal (${formatQty(itemCount)} item${itemCount === 1 ? '' : 's'})`}
-                    value={money(receipt.subtotal)}
-                />
-                {receipt.discountAmount ? (
-                    <Row
-                        label="Discount"
-                        value={`-${money(receipt.discountAmount)}`}
-                    />
-                ) : null}
-                {receipt.taxAmount ? (
-                    <Row label="VAT (added)" value={money(receipt.taxAmount)} />
-                ) : null}
-            </div>
-            <div className="mt-2 flex items-baseline justify-between gap-2 border-y-[3px] border-double border-black py-1.5 font-sans">
-                <span className="text-[12px] font-bold uppercase tracking-[0.2em]">
-                    Total
-                </span>
-                <span className="text-[19px] font-black tabular-nums leading-none">
-                    PHP {money(receipt.total)}
-                </span>
-            </div>
-
-            {/* Payment */}
-            <SectionTitle>
-                {isCharge
-                    ? hasTenders
-                        ? 'Charge sale · payments'
-                        : 'Charge sale'
-                    : isSplit
-                      ? 'Split payment'
-                      : 'Payment'}
-            </SectionTitle>
-            {isCharge ? (
-                <div className="mb-1">
-                    <Row label="Charged (pay later)" value={money(receipt.total)} bold />
-                </div>
-            ) : null}
-            <div className="space-y-1">
-                {receipt.tenders.map((tender, index) => (
-                    <div key={`${tender.method}-${index}`}>
-                        <Row
-                            label={
-                                isSplit
-                                    ? `${index + 1}. ${TENDER_LABEL[tender.method] ?? tender.method}`
-                                    : (TENDER_LABEL[tender.method] ?? tender.method)
-                            }
-                            value={money(tender.amount)}
-                            bold
-                        />
-                        {tender.referenceNumber ? (
-                            <div className="break-words pl-3 text-[10px]">
-                                Ref: {tender.referenceNumber}
-                            </div>
-                        ) : null}
-                        {tender.employeeName ? (
-                            <div className="break-words pl-3 text-[10px]">
-                                Employee: {tender.employeeName}
-                            </div>
-                        ) : null}
-                        {tender.status && tender.status !== 'Paid' ? (
-                            <div className="pl-3 text-[10px] font-semibold uppercase">
-                                {TENDER_STATUS[tender.status] ?? tender.status}
-                            </div>
-                        ) : null}
-                        {tender.changeAmount ? (
-                            <div className="pl-3 text-[10px]">
-                                Change: {money(tender.changeAmount)}
-                            </div>
-                        ) : null}
-                    </div>
-                ))}
-            </div>
-            {!isCharge || hasTenders ? (
-                <>
-                    <Divider />
-                    <div className="space-y-0.5">
-                        <Row label="Amount tendered" value={money(receipt.tendered)} />
-                        <Row label="Change" value={money(receipt.change)} />
-                    </div>
-                </>
-            ) : null}
+            {/* Payment mode + totals */}
             <div
                 className={classNames(
-                    'mt-2 py-1 text-center font-sans text-[12px] font-extrabold uppercase tracking-[0.25em]',
-                    settled
-                        ? 'border-2 border-black'
-                        : 'border-2 border-dashed border-black',
+                    'grid grid-cols-[1fr_72mm] items-start gap-4 break-inside-avoid',
+                    compact ? 'mt-2' : 'mt-3',
                 )}
             >
-                {isCharge ? `Charge · ${paymentStatus}` : paymentStatus}
-            </div>
-
-            {/* Balance due — down payment / partial settlement */}
-            {hasBalance ? (
-                <div className="mt-2 border-2 border-black p-2">
-                    <div className="mb-1 text-center font-sans text-[10px] font-bold uppercase tracking-[0.25em]">
-                        Amount still to pay
+                <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-x-8 gap-y-1">
+                        <CheckBox checked={paidInCash} label="cash" />
+                        <CheckBox checked={onCredit} label="credit" />
                     </div>
-                    {receipt.downPaymentPct ? (
-                        <Row
-                            label={`Down payment (${Number(receipt.downPaymentPct)}%)`}
-                            value={money(Number(receipt.downPaymentAmount ?? 0))}
-                        />
-                    ) : receipt.downPaymentAmount ? (
-                        <Row
-                            label="Down payment"
-                            value={money(Number(receipt.downPaymentAmount))}
-                        />
-                    ) : null}
-                    <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-black pt-1 font-sans">
-                        <span className="text-[11px] font-bold uppercase tracking-wider">
-                            Balance due
-                        </span>
-                        <span className="text-[16px] font-black tabular-nums leading-none">
-                            PHP {money(balance)}
-                        </span>
-                    </div>
-                    {receipt.dueDate ? (
-                        <div className="mt-1 text-center text-[10px]">
-                            Due on{' '}
-                            {new Date(String(receipt.dueDate)).toLocaleDateString(
-                                'en-PH',
-                                { year: 'numeric', month: 'short', day: '2-digit' },
-                            )}
+                    {otherTenders.length ? (
+                        <div className="space-y-0.5 text-[10.5px]">
+                            {otherTenders.map((tender, index) => (
+                                <div
+                                    key={`${tender.method}-${index}`}
+                                    className="break-words"
+                                >
+                                    <span className="font-bold">
+                                        {TENDER_LABEL[tender.method] ??
+                                            tender.method}
+                                    </span>{' '}
+                                    {money(tender.amount)}
+                                    {tender.referenceNumber
+                                        ? ` · Ref ${tender.referenceNumber}`
+                                        : ''}
+                                    {tender.employeeName
+                                        ? ` · ${tender.employeeName}`
+                                        : ''}
+                                    {tender.status && tender.status !== 'Paid'
+                                        ? ` · ${TENDER_STATUS[tender.status] ?? tender.status}`
+                                        : ''}
+                                </div>
+                            ))}
                         </div>
                     ) : null}
-                    <div className="mt-1 text-center text-[10px]">
-                        Present this receipt when paying the balance.
+                    {isCharge && !hasTenders ? (
+                        <div className="text-[10.5px]">
+                            Charge sale: to be paid later.
+                        </div>
+                    ) : null}
+                    <div className="inline-block border border-black px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.2em]">
+                        {isCharge ? `Charge · ${paymentStatus}` : paymentStatus}
                     </div>
                 </div>
-            ) : null}
+
+                {hasTotalsBox ? (
+                    <div className="border border-black">
+                        {receipt.discountAmount ? (
+                            <TotalRow
+                                label="Less: Discount"
+                                value={`-${money(receipt.discountAmount)}`}
+                            />
+                        ) : null}
+                        {receipt.taxAmount ? (
+                            <TotalRow
+                                label="VAT (added)"
+                                value={money(receipt.taxAmount)}
+                            />
+                        ) : null}
+                        {hasBalance ? (
+                            <div className="border-t-2 border-black">
+                                {receipt.downPaymentPct ? (
+                                    <TotalRow
+                                        label={`Down payment (${Number(receipt.downPaymentPct)}%)`}
+                                        value={money(
+                                            Number(
+                                                receipt.downPaymentAmount ?? 0,
+                                            ),
+                                        )}
+                                    />
+                                ) : receipt.downPaymentAmount ? (
+                                    <TotalRow
+                                        label="Down payment"
+                                        value={money(
+                                            Number(receipt.downPaymentAmount),
+                                        )}
+                                    />
+                                ) : null}
+                                <div className="flex items-baseline justify-between gap-3 px-2 py-1.5 font-extrabold">
+                                    <span className="text-[11px] uppercase tracking-wider">
+                                        Balance due
+                                    </span>
+                                    <span className="text-[14px] tabular-nums">
+                                        PHP {money(balance)}
+                                    </span>
+                                </div>
+                                {receipt.dueDate ? (
+                                    <div className="px-2 pb-1 text-right text-[10px]">
+                                        Due on{' '}
+                                        {new Date(
+                                            String(receipt.dueDate),
+                                        ).toLocaleDateString('en-PH', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: '2-digit',
+                                        })}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
+            </div>
 
             {/* Charge sale: the customer acknowledges the goods and the debt */}
             {isCharge && hasBalance ? (
-                <div className="mt-3 text-[10px]">
-                    <div className="text-center">
-                        Goods received in good order. I agree to pay the balance
-                        due on the date above.
-                    </div>
-                    <div className="mt-6 border-t border-black pt-0.5 text-center">
-                        {receipt.customerName
-                            ? `${receipt.customerName} — signature`
-                            : 'Customer signature'}
-                    </div>
-                </div>
-            ) : null}
-
-            {/* VAT breakdown */}
-            <SectionTitle>VAT details</SectionTitle>
-            <div className="space-y-0.5 text-[10px]">
-                <Row small label="VATable Sales" value={money(receipt.vatableSales ?? 0)} />
-                <Row
-                    small
-                    label={`VAT${vatRateLabel}`}
-                    value={money(receipt.vatAmount ?? 0)}
-                />
-                <Row
-                    small
-                    label="VAT-Exempt Sales"
-                    value={money(receipt.vatExemptSales ?? 0)}
-                />
-                <Row
-                    small
-                    label="Zero-Rated Sales"
-                    value={money(receipt.zeroRatedSales ?? 0)}
-                />
-                {receipt.nonVatSales ? (
-                    <Row small label="Non-VAT Sales" value={money(receipt.nonVatSales)} />
-                ) : null}
-            </div>
-            {hasVat ? (
-                <div className="mt-1 text-[9px]">
-                    V = VATable · E = VAT-exempt · Z = Zero-rated
-                </div>
+                <p className="mt-3 text-[10px] italic">
+                    Goods received in good order. I agree to pay the balance due
+                    on the date above.
+                </p>
             ) : null}
 
             {receipt.remarks ? (
-                <>
-                    <SectionTitle>Remarks</SectionTitle>
-                    <div className="whitespace-pre-line break-words text-[10px]">
-                        {receipt.remarks}
+                <p className="mt-3 whitespace-pre-line break-words text-[10.5px]">
+                    <span className="font-bold uppercase tracking-wide">
+                        Remarks:{' '}
+                    </span>
+                    {receipt.remarks}
+                </p>
+            ) : null}
+
+            {/* Signatures */}
+            <div
+                className={classNames(
+                    'grid grid-cols-3 gap-8 break-inside-avoid',
+                    compact ? 'mt-4' : 'mt-8',
+                )}
+            >
+                <div>
+                    <div className="text-[10px] font-bold">Prepared By:</div>
+                    <div
+                        className={classNames(
+                            'border-b border-black',
+                            signLineGap,
+                        )}
+                    />
+                    <div className="mt-1 text-[10.5px] font-bold uppercase">
+                        {preparedBy ?? '\u00a0'}
                     </div>
-                </>
+                </div>
+                <div>
+                    <div className="text-[10px] font-bold">Checked By:</div>
+                    <div
+                        className={classNames(
+                            'border-b border-black',
+                            signLineGap,
+                        )}
+                    />
+                    <div className="mt-1 text-[10.5px] font-bold uppercase">
+                        {checkedByName?.trim() || '\u00a0'}
+                    </div>
+                </div>
+                <div>
+                    <div className="text-[10px] font-bold">Received:</div>
+                    <div
+                        className={classNames(
+                            'border-b border-black',
+                            signLineGap,
+                        )}
+                    />
+                    <div className="mt-1 text-[10.5px] font-bold uppercase">
+                        {receipt.customerName || '\u00a0'}
+                    </div>
+                    <div className="text-[9px] text-gray-600">
+                        Signature over printed name
+                    </div>
+                </div>
+            </div>
+
+            {/* VAT breakdown - only for sales that include VATable products */}
+            {hasVat ? (
+                <div
+                    className={classNames(
+                        'break-inside-avoid border-t border-black pt-2',
+                        compact ? 'mt-3' : 'mt-6',
+                    )}
+                >
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide">
+                        VAT details
+                    </div>
+                    <div className="grid grid-cols-4 gap-x-6 gap-y-0.5 text-[10px]">
+                        <div className="flex justify-between gap-2">
+                            <span>VATable Sales</span>
+                            <span className="tabular-nums">
+                                {money(receipt.vatableSales ?? 0)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                            <span>{`VAT${vatRateLabel}`}</span>
+                            <span className="tabular-nums">
+                                {money(receipt.vatAmount ?? 0)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                            <span>VAT-Exempt Sales</span>
+                            <span className="tabular-nums">
+                                {money(receipt.vatExemptSales ?? 0)}
+                            </span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                            <span>Zero-Rated Sales</span>
+                            <span className="tabular-nums">
+                                {money(receipt.zeroRatedSales ?? 0)}
+                            </span>
+                        </div>
+                        {receipt.nonVatSales ? (
+                            <div className="flex justify-between gap-2">
+                                <span>Non-VAT Sales</span>
+                                <span className="tabular-nums">
+                                    {money(receipt.nonVatSales)}
+                                </span>
+                            </div>
+                        ) : null}
+                    </div>
+                    <div className="mt-1 text-[9px] text-gray-700">
+                        V = VATable · E = VAT-exempt · Z = Zero-rated
+                    </div>
+                </div>
             ) : null}
 
             {receipt.warnings.length ? (
-                <>
-                    <Divider />
+                <div className="mt-2 space-y-0.5 text-[10px]">
                     {receipt.warnings.map((warning) => (
-                        <div key={warning} className="text-[10px]">
-                            {warning}
-                        </div>
+                        <div key={warning}>{warning}</div>
                     ))}
-                </>
+                </div>
             ) : null}
 
             {voided && receipt.voidReason ? (
-                <>
-                    <SectionTitle>Void</SectionTitle>
-                    <div className="space-y-0.5">
-                        <Meta label="Reason" value={receipt.voidReason} />
-                        <Meta
-                            label="Voided at"
-                            value={new Date(
-                                receipt.voidedAt ?? receipt.completedAt,
-                            ).toLocaleString('en-PH')}
-                        />
-                    </div>
-                </>
+                <div className="mt-3 border border-black px-2 py-1.5 text-[10.5px]">
+                    <span className="font-bold uppercase tracking-wide">
+                        Voided:{' '}
+                    </span>
+                    {receipt.voidReason} ·{' '}
+                    {new Date(
+                        receipt.voidedAt ?? receipt.completedAt,
+                    ).toLocaleString('en-PH')}
+                </div>
             ) : null}
-
-            {/* Footer */}
-            <Divider className="mt-3" />
-            <div className="text-center">
-                <div className="font-sans text-[13px] font-extrabold uppercase tracking-[0.15em]">
-                    Thank you!
-                </div>
-                <div className="text-[10px]">
-                    Please come again · Keep this receipt for returns or
-                    exchanges.
-                </div>
-                <div className="mt-2">
-                    <ReceiptBarcode value={receipt.receiptNumber} />
-                </div>
-                <div className="mt-0.5 text-[10px] font-semibold tracking-widest">
-                    {receipt.receiptNumber}
-                </div>
-                <div className="mt-2 text-[9px] uppercase tracking-wider">
-                    This serves as your official receipt
-                </div>
-                <div className="text-[9px]">
-                    Printed {new Date().toLocaleString('en-PH')}
-                </div>
-            </div>
         </div>
     )
 }

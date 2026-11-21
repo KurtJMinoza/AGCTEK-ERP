@@ -226,6 +226,8 @@ model Company {
   name       String
   /// Public URL under `/uploads/companies/` (Next.js `public/`).
   logoUrl    String?
+  /// Logo printed on POS sales receipts; falls back to `logoUrl` when unset.
+  receiptLogoUrl String?
   address    String       @default("")
   tin        String       @default("")
   createdAt  DateTime     @default(now())

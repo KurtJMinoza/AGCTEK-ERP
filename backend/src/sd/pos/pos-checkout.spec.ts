@@ -191,6 +191,7 @@ describe('PosCheckoutService', () => {
                     firstName: 'Jane',
                     lastName: 'Doe',
                 }),
+                findMany: jest.fn().mockResolvedValue([]),
             },
         }
         salesOrders = {
@@ -335,6 +336,60 @@ describe('PosCheckoutService', () => {
             taxIncluded: 782.14,
             taxAdded: 0,
         })
+    })
+
+    it('puts the material category and brand on each receipt line', async () => {
+        const withMaterial = {
+            ...order,
+            status: 'COMPLETED',
+            receiptNumber: 'RCP-000005',
+            payments: [],
+            lines: [
+                {
+                    ...order.lines[0],
+                    material: {
+                        brand: '  Aveeno ',
+                        materialCategory: { name: 'SKINCARE' },
+                        barcodes: [],
+                    },
+                },
+                { ...order.lines[0], lineNumber: 2, sku: 'SKU-2', material: null },
+            ],
+        }
+        prisma.sdSalesOrder.update.mockResolvedValueOnce(withMaterial)
+
+        const receipt = await service.complete(dto() as never)
+
+        expect(receipt.lines[0]).toMatchObject({ category: 'SKINCARE', brand: 'Aveeno' })
+        expect(receipt.lines[1]).toMatchObject({ category: null, brand: null })
+    })
+
+    it('prints the cashier full name on the receipt, falling back to the login name', async () => {
+        const served = {
+            ...order,
+            status: 'COMPLETED',
+            receiptNumber: 'RCP-000005',
+            payments: [],
+            cashierUserId: 'cashier-1',
+        }
+        prisma.sdSalesOrder.update.mockResolvedValueOnce(served)
+        prisma.user.findMany.mockResolvedValueOnce([
+            {
+                id: 'cashier-1',
+                firstName: ' Jane ',
+                lastName: 'Doe',
+                userName: 'jdoe',
+            },
+        ])
+        const receipt = await service.complete(dto() as never)
+        expect(receipt.cashierName).toBe('Jane Doe')
+
+        prisma.sdSalesOrder.update.mockResolvedValueOnce(served)
+        prisma.user.findMany.mockResolvedValueOnce([
+            { id: 'cashier-1', firstName: '', lastName: '', userName: 'jdoe' },
+        ])
+        const fallback = await service.complete(dto() as never)
+        expect(fallback.cashierName).toBe('jdoe')
     })
 
     it('records one tender row per payment method', async () => {
