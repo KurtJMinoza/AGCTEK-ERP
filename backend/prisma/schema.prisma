@@ -4751,6 +4751,8 @@ model SdCustomer {
   creditStatus    String        @default("NOT_APPLICABLE")
   /// CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays
   paymentMode     String        @default("CASH")
+  /// Optional date of birth (date-only); CRM 360 displays/edits via SD master.
+  birthDate       DateTime?     @db.Date
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
@@ -4765,6 +4767,8 @@ model SdCustomer {
   crmOpportunities  CrmOpportunity[]
   crmTickets        CrmTicket[]
   crmLoyaltyAccount CrmLoyaltyAccount?
+  crmCustomerRating CrmCustomerRating?
+  crmCustomerRatingHistory CrmCustomerRatingHistory[]
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
   extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxCustomer")
@@ -9183,6 +9187,37 @@ model CrmLoyaltyTransaction {
   @@index([loyaltyAccountId, createdAt])
   @@index([referenceType, referenceId])
   @@map("crm_loyalty_transactions")
+}
+
+/// Current internal 1–5 relationship rating for an SD customer (CRM-owned; not loyalty).
+model CrmCustomerRating {
+  id         String     @id @default(cuid())
+  customerId String     @unique
+  customer   SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Whole stars only (1–5).
+  stars      Int
+  comment    String?
+  ratedBy    String
+  ratedAt    DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([stars])
+  @@map("crm_customer_ratings")
+}
+
+/// Append-only rating history; each set/change writes a new row (never update/delete).
+model CrmCustomerRatingHistory {
+  id            String     @id @default(cuid())
+  customerId    String
+  customer      SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  stars         Int
+  previousStars Int?
+  comment       String?
+  ratedBy       String
+  ratedAt       DateTime   @default(now())
+
+  @@index([customerId, ratedAt])
+  @@map("crm_customer_rating_history")
 }
 
 // ────────────────────────────────────────────────────────────────

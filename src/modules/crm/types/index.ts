@@ -218,6 +218,9 @@ export type LinkedSalesOrder = {
     totalAmount: string | null
     lineCount: number
     createdAt: string
+    /** Document company from SD (display-only on 360). */
+    companyId?: string | null
+    company?: { id: string; code: string; name: string } | null
     /** GET :id/sales-order only: read-only O2C status from SD (CRM never writes these). */
     signals?: SalesOrderSignals
 }
@@ -638,11 +641,39 @@ export type CrmProfile = {
     ownerUserId: string | null
 }
 
+export type CustomerRating = {
+    stars: number
+    comment: string | null
+    ratedBy: string
+    ratedAt: string
+}
+
+export type CustomerRatingHistoryEntry = {
+    id: string
+    stars: number
+    previousStars: number | null
+    comment: string | null
+    ratedBy: string
+    ratedAt: string
+}
+
+export type Customer360Rating = {
+    current: CustomerRating | null
+    history: CustomerRatingHistoryEntry[]
+}
+
+export type SetCustomerRatingInput = {
+    stars: number
+    comment?: string
+}
+
 export type Customer360 = {
     customer: CrmCustomerRef & {
         email: string
         phone: string
         currency: string
+        /** ISO date (YYYY-MM-DD) or null when unset. */
+        birthDate: string | null
         createdAt: string
     }
     profile: CrmProfile | null
@@ -660,6 +691,8 @@ export type Customer360 = {
     tickets: Ticket[]
     /** null when the loyalty section is unavailable. */
     loyalty: LoyaltySummary | null
+    /** CRM relationship rating (1–5); separate from loyalty. */
+    rating: Customer360Rating | null
     /** Live SD read (most recent 20). */
     orders: Customer360Order[]
     /** Live SCM read for the orders above. */
@@ -677,6 +710,7 @@ export type Customer360Section =
     | 'orders'
     | 'shipments'
     | 'invoices'
+    | 'rating'
 
 /** `unavailable` = the owning module failed this time; `not_connected` = no live source yet. */
 export type Customer360SectionState =

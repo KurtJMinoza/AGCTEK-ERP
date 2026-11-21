@@ -5,13 +5,16 @@ import {
     apiCreateOpportunity,
     apiCreateTicket,
     apiGetCustomer360,
+    apiSetCustomerRating,
     apiUpdateOpportunity,
     apiUpdateTicket,
 } from '../services/crmApi'
+import { updateCustomer } from '@/modules/sd/services/customerMasterService'
 import type {
     CreateOpportunityInput,
     CreateTicketInput,
     Customer360,
+    SetCustomerRatingInput,
     UpdateOpportunityInput,
     UpdateTicketInput,
 } from '../types'
@@ -65,6 +68,19 @@ export function useCustomer360(customerId: string) {
         return updated
     }
 
+    const setRating = async (body: SetCustomerRatingInput) => {
+        const result = await apiSetCustomerRating(customerId, body)
+        await reload()
+        return result
+    }
+
+    /** Birthday is SD-owned; CRM 360 edits it through Customer Master update. */
+    const setBirthDate = async (birthDate: string | null) => {
+        const result = await updateCustomer(customerId, { birthDate })
+        await reload()
+        return result
+    }
+
     return {
         data,
         loading,
@@ -74,5 +90,7 @@ export function useCustomer360(customerId: string) {
         updateOpportunity,
         createTicket,
         updateTicket,
+        setRating,
+        setBirthDate,
     }
 }

@@ -16,6 +16,8 @@ import { CrmLoyaltyService } from './loyalty/loyalty.service'
 import { CrmLoyaltyEarnListener } from './loyalty/loyalty-earn.listener'
 import { CrmCustomer360Controller } from './customer-360/customer-360.controller'
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
+import { CrmCustomerRatingController } from './customer-rating/customer-rating.controller'
+import { CrmCustomerRatingService } from './customer-rating/customer-rating.service'
 import {
     CrmActivitiesController,
     CrmLeadActivitiesController,
@@ -51,6 +53,7 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmTicketsController,
         CrmLoyaltyController,
         CrmCustomer360Controller,
+        CrmCustomerRatingController,
         CrmActivitiesController,
         CrmTicketActivitiesController,
         CrmDashboardController,
@@ -71,6 +74,7 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmLoyaltyService,
         CrmLoyaltyEarnListener,
         CrmCustomer360Service,
+        CrmCustomerRatingService,
         CrmActivitiesService,
         CrmDashboardService,
         CrmMessagesService,

@@ -29,9 +29,12 @@ const CUSTOMER_360_SELECT = {
     phone: true,
     currency: true,
     status: true,
+    birthDate: true,
     createdAt: true,
     updatedAt: true,
 } as const
+
+const RATING_HISTORY_LIMIT = 20
 
 export const CUSTOMER_360_SECTIONS = [
     'profile',
@@ -41,6 +44,7 @@ export const CUSTOMER_360_SECTIONS = [
     'orders',
     'shipments',
     'invoices',
+    'rating',
 ] as const
 export type Customer360Section = (typeof CUSTOMER_360_SECTIONS)[number]
 
@@ -58,7 +62,26 @@ const SECTION_LABELS: Record<Customer360Section, string> = {
     orders: 'Sales orders',
     shipments: 'Shipments',
     invoices: 'FICO invoices',
+    rating: 'Relationship rating',
 }
+
+type RatingRead = {
+    current: {
+        stars: number
+        comment: string | null
+        ratedBy: string
+        ratedAt: Date
+    } | null
+    history: {
+        id: string
+        stars: number
+        previousStars: number | null
+        comment: string | null
+        ratedBy: string
+        ratedAt: Date
+    }[]
+}
+const EMPTY_RATING: RatingRead = { current: null, history: [] }
 
 /**
  * Read-only orchestration over SdCustomer + CRM records + live SD/SCM reads; never writes
@@ -84,7 +107,8 @@ export class CrmCustomer360Service {
         if (!customer) throw new NotFoundException('Customer not found')
 
         const ordersRead = this.section(customerId, 'orders', EMPTY_ORDERS, () => this.readOrders(customerId))
-        const [profile, opportunities, tickets, loyalty, orders, shipments] = await Promise.all([
+        const [profile, opportunities, tickets, loyalty, orders, shipments, rating] =
+            await Promise.all([
             this.section(customerId, 'profile', null, () =>
                 this.prisma.crmProfile.findUnique({ where: { customerId } }),
             ),
@@ -93,6 +117,7 @@ export class CrmCustomer360Service {
             this.section(customerId, 'loyalty', null, () => this.loyalty.summary(customerId)),
             ordersRead,
             this.readShipments(customerId, ordersRead),
+            this.section(customerId, 'rating', EMPTY_RATING, () => this.readRating(customerId)),
         ])
 
         const opportunityBySalesOrder = new Map(
@@ -113,6 +138,7 @@ export class CrmCustomer360Service {
             opportunities: opportunities[0]?.rows ?? [],
             tickets: tickets[0]?.rows ?? [],
             loyalty: loyalty[0],
+            rating: rating[0],
             /** Same-email shop accounts not linked to this Customer Master: their orders are missing above. */
             unlinkedShopAccounts: orders[0].unlinkedShopAccounts,
             orders: orders[0].rows.map((order) => ({
@@ -133,7 +159,37 @@ export class CrmCustomer360Service {
                     status: 'not_connected',
                     message: 'FICO invoices are not connected to CRM yet',
                 },
+                rating: rating[1],
             } satisfies Record<Customer360Section, SectionState>,
+        }
+    }
+
+    private async readRating(customerId: string): Promise<RatingRead> {
+        const [current, history] = await Promise.all([
+            this.prisma.crmCustomerRating.findUnique({ where: { customerId } }),
+            this.prisma.crmCustomerRatingHistory.findMany({
+                where: { customerId },
+                orderBy: { ratedAt: 'desc' },
+                take: RATING_HISTORY_LIMIT,
+            }),
+        ])
+        return {
+            current: current
+                ? {
+                      stars: current.stars,
+                      comment: current.comment,
+                      ratedBy: current.ratedBy,
+                      ratedAt: current.ratedAt,
+                  }
+                : null,
+            history: history.map((row) => ({
+                id: row.id,
+                stars: row.stars,
+                previousStars: row.previousStars,
+                comment: row.comment,
+                ratedBy: row.ratedBy,
+                ratedAt: row.ratedAt,
+            })),
         }
     }
 

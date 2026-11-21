@@ -32,6 +32,8 @@ type SdOrderLike = {
     totalAmount: { toFixed(dp: number): string } | null
     lines: unknown[]
     createdAt: Date
+    companyId?: string | null
+    company?: { id: string; code: string; name: string } | null
 }
 
 type HandoffUser = { id: string; role: string }
@@ -103,6 +105,10 @@ export function salesOrderSummary(order: SdOrderLike) {
         totalAmount: order.totalAmount === null ? null : order.totalAmount.toFixed(2),
         lineCount: order.lines.length,
         createdAt: order.createdAt,
+        companyId: order.companyId ?? order.company?.id ?? null,
+        company: order.company
+            ? { id: order.company.id, code: order.company.code, name: order.company.name }
+            : null,
     }
 }
 

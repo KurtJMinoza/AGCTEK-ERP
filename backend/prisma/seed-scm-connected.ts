@@ -339,7 +339,7 @@ export async function seedScmConnectedDemo(prisma: PrismaClient) {
             email: 'driver02@agctek.local',
             userName: 'driver02',
             passwordHash: await bcrypt.hash('123Qwe', 10),
-            role: 'user',
+            role: 'employee',
         },
         update: {},
     })

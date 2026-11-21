@@ -8,17 +8,26 @@ import { CrmLoyaltyService } from '../loyalty/loyalty.service'
 import { CrmCustomer360Controller } from './customer-360.controller'
 import { CrmCustomer360Service } from './customer-360.service'
 
-const customer = { id: 'cust-1', customerNumber: 'CUST-000001', companyName: 'Acme', status: 'ACTIVE' }
+const customer = {
+    id: 'cust-1',
+    customerNumber: 'CUST-000001',
+    companyName: 'Acme',
+    status: 'ACTIVE',
+    birthDate: null,
+}
 
 const sdOrder = {
     id: 'so-1',
     orderNumber: 'SO-000001',
     status: 'CONFIRMED',
     channel: 'STANDARD',
+    source: 'ERP',
     currency: 'PHP',
     totalAmount: new Decimal('150'),
     lines: [{}, {}],
     createdAt: new Date('2026-10-01T00:00:00Z'),
+    companyId: 'co-1',
+    company: { id: 'co-1', code: 'AGC', name: 'AGC Tek' },
 }
 
 const shipment = { id: 'shp-1', reference: 'SHP-1', status: 'IN_TRANSIT', salesOrderId: 'so-1' }
@@ -54,6 +63,8 @@ function mockPrisma(opts: { customer?: boolean; withChildren?: boolean } = {}) {
             count: jest.fn().mockResolvedValue(withChildren ? 1 : 0),
         },
         crmLoyaltyAccount: { findUnique: jest.fn().mockResolvedValue(null) },
+        crmCustomerRating: { findUnique: jest.fn().mockResolvedValue(null) },
+        crmCustomerRatingHistory: { findMany: jest.fn().mockResolvedValue([]) },
     }
 }
 
@@ -80,6 +91,7 @@ const allOk = {
     orders: { status: 'ok' },
     shipments: { status: 'ok' },
     invoices: { status: 'not_connected', message: expect.any(String) },
+    rating: { status: 'ok' },
 }
 
 describe('CrmCustomer360Service', () => {
@@ -107,6 +119,7 @@ describe('CrmCustomer360Service', () => {
                 transactions: [],
                 mockAccrual: false,
             },
+            rating: { current: null, history: [] },
             unlinkedShopAccounts: [],
             orders: [],
             shipments: [],
@@ -132,6 +145,8 @@ describe('CrmCustomer360Service', () => {
                 orderNumber: 'SO-000001',
                 totalAmount: '150.00',
                 lineCount: 2,
+                companyId: 'co-1',
+                company: { id: 'co-1', code: 'AGC', name: 'AGC Tek' },
                 opportunity: { id: 'opp-1', name: 'Big deal' },
             }),
         ])

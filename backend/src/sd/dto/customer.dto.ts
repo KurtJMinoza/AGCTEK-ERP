@@ -1,4 +1,5 @@
 import {
+    IsDateString,
     IsEmail,
     IsIn,
     IsNotEmpty,
@@ -8,6 +9,7 @@ import {
     Max,
     MaxLength,
     Min,
+    ValidateIf,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
@@ -112,6 +114,11 @@ export class CreateCustomerDto {
     @IsIn(PAYMENT_MODES)
     paymentMode?: PaymentMode
 
+    /** ISO date (YYYY-MM-DD); date-only birth date. Future dates rejected in service. */
+    @IsOptional()
+    @IsDateString()
+    birthDate?: string
+
     @IsOptional()
     @IsString()
     createdBy?: string
@@ -174,6 +181,15 @@ export class UpdateCustomerDto {
     @IsOptional()
     @IsIn(PAYMENT_MODES)
     paymentMode?: PaymentMode
+
+    /**
+     * ISO date (YYYY-MM-DD) or null to clear. Omit to leave unchanged.
+     * Future dates rejected in service.
+     */
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsDateString()
+    birthDate?: string | null
 
     @IsOptional()
     @IsString()

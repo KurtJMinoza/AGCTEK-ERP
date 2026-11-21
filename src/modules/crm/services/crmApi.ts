@@ -15,6 +15,7 @@ import type {
     CrmDashboard,
     CrmMessage,
     Customer360,
+    SetCustomerRatingInput,
     Lead,
     LeadListParams,
     LinkedSalesOrder,
@@ -430,4 +431,12 @@ export async function apiGetCustomer360(customerId: string) {
         Omit<Customer360, 'opportunities'> & { opportunities: ApiOpportunity[] }
     >(`/crm/customers/${encodeURIComponent(customerId)}/360`)
     return { ...result, opportunities: result.opportunities.map(toOpportunity) }
+}
+
+export async function apiSetCustomerRating(customerId: string, body: SetCustomerRatingInput) {
+    const { data } = await ErpAxiosBase.put(
+        `/crm/customers/${encodeURIComponent(customerId)}/rating`,
+        body,
+    )
+    return data
 }

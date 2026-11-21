@@ -47,6 +47,12 @@ const customerSchema = z.object({
     /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
     paymentMode: z.enum(['CASH', 'BANK_TRANSFER', 'LOAN_SALARY_DEDUCT']),
     status: z.enum(['ACTIVE', 'BLOCKED', 'INACTIVE']),
+    /** YYYY-MM-DD or empty when unset. */
+    birthDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+        .or(z.literal(''))
+        .optional(),
 })
 
 const createCustomerSchema = customerSchema.superRefine((values, ctx) => {
@@ -117,6 +123,7 @@ const blankValues: FormShape = {
     creditLimit: 0,
     paymentMode: 'CASH',
     status: 'ACTIVE',
+    birthDate: '',
 }
 
 const toFormValues = (customer?: Customer | null): FormShape =>
@@ -133,6 +140,7 @@ const toFormValues = (customer?: Customer | null): FormShape =>
               phone: customer.phone,
               creditLimit: customer.creditLimit,
               status: customer.status,
+              birthDate: customer.birthDate?.slice(0, 10) ?? '',
           }
         : blankValues
 
@@ -191,13 +199,18 @@ const CustomerFormDialog = ({
             paymentMode: values.paymentMode,
         }
         if (!isCreate) {
-            return onSubmit(
-                isCredit ? { ...shared, creditLimit: values.creditLimit } : shared,
-            )
+            return onSubmit({
+                ...shared,
+                birthDate: values.birthDate ? values.birthDate : null,
+                ...(isCredit ? { creditLimit: values.creditLimit } : {}),
+            })
         }
         const payload: CreateCustomerInput = { ...shared }
         if (isCredit) {
             payload.creditLimit = values.creditLimit
+        }
+        if (values.birthDate) {
+            payload.birthDate = values.birthDate
         }
         return onSubmit(payload)
     }
@@ -351,6 +364,19 @@ const CustomerFormDialog = ({
                             control={control}
                             render={({ field }) => (
                                 <Input placeholder="+63 917 000 0000" {...field} />
+                            )}
+                        />
+                    </FormItem>
+                    <FormItem
+                        label="Birthday"
+                        invalid={Boolean(errors.birthDate)}
+                        errorMessage={errors.birthDate?.message}
+                    >
+                        <Controller
+                            name="birthDate"
+                            control={control}
+                            render={({ field }) => (
+                                <Input type="date" max={new Date().toISOString().slice(0, 10)} {...field} />
                             )}
                         />
                     </FormItem>

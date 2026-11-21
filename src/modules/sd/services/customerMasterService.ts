@@ -31,6 +31,8 @@ export type Customer = {
     creditStatus: CreditStatus
     /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
     paymentMode: PaymentMode
+    /** ISO date (YYYY-MM-DD) or null when unset. */
+    birthDate: string | null
     /** Linked Shop (storefront) account, when one was referenced. */
     retailClientId: string | null
     /** Shop account profile (present when the customer references a shop account). */
@@ -60,6 +62,8 @@ export type CreateCustomerInput = {
     creditStatus?: CreditStatus
     /** CASH | BANK_TRANSFER | LOAN_SALARY_DEDUCT — how a non-credit customer pays */
     paymentMode?: PaymentMode
+    /** ISO date (YYYY-MM-DD). */
+    birthDate?: string | null
 }
 
 export type UpdateCustomerInput = Partial<
@@ -91,6 +95,7 @@ type ApiCustomer = Omit<
     | 'customerCategory'
     | 'paymentTerms'
     | 'creditStatus'
+    | 'birthDate'
 > & {
     creditLimit: DecimalString
     availableCredit: DecimalString
@@ -100,6 +105,7 @@ type ApiCustomer = Omit<
     paymentTerms?: string
     creditStatus?: string
     paymentMode?: string
+    birthDate?: string | null
 }
 
 const BASE_PATH = '/sd/customers'
@@ -129,6 +135,7 @@ const toCustomer = (row: ApiCustomer): Customer => ({
         row.paymentMode === 'LOAN_SALARY_DEDUCT'
             ? row.paymentMode
             : 'CASH',
+    birthDate: row.birthDate ? String(row.birthDate).slice(0, 10) : null,
     retailClientId: row.retailClientId ?? null,
     retailClient: row.retailClient ?? null,
 })

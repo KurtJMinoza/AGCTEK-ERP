@@ -26,6 +26,33 @@ const MAX_CREATE_ATTEMPTS = MAX_CUSTOMER_NUMBER_ATTEMPTS
 
 type Client = PrismaService | Prisma.TransactionClient
 
+/** Parse YYYY-MM-DD (or ISO datetime) to a UTC date-only; reject future calendar days. */
+function parseBirthDate(value: string): Date {
+    const day = value.slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        throw new BadRequestException('birthDate must be a date (YYYY-MM-DD)')
+    }
+    const [y, m, d] = day.split('-').map(Number)
+    const date = new Date(Date.UTC(y, m - 1, d))
+    if (
+        date.getUTCFullYear() !== y ||
+        date.getUTCMonth() !== m - 1 ||
+        date.getUTCDate() !== d
+    ) {
+        throw new BadRequestException('birthDate is not a valid calendar date')
+    }
+    const today = new Date()
+    const todayUtc = Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+    )
+    if (date.getTime() > todayUtc) {
+        throw new BadRequestException('birthDate cannot be in the future')
+    }
+    return date
+}
+
 @Injectable()
 export class CustomerService {
     constructor(private prisma: PrismaService) {}
@@ -207,6 +234,7 @@ export class CustomerService {
                 paymentTerms: account.paymentTerms,
                 creditStatus: account.creditStatus,
                 paymentMode: dto.paymentMode ?? 'CASH',
+                birthDate: dto.birthDate ? parseBirthDate(dto.birthDate) : null,
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -271,6 +299,10 @@ export class CustomerService {
         }
         if (dto.paymentMode !== undefined) {
             data.paymentMode = dto.paymentMode
+        }
+        if (dto.birthDate !== undefined) {
+            data.birthDate =
+                dto.birthDate === null ? null : parseBirthDate(dto.birthDate)
         }
 
         if (Object.keys(data).length === 1) {
