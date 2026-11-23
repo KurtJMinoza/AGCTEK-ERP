@@ -567,6 +567,17 @@ export const ERP_MODULES: ErpModule[] = [
         isExternalLink: true,
         categories: [],
     },
+    {
+        code: 'wpd',
+        shortTitle: 'WPD',
+        title: 'Workforce Productivity Dashboard',
+        description:
+            'Workforce productivity KPIs and operational performance (opens in a new tab).',
+        path: 'https://wpd.agctek.co/',
+        icon: 'lineChart',
+        isExternalLink: true,
+        categories: [],
+    },
 ]
 
 /** Lookup helpers — use these instead of scanning the array directly */

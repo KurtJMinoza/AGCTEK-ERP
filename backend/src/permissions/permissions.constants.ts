@@ -31,6 +31,7 @@ export const MODULE_CODES = {
     CRM: 'crm',
     EMAILS: 'emails',
     HCM: 'hcm',
+    WPD: 'wpd',
     ADMIN: 'admin',
 } as const
 
@@ -84,6 +85,12 @@ export const MODULE_CATALOG: {
         name: 'Human Capital Management',
         description: 'Employees, positions, and HR records.',
         sortOrder: 60,
+    },
+    {
+        code: 'wpd',
+        name: 'Workforce Productivity Dashboard',
+        description: 'External workforce productivity KPIs and operations dashboard.',
+        sortOrder: 70,
     },
     {
         code: 'admin',
@@ -633,6 +640,13 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ],
     ]),
     ...group('hcm', [['hris', 'HRIS Access', 'Link to the external HRIS.']]),
+    ...group('wpd', [
+        [
+            'dashboard',
+            'Workforce Productivity Dashboard',
+            'Link to the external Workforce Productivity Dashboard.',
+        ],
+    ]),
     ...mmFeatureResources(),
 ]
 
@@ -684,6 +698,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         crm: FULL_ACCESS,
         emails: FULL_ACCESS,
         hcm: NO_DELETE,
+        wpd: READ,
     },
     [USER_ROLES.EMPLOYEE]: {
         sd: READ_CREATE,
@@ -692,6 +707,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         crm: READ_CREATE,
         // Compose / drafts / sent; template edits stay available so quote cover letters work.
         emails: NO_DELETE,
+        wpd: READ,
     },
 }
 

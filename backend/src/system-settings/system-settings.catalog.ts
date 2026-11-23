@@ -22,6 +22,7 @@ export const SETTING_KEYS = {
     FEATURE_SCM_ENABLED: 'feature_scm_enabled',
     FEATURE_CRM_ENABLED: 'feature_crm_enabled',
     FEATURE_HCM_ENABLED: 'feature_hcm_enabled',
+    FEATURE_WPD_ENABLED: 'feature_wpd_enabled',
 } as const
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
@@ -123,6 +124,12 @@ export const SETTINGS_CATALOG: readonly SettingDefinition[] = [
         60,
         'External HRIS link.',
     ),
+    moduleToggle(
+        SETTING_KEYS.FEATURE_WPD_ENABLED,
+        'Workforce Productivity Dashboard',
+        70,
+        'External workforce productivity dashboard link.',
+    ),
 ]
 
 export const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDefinition> = new Map(
@@ -137,6 +144,7 @@ export const FEATURE_MODULE_FLAGS: Readonly<Record<string, SettingKey>> = {
     scm: SETTING_KEYS.FEATURE_SCM_ENABLED,
     crm: SETTING_KEYS.FEATURE_CRM_ENABLED,
     hcm: SETTING_KEYS.FEATURE_HCM_ENABLED,
+    wpd: SETTING_KEYS.FEATURE_WPD_ENABLED,
 }
 
 export function serializeValue(value: SettingValue): string {

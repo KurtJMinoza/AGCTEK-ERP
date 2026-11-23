@@ -39,7 +39,7 @@ export type ErpCategory = {
     submodules: ErpSubmodule[]
 }
 
-export type ErpModuleCode = 'sd' | 'mm' | 'fico' | 'crm' | 'scm' | 'hcm'
+export type ErpModuleCode = 'sd' | 'mm' | 'fico' | 'crm' | 'scm' | 'hcm' | 'wpd'
 
 export type ErpModule = {
     code: ErpModuleCode
