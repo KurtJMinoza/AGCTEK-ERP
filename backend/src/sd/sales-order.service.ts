@@ -381,7 +381,10 @@ export class SalesOrderService {
                 where,
                 orderBy: { createdAt: 'desc' },
                 take: limit,
-                include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                include: {
+                    lines: { orderBy: { lineNumber: 'asc' } },
+                    company: { select: { id: true, name: true } },
+                },
             }),
             this.prisma.sdSalesOrder.count({ where }),
         ])

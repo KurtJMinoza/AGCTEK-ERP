@@ -20,8 +20,10 @@ import type {
     CrmDashboard,
     CrmMessage,
     Customer360,
+    CustomerRatingEvent,
     Lead,
     LeadListParams,
+    RateCustomerInput,
     LinkedSalesOrder,
     MockEarnInput,
     MockEarnResult,
@@ -481,4 +483,13 @@ export async function apiGetCustomer360(customerId: string) {
         Omit<Customer360, 'opportunities'> & { opportunities: ApiOpportunity[] }
     >(`/crm/customers/${encodeURIComponent(customerId)}/360`)
     return { ...result, opportunities: result.opportunities.map(toOpportunity) }
+}
+
+/** POST /crm/customers/:id/ratings — append rating history and update CRM profile snapshot. */
+export async function apiRateCustomer(customerId: string, body: RateCustomerInput) {
+    const { data } = await ErpAxiosBase.post<CustomerRatingEvent>(
+        `/crm/customers/${encodeURIComponent(customerId)}/ratings`,
+        body,
+    )
+    return data
 }

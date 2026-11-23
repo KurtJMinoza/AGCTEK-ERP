@@ -15,9 +15,13 @@ import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import usePermissions from '@/utils/hooks/usePermissions'
 import LoyaltyPanel from '../components/LoyaltyPanel'
+import BirthdayEditDialog from '../components/customer360/BirthdayEditDialog'
 import CardGrid from '../components/customer360/CardGrid'
+import CustomerRatingPanel from '../components/customer360/CustomerRatingPanel'
 import SalesOrderCard from '../components/customer360/SalesOrderCard'
 import ShipmentCard, { SCM_SHIPMENTS_PATH } from '../components/customer360/ShipmentCard'
+import { updateCustomer } from '@/modules/sd/services/customerMasterService'
+import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { shipmentActivityAt } from '../components/customer360/statusTones'
 import OpportunityFormDialog from '../components/OpportunityFormDialog'
 import TicketActivitiesDialog from '../components/TicketActivitiesDialog'
@@ -117,10 +121,13 @@ export default function CustomerDetailPage() {
         updateOpportunity,
         createTicket,
         updateTicket,
+        rateCustomer,
     } = useCustomer360(customerId)
     const { can } = usePermissions()
     const canCreate = can('crm.tickets', 'create')
     const canUpdate = can('crm.tickets', 'update')
+    const canEditBirthday = can('sd.customer-master', 'update')
+    const canRateCustomer = can('crm.customers', 'update')
 
     const [opportunityDialog, setOpportunityDialog] = useState<{ row: Opportunity | null } | null>(
         null,
@@ -128,6 +135,7 @@ export default function CustomerDetailPage() {
     const [ticketDialog, setTicketDialog] = useState<{ row: Ticket | null } | null>(null)
     const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null)
     const [ticketActivitiesFor, setTicketActivitiesFor] = useState<Ticket | null>(null)
+    const [birthdayOpen, setBirthdayOpen] = useState(false)
 
     const opportunityColumns = useMemo<ColumnDef<Opportunity>[]>(
         () => [
@@ -277,9 +285,12 @@ export default function CustomerDetailPage() {
         )
     }
 
-    const { customer, profile, summary, loyalty, sections } = data
+    const { customer, profile, summary, loyalty, sections, rating, ratingHistory } = data
     const tier = loyalty?.tier ?? profile?.tier ?? null
     const ordersOk = sections.orders.status === 'ok'
+    const birthdayLabel = customer.birthDate
+        ? formatDate(customer.birthDate)
+        : 'Not set'
 
     return (
         <PageContainer>
@@ -306,7 +317,7 @@ export default function CustomerDetailPage() {
             ) : null}
 
             <AdaptiveCard className="mb-4">
-                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
                     <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Status</p>
                         <StatusBadge className="mt-1" tone={crmTone(customer.status)}>
@@ -329,6 +340,15 @@ export default function CustomerDetailPage() {
                         <p className="text-gray-500">{customer.phone || '—'}</p>
                     </div>
                     <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Birthday</p>
+                        <p className="mt-1">{birthdayLabel}</p>
+                        {canEditBirthday ? (
+                            <Button size="xs" className="mt-1" onClick={() => setBirthdayOpen(true)}>
+                                Edit
+                            </Button>
+                        ) : null}
+                    </div>
+                    <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">
                             Customer since
                         </p>
@@ -347,6 +367,14 @@ export default function CustomerDetailPage() {
                     </p>
                 ) : null}
             </AdaptiveCard>
+
+            <CustomerRatingPanel
+                rating={rating}
+                history={ratingHistory}
+                historyState={sections.ratings}
+                canRate={canRateCustomer}
+                onRate={rateCustomer}
+            />
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 <StatCard
@@ -554,6 +582,19 @@ export default function CustomerDetailPage() {
                 canCreate={canCreate}
                 canUpdate={canUpdate}
                 onClose={() => setTicketActivitiesFor(null)}
+            />
+            <BirthdayEditDialog
+                isOpen={birthdayOpen}
+                birthDate={customer.birthDate}
+                onClose={() => setBirthdayOpen(false)}
+                onSave={async (birthDate) => {
+                    try {
+                        await updateCustomer(customer.id, { birthDate })
+                        await reload()
+                    } catch (err) {
+                        throw new Error(getApiErrorMessage(err, 'Unable to save birthday'))
+                    }
+                }}
             />
         </PageContainer>
     )

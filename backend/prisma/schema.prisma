@@ -4757,6 +4757,8 @@ model SdCustomer {
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
+  /// Optional date of birth (date-only); CRM Customer 360 displays/edits via SD master update.
+  birthDate       DateTime?     @db.Date
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime      @default(now())
@@ -4768,6 +4770,7 @@ model SdCustomer {
   crmOpportunities  CrmOpportunity[]
   crmTickets        CrmTicket[]
   crmLoyaltyAccount CrmLoyaltyAccount?
+  crmRatingEvents   CrmCustomerRatingEvent[]
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
   crmEmailMessages  CrmEmailMessage[]
@@ -9144,6 +9147,10 @@ model CrmProfile {
   churnScore  Float      @default(0)
   notes       String?
   ownerUserId String?
+  /// Current internal relationship rating (1–5); history lives in CrmCustomerRatingEvent.
+  ratingStars Int?
+  ratedAt     DateTime?
+  ratedBy     String?
   createdBy   String?
   updatedBy   String?
   createdAt   DateTime   @default(now())
@@ -9152,6 +9159,21 @@ model CrmProfile {
   @@index([tier])
   @@index([ownerUserId])
   @@map("crm_profiles")
+}
+
+/// Append-only customer relationship rating history (CRM-owned; keyed by SD customer id).
+model CrmCustomerRatingEvent {
+  id            String     @id @default(cuid())
+  customerId    String
+  customer      SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  stars         Int
+  comment       String?
+  previousStars Int?
+  ratedBy       String
+  ratedAt       DateTime   @default(now())
+
+  @@index([customerId, ratedAt])
+  @@map("crm_customer_rating_events")
 }
 
 /// Sales lead; may exist before an SdCustomer is created.

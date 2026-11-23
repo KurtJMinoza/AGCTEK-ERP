@@ -5,6 +5,7 @@ import {
     apiCreateOpportunity,
     apiCreateTicket,
     apiGetCustomer360,
+    apiRateCustomer,
     apiUpdateOpportunity,
     apiUpdateTicket,
 } from '../services/crmApi'
@@ -12,6 +13,7 @@ import type {
     CreateOpportunityInput,
     CreateTicketInput,
     Customer360,
+    RateCustomerInput,
     UpdateOpportunityInput,
     UpdateTicketInput,
 } from '../types'
@@ -65,6 +67,12 @@ export function useCustomer360(customerId: string) {
         return updated
     }
 
+    const rateCustomer = async (body: RateCustomerInput) => {
+        const created = await apiRateCustomer(customerId, body)
+        await reload()
+        return created
+    }
+
     return {
         data,
         loading,
@@ -74,5 +82,6 @@ export function useCustomer360(customerId: string) {
         updateOpportunity,
         createTicket,
         updateTicket,
+        rateCustomer,
     }
 }
