@@ -336,14 +336,14 @@ const POSTenderDialog = ({
 
     const syncFormToDue = useCallback((due: number, nextMethod?: PosTenderMethod) => {
         if (nextMethod) setMethod(nextMethod)
-        setAmount(due > 0 ? due.toFixed(2) : '')
-        setCashReceived(due > 0 ? due.toFixed(2) : '')
-        setReferenceNumber('')
-        setBankName('')
-        setTransactionDate('')
+            setAmount(due > 0 ? due.toFixed(2) : '')
+            setCashReceived(due > 0 ? due.toFixed(2) : '')
+            setReferenceNumber('')
+            setBankName('')
+            setTransactionDate('')
         setEmployeeName('')
-        setVerified(false)
-        setError(null)
+            setVerified(false)
+            setError(null)
     }, [])
 
     useEffect(() => {
@@ -539,11 +539,11 @@ const POSTenderDialog = ({
         let nextTenders = tenders
         if (!nextTenders.length) {
             if (paymentMode === 'SPLIT') {
-                setError(
+            setError(
                     'Split payment needs at least two methods — add the first payment, then another for the rest.',
-                )
-                return
-            }
+            )
+            return
+        }
             const tender = buildTenderFromForm()
             if (!tender) return
             nextTenders = [tender]
@@ -612,8 +612,8 @@ const POSTenderDialog = ({
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h5 id="pos-tender-title" className="mb-0.5">
-                        Take payment
-                    </h5>
+                Take payment
+            </h5>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                         {customerName ? `${customerName} · ` : ''}
                         Order total {formatPrice(amountDue)}
@@ -953,33 +953,33 @@ const POSTenderDialog = ({
                                 ? 'Second method'
                                 : 'Payment method'}
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                             {methods.map((row) => (
-                                <button
-                                    key={row.method}
-                                    type="button"
-                                    className={classNames(
+                            <button
+                                key={row.method}
+                                type="button"
+                                className={classNames(
                                         'flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors',
-                                        method === row.method
+                                    method === row.method
                                             ? 'border-primary bg-primary-subtle ring-1 ring-primary/30 dark:bg-primary/15'
-                                            : 'border-gray-200 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800',
-                                    )}
-                                    onClick={() => selectMethod(row.method)}
-                                    aria-pressed={method === row.method}
-                                >
-                                    <span className="shrink-0 text-lg text-gray-600 dark:text-gray-300">
-                                        {row.icon}
+                                        : 'border-gray-200 hover:border-primary hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800',
+                                )}
+                                onClick={() => selectMethod(row.method)}
+                                aria-pressed={method === row.method}
+                            >
+                                <span className="shrink-0 text-lg text-gray-600 dark:text-gray-300">
+                                    {row.icon}
+                                </span>
+                                <span className="min-w-0">
+                                    <span className="block truncate text-sm font-semibold heading-text">
+                                        {row.label}
                                     </span>
-                                    <span className="min-w-0">
-                                        <span className="block truncate text-sm font-semibold heading-text">
-                                            {row.label}
-                                        </span>
-                                        <span className="block truncate text-[11px] text-gray-500">
-                                            {row.hint}
-                                        </span>
+                                    <span className="block truncate text-[11px] text-gray-500">
+                                        {row.hint}
                                     </span>
-                                </button>
-                            ))}
+                                </span>
+                            </button>
+                        ))}
                         </div>
                     </div>
 
@@ -1012,33 +1012,33 @@ const POSTenderDialog = ({
                                                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-sm font-bold tabular-nums text-gray-600 dark:bg-gray-700 dark:text-gray-200">
                                                     {index + 1}
                                                 </span>
-                                                <div className="min-w-0">
-                                                    <div className="flex flex-wrap items-center gap-2">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                         <span className="text-base text-gray-500">
                                                             {methodIcon(
                                                                 tender.method,
                                                             )}
                                                         </span>
-                                                        <span className="text-sm font-semibold heading-text">
+                                                    <span className="text-sm font-semibold heading-text">
                                                             {methodLabel(
                                                                 tender.method,
                                                             )}
-                                                        </span>
-                                                        <Tag
-                                                            className={classNames(
-                                                                'text-[10px] font-semibold',
+                                                    </span>
+                                                    <Tag
+                                                        className={classNames(
+                                                            'text-[10px] font-semibold',
                                                                 expectedTenderStatus(
                                                                     tender,
                                                                 ).className,
-                                                            )}
-                                                        >
-                                                            {
+                                                        )}
+                                                    >
+                                                        {
                                                                 expectedTenderStatus(
                                                                     tender,
                                                                 ).label
-                                                            }
-                                                        </Tag>
-                                                    </div>
+                                                        }
+                                                    </Tag>
+                                                </div>
                                                     <div className="mt-0.5 text-sm font-semibold tabular-nums heading-text">
                                                         {formatPrice(
                                                             tender.amount,
@@ -1050,7 +1050,7 @@ const POSTenderDialog = ({
                                                         <div className="text-[11px] text-gray-500 tabular-nums">
                                                             Received{' '}
                                                             {formatPrice(
-                                                                tender.tenderAmount,
+                                                                    tender.tenderAmount,
                                                             )}{' '}
                                                             · change{' '}
                                                             {formatPrice(
@@ -1059,23 +1059,23 @@ const POSTenderDialog = ({
                                                                         tender.amount,
                                                                 ),
                                                             )}
-                                                        </div>
+                                                </div>
                                                     ) : null}
-                                                    {tender.referenceNumber ? (
-                                                        <div className="truncate font-mono text-[11px] text-gray-500">
+                                                {tender.referenceNumber ? (
+                                                    <div className="truncate font-mono text-[11px] text-gray-500">
                                                             {
                                                                 tender.referenceNumber
                                                             }
-                                                        </div>
-                                                    ) : null}
+                                                    </div>
+                                                ) : null}
                                                     {tender.employeeName ? (
-                                                        <div className="truncate text-[11px] text-gray-500">
-                                                            Employee{' '}
+                                                    <div className="truncate text-[11px] text-gray-500">
+                                                        Employee{' '}
                                                             {
                                                                 tender.employeeName
                                                             }
-                                                        </div>
-                                                    ) : null}
+                                                    </div>
+                                                ) : null}
                                                 </div>
                                             </div>
                                             <Button
@@ -1327,18 +1327,18 @@ const POSTenderDialog = ({
 
                             {method === 'SALARY_LOAN' ? (
                                 <>
-                                    <div>
-                                        <label
-                                            htmlFor="pos-tender-employee"
-                                            className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
-                                        >
+                                        <div>
+                                            <label
+                                                htmlFor="pos-tender-employee"
+                                                className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"
+                                            >
                                             Employee full name
-                                        </label>
-                                        <Input
-                                            id="pos-tender-employee"
+                                            </label>
+                                            <Input
+                                                id="pos-tender-employee"
                                             value={employeeName}
                                             placeholder="e.g. Juan Dela Cruz"
-                                            onChange={(e) =>
+                                                onChange={(e) =>
                                                 setEmployeeName(e.target.value)
                                             }
                                         />
@@ -1407,28 +1407,28 @@ const POSTenderDialog = ({
 
                     <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/40">
                         <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                                    Tendered
-                                </div>
-                                <div className="text-base font-semibold tabular-nums heading-text">
-                                    {formatPrice(tendered)}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                                    Change
-                                </div>
-                                <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                                    {formatPrice(change)}
-                                </div>
-                            </div>
+                    <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                            Tendered
                         </div>
-                        <p className="mt-2 text-[11px] text-gray-500">
+                        <div className="text-base font-semibold tabular-nums heading-text">
+                            {formatPrice(tendered)}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                            Change
+                        </div>
+                        <div className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                            {formatPrice(change)}
+                        </div>
+                    </div>
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">
                             Preview only — the server owns tax, final total and
                             change.
-                        </p>
-                    </div>
+                </p>
+            </div>
                 </div>
             </div>
             )}
@@ -1463,12 +1463,12 @@ const POSTenderDialog = ({
                 </div>
                 <div className="flex gap-2">
                     <Button size="sm" onClick={onClose} disabled={completing}>
-                        Cancel
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="solid"
-                        loading={completing}
+                    Cancel
+                </Button>
+                <Button
+                    size="sm"
+                    variant="solid"
+                    loading={completing}
                         disabled={
                             completing ||
                             Boolean(dpCustomError) ||
@@ -1476,8 +1476,8 @@ const POSTenderDialog = ({
                                 ? remaining > 0.005 || tenders.length < 2
                                 : remaining > 0.005 && tenders.length > 0)
                         }
-                        onClick={complete}
-                    >
+                    onClick={complete}
+                >
                         {paymentMode === 'CHARGE'
                             ? `Charge ${formatPrice(amountDue)} to customer`
                             : paymentMode === 'DOWN_PAYMENT' && balanceDue > 0
@@ -1487,7 +1487,7 @@ const POSTenderDialog = ({
                                   ? 'Complete split sale'
                                   : 'Complete split sale'
                               : 'Complete sale'}
-                    </Button>
+                </Button>
                 </div>
             </div>
         </Dialog>

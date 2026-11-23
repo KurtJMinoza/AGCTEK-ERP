@@ -147,6 +147,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/backorder-report',
                         icon: 'lineChart',
                     },
+                    {
+                        code: 'monthly-collection',
+                        permissionCode: 'sd.reports',
+                        title: 'Monthly Collection',
+                        description:
+                            'Monthly collection monitoring by tender type — Cash, GCash, bank, cheque, and others.',
+                        path: '/modules/sd/monthly-collection',
+                        icon: 'receipt',
+                    },
                 ],
             },
         ],

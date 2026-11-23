@@ -205,6 +205,14 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'gutterless',
         },
     },
+    '/modules/sd/monthly-collection': {
+        key: 'sdMonthlyCollection',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/crm': {
         key: 'crmDashboard',
         authority: [],

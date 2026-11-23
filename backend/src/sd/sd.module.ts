@@ -55,6 +55,7 @@ import { SalesAnalyticsController } from './sales-analytics.controller'
 import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
 import { SalesPerformanceService } from './sales-performance.service'
+import { MonthlyCollectionService } from './monthly-collection.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
 import { ProductImportController } from './product-import.controller'
@@ -140,6 +141,7 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
          PricingResolutionService,
         SalesAnalyticsService,
         SalesPerformanceService,
+        MonthlyCollectionService,
         BackorderReportService,
         ProductImportService,
         ProductBarcodeService,
