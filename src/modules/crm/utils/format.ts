@@ -31,6 +31,10 @@ const toneMap: Record<string, StatusTone> = {
     REJECTED: 'danger',
     EXPIRED: 'warning',
     SUPERSEDED: 'default',
+    OVERDUE: 'danger',
+    DUE_TODAY: 'warning',
+    UPCOMING: 'info',
+    DONE: 'success',
 }
 
 /** Numeric value of an SD decimal string (display only; SD computes all amounts). */

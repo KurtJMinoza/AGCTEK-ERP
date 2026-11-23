@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { Decimal } from '@prisma/client/runtime/library'
 import type { PrismaService } from '../prisma/prisma.service'
-import { CustomerService } from './customer.service'
+import { CustomerService, parseCustomerBirthDate } from './customer.service'
 
 const numberCollision = () =>
     new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -122,5 +123,78 @@ describe('CustomerService.create', () => {
             customerCategory: 'RETAIL',
         })
         expect(root.sdCustomer.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('stores birthDate on create', async () => {
+        const root = mockClient()
+        await makeService(root).create({ ...dto, birthDate: '1990-05-15' })
+        expect(root.sdCustomer.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    birthDate: new Date('1990-05-15T00:00:00.000Z'),
+                }),
+            }),
+        )
+    })
+
+    it('rejects a future birthDate on create', async () => {
+        const root = mockClient()
+        await expect(
+            makeService(root).create({ ...dto, birthDate: '2999-01-01' }),
+        ).rejects.toBeInstanceOf(BadRequestException)
+        expect(root.sdCustomer.create).not.toHaveBeenCalled()
+    })
+})
+
+describe('parseCustomerBirthDate', () => {
+    it('accepts YYYY-MM-DD and null', () => {
+        expect(parseCustomerBirthDate(null)).toBeNull()
+        expect(parseCustomerBirthDate('2001-12-31')).toEqual(
+            new Date('2001-12-31T00:00:00.000Z'),
+        )
+    })
+
+    it('rejects future dates', () => {
+        expect(() => parseCustomerBirthDate('2999-06-01')).toThrow(BadRequestException)
+    })
+})
+
+describe('CustomerService.update birthDate', () => {
+    function updateClient() {
+        const current = {
+            id: 'cust-1',
+            creditLimit: new Decimal(0),
+            availableCredit: new Decimal(0),
+            customerAccountType: 'NON_CREDIT',
+            email: 'ann@acme.test',
+        }
+        const client = {
+            sdCustomer: {
+                findUnique: jest.fn().mockResolvedValue(current),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        }
+        return { client, current }
+    }
+
+    it('sets and clears birthDate', async () => {
+        const { client } = updateClient()
+        const service = makeService(client as never)
+
+        await service.update('cust-1', { birthDate: '1988-03-04' })
+        expect(client.sdCustomer.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    birthDate: new Date('1988-03-04T00:00:00.000Z'),
+                }),
+            }),
+        )
+
+        await service.update('cust-1', { birthDate: null })
+        expect(client.sdCustomer.updateMany).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({ birthDate: null }),
+            }),
+        )
     })
 })

@@ -378,6 +378,15 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'barChart',
                     },
                     {
+                        code: 'calendar',
+                        title: 'Activity calendar',
+                        description:
+                            'Week and month view of calls, meetings and tasks (Asia/Manila).',
+                        path: '/crm/calendar',
+                        icon: 'calendar',
+                        permissionCode: 'crm.activities',
+                    },
+                    {
                         code: 'customers',
                         title: 'Customers',
                         description:
@@ -564,6 +573,17 @@ export const ERP_MODULES: ErpModule[] = [
             'HRIS — people, attendance, payroll, and workforce operations.',
         path: 'https://hris.agctek.co/',
         icon: 'users',
+        isExternalLink: true,
+        categories: [],
+    },
+    {
+        code: 'wpd',
+        shortTitle: 'WPD',
+        title: 'Workforce Productivity Dashboard',
+        description:
+            'Workforce productivity KPIs and operational performance (opens in a new tab).',
+        path: 'https://wpd.agctek.co/',
+        icon: 'lineChart',
         isExternalLink: true,
         categories: [],
     },

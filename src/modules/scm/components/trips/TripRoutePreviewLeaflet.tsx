@@ -5,14 +5,16 @@ import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'reac
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getCachedMapPinIcon, resolveStopPinColor } from '../../utils/mapPins'
-import type { RoutePreview, RoutePreviewStop } from '../../types'
+import type { RouteMapPreview } from '../../types'
 
 const PICKUP_COLOR = '#1e3a8a'
 const RETURN_COLOR = '#4b5563'
 const LATE_COLOR = '#dc2626'
 const ROUTE_COLOR = '#2563eb'
 
-function iconFor(stop: RoutePreviewStop, deliveryNo: number) {
+type MapStop = RouteMapPreview['stops'][number]
+
+function iconFor(stop: MapStop, deliveryNo: number) {
     if (stop.type === 'PICKUP') return getCachedMapPinIcon({ color: PICKUP_COLOR, label: 'P' })
     if (stop.type === 'RETURN_TO') return getCachedMapPinIcon({ color: RETURN_COLOR, label: 'R' })
     return getCachedMapPinIcon({
@@ -37,7 +39,7 @@ function FitBounds({ points }: { points: Array<[number, number]> }) {
 }
 
 /** Planning-only map: markers + route line from the preview response. No live layers. */
-export default function TripRoutePreviewLeaflet({ preview }: { preview: RoutePreview }) {
+export default function TripRoutePreviewLeaflet({ preview }: { preview: RouteMapPreview }) {
     const located = useMemo(
         () => preview.stops.filter((s) => s.lat != null && s.lng != null),
         [preview.stops],

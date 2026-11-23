@@ -36,7 +36,7 @@ export type ActivitiesDialogProps = {
     onChanged?: () => void
 }
 
-/** Activity timeline + scheduling for any activity parent (opportunity or ticket). */
+/** Activity timeline + scheduling for any activity parent (opportunity, lead or ticket). */
 export default function ActivitiesDialog({
     parent,
     title,
@@ -79,9 +79,6 @@ export default function ActivitiesDialog({
             setBusy(null)
         }
     }
-
-    const markDone = (activity: Activity) =>
-        run(activity.id, () => complete(activity.id), 'Failed to complete activity')
 
     const submit = async () => {
         const input = toActivityInput(form)
@@ -163,7 +160,13 @@ export default function ActivitiesDialog({
                                             size="xs"
                                             loading={busy === activity.id}
                                             disabled={Boolean(busy)}
-                                            onClick={() => void markDone(activity)}
+                                            onClick={() =>
+                                                void run(
+                                                    activity.id,
+                                                    () => complete(activity.id),
+                                                    'Failed to complete activity',
+                                                )
+                                            }
                                         >
                                             Done
                                         </Button>

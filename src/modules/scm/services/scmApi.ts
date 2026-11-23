@@ -34,6 +34,8 @@ import type {
     CreateTripInput,
     TelematicsHistoryQuery,
     TelematicsHistoryResponse,
+    DepartureMode,
+    OcularRoutePreview,
     RoutePreview,
     RoutePreviewRequest,
     Vehicle,
@@ -53,6 +55,8 @@ function toQuery(params?: ListParams) {
     if (params.vehicleId) query.vehicleId = params.vehicleId
     if (params.movementType) query.movementType = params.movementType
     if (params.type) query.type = params.type
+    if (params.purpose) query.purpose = params.purpose
+    if (params.driverId) query.driverId = params.driverId
     return query
 }
 
@@ -474,6 +478,124 @@ export async function apiCreateTrip(body: CreateTripInput) {
     return data
 }
 
+/**
+ * In-service vehicles; with `from`/`to` only those with no overlapping reserving trip.
+ * Without a window every assignable vehicle is returned.
+ */
+export async function apiGetAvailableVehicles(params?: {
+    from?: string
+    to?: string
+    excludeTripId?: string
+}) {
+    const { data } = await ErpAxiosBase.get<{
+        data: Vehicle[]
+        total: number
+        from: string | null
+        to: string | null
+    }>('/scm/vehicles/available', { params })
+    return data
+}
+
+/** Stop fields an ocular run accepts (address is required; lat/lng come together). */
+export type OcularStopInput = {
+    /** PICKUP: done before the trip leaves (gates Start). DROPOFF (default): the visit. */
+    type?: 'PICKUP' | 'DROPOFF'
+    address?: string
+    lat?: number | null
+    lng?: number | null
+    name?: string | null
+    notes?: string | null
+    existingLeadId?: string | null
+    customerId?: string | null
+}
+
+export type CreateOcularTripInput = {
+    vehicleId: string
+    driverId?: string | null
+    /** ISO instants */
+    windowStart: string
+    windowEnd: string
+    notes?: string | null
+    stops?: OcularStopInput[]
+}
+
+/** New ocular run (trip purpose OCULAR): vehicle + window + optional first stops. */
+export async function apiCreateOcularTrip(body: CreateOcularTripInput) {
+    const { data } = await ErpAxiosBase.post<Trip>('/scm/ocular-trips', body)
+    return data
+}
+
+export async function apiUpdateOcularTrip(
+    tripId: string,
+    body: Partial<Omit<CreateOcularTripInput, 'stops'>>,
+) {
+    const { data } = await ErpAxiosBase.patch<Trip>(`/scm/ocular-trips/${tripId}`, body)
+    return data
+}
+
+/** Planning-only route for an ocular trip (stops in manual order). */
+export async function apiGetOcularRoutePreview(
+    tripId: string,
+    params?: {
+        departAt?: string
+        departureMode?: DepartureMode
+        serviceTimeMin?: number
+        returnToOrigin?: boolean
+    },
+) {
+    const { data } = await ErpAxiosBase.get<OcularRoutePreview>(
+        `/scm/ocular-trips/${tripId}/route-preview`,
+        { params },
+    )
+    return data
+}
+
+export async function apiAddOcularStop(tripId: string, body: OcularStopInput) {
+    const { data } = await ErpAxiosBase.post<Trip>(`/scm/ocular-trips/${tripId}/stops`, body)
+    return data
+}
+
+export async function apiUpdateOcularStop(
+    tripId: string,
+    stopId: string,
+    body: OcularStopInput,
+) {
+    const { data } = await ErpAxiosBase.patch<Trip>(
+        `/scm/ocular-trips/${tripId}/stops/${stopId}`,
+        body,
+    )
+    return data
+}
+
+export async function apiReorderOcularStops(tripId: string, stopIds: string[]) {
+    const { data } = await ErpAxiosBase.patch<Trip>(
+        `/scm/ocular-trips/${tripId}/stops/sequence`,
+        { stopIds },
+    )
+    return data
+}
+
+export async function apiRemoveOcularStop(tripId: string, stopId: string) {
+    const { data } = await ErpAxiosBase.delete<Trip>(
+        `/scm/ocular-trips/${tripId}/stops/${stopId}`,
+    )
+    return data
+}
+
+/** Field progress: ARRIVED, COMPLETED (done) or SKIPPED, with optional outcome notes. */
+export async function apiSetOcularStopStatus(
+    tripId: string,
+    stopId: string,
+    status: 'ARRIVED' | 'COMPLETED' | 'SKIPPED',
+    notes?: string,
+) {
+    const { data } = await ErpAxiosBase.patch<Trip>(
+        `/scm/ocular-trips/${tripId}/stops/${stopId}/status`,
+        { status, ...(notes !== undefined ? { notes } : {}) },
+    )
+    return data
+}
+
 export async function apiUpdateTrip(id: string, body: Record<string, unknown>) {
     const { data } = await ErpAxiosBase.patch<Trip>(`/scm/trips/${id}`, body)
     return data
@@ -496,6 +618,8 @@ export async function apiDeleteTrip(id: string) {
 export async function apiGetFleetTracking(params?: {
     status?: string
     search?: string
+    purpose?: string
+    tripId?: string
 }) {
     const { data } = await ErpAxiosBase.get<FleetTrackingResponse>(
         '/scm/tracking/fleet',

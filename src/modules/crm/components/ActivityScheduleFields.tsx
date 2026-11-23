@@ -20,7 +20,11 @@ export const activityDueTone: Record<Activity['dueStatus'], StatusTone> = {
     DONE: 'success',
 }
 
-export type ScheduleForm = { type: ActivityType; summary: string; dueAt: string }
+export type ScheduleForm = {
+    type: ActivityType
+    summary: string
+    dueAt: string
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 

@@ -26,6 +26,26 @@ const MAX_CREATE_ATTEMPTS = MAX_CUSTOMER_NUMBER_ATTEMPTS
 
 type Client = PrismaService | Prisma.TransactionClient
 
+function startOfUtcDay(date: Date): Date {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+}
+
+/** Parse YYYY-MM-DD (or ISO) as a UTC date-only value; reject future calendar days. */
+export function parseCustomerBirthDate(value: string | null): Date | null {
+    if (value === null) return null
+    const raw = value.trim()
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00.000Z` : raw
+    const parsed = new Date(iso)
+    if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('birthDate must be a valid date')
+    }
+    const day = startOfUtcDay(parsed)
+    if (day.getTime() > startOfUtcDay(new Date()).getTime()) {
+        throw new BadRequestException('birthDate cannot be in the future')
+    }
+    return day
+}
+
 @Injectable()
 export class CustomerService {
     constructor(private prisma: PrismaService) {}
@@ -192,6 +212,8 @@ export class CustomerService {
     ) {
         const customerNumber = await this.nextCustomerNumber(attempt, client)
         const creditLimit = new Decimal(dto.creditLimit ?? 0)
+        const birthDate =
+            dto.birthDate !== undefined ? parseCustomerBirthDate(dto.birthDate) : undefined
         return client.sdCustomer.create({
             data: {
                 customerNumber,
@@ -207,6 +229,7 @@ export class CustomerService {
                 paymentTerms: account.paymentTerms,
                 creditStatus: account.creditStatus,
                 paymentMode: dto.paymentMode ?? 'CASH',
+                ...(birthDate !== undefined ? { birthDate } : {}),
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -271,6 +294,9 @@ export class CustomerService {
         }
         if (dto.paymentMode !== undefined) {
             data.paymentMode = dto.paymentMode
+        }
+        if (dto.birthDate !== undefined) {
+            data.birthDate = parseCustomerBirthDate(dto.birthDate)
         }
 
         if (Object.keys(data).length === 1) {

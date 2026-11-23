@@ -21,7 +21,15 @@ export class TrackingController {
 
     @Get('fleet')
     @RequirePermission(['scm.tracking', 'scm.vehicles', 'scm.trips'], 'read')
-    fleet(@Query() query: { status?: string; search?: string }) {
+    fleet(
+        @Query()
+        query: {
+            status?: string
+            search?: string
+            purpose?: string
+            tripId?: string
+        },
+    ) {
         return this.trackingService.fleet(query)
     }
 

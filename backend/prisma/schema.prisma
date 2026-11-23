@@ -4764,6 +4764,8 @@ model SdCustomer {
   /// Linked shop (storefront) login: referenced/provisioned in Customer Master or auto-linked at Shop sign-up.
   retailClientId  String?       @unique
   retailClient    RetailClient? @relation(fields: [retailClientId], references: [id], onDelete: SetNull)
+  /// Optional date of birth (date-only); CRM Customer 360 displays/edits via SD master update.
+  birthDate       DateTime?     @db.Date
   createdBy       String?
   updatedBy       String?
   createdAt       DateTime      @default(now())
@@ -4775,6 +4777,7 @@ model SdCustomer {
   crmOpportunities  CrmOpportunity[]
   crmTickets        CrmTicket[]
   crmLoyaltyAccount CrmLoyaltyAccount?
+  crmRatingEvents   CrmCustomerRatingEvent[]
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
   crmEmailMessages  CrmEmailMessage[]
@@ -8705,9 +8708,11 @@ model Trip {
   driverId        String?
   driver          Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
   status          TripStatus      @default(DRAFT)
-  /// Cargo-first TMS: trip built from this READY load plan (null = legacy trip)
+  /// Cargo-first TMS: trip built from this READY load plan (null = legacy / ocular trip)
   loadPlanId      String?
   loadPlan        LoadPlan?       @relation(fields: [loadPlanId], references: [id], onDelete: SetNull)
+  /// DELIVERY (cargo / default) | OCULAR (field site-visit run — vehicle + stops, no shipments)
+  purpose         String          @default("DELIVERY")
   plannedStartAt  DateTime?
   plannedEndAt    DateTime?
   dispatchedAt    DateTime?
@@ -8729,6 +8734,7 @@ model Trip {
   @@index([vehicleId])
   @@index([driverId])
   @@index([loadPlanId])
+  @@index([purpose, status])
 }
 
 model TripStop {
@@ -8770,6 +8776,11 @@ model TripStop {
   locationSnapshotAt DateTime?
   warehouseId        String?
   warehouse          Warehouse?             @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+  /// OCULAR trips (soft references to CRM / SD; SCM never writes those tables):
+  /// known lead or customer visited at this stop, and the lead captured here.
+  existingLeadId     String?
+  customerId         String?
+  createdLeadId      String?
   shipments          TripStopShipment[]
   lines              TripStopLine[]
   events             TripStopEvent[]
@@ -9168,6 +9179,10 @@ model CrmProfile {
   churnScore  Float      @default(0)
   notes       String?
   ownerUserId String?
+  /// Current internal relationship rating (1–5); history lives in CrmCustomerRatingEvent.
+  ratingStars Int?
+  ratedAt     DateTime?
+  ratedBy     String?
   createdBy   String?
   updatedBy   String?
   createdAt   DateTime   @default(now())
@@ -9178,6 +9193,21 @@ model CrmProfile {
   @@map("crm_profiles")
 }
 
+/// Append-only customer relationship rating history (CRM-owned; keyed by SD customer id).
+model CrmCustomerRatingEvent {
+  id            String     @id @default(cuid())
+  customerId    String
+  customer      SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  stars         Int
+  comment       String?
+  previousStars Int?
+  ratedBy       String
+  ratedAt       DateTime   @default(now())
+
+  @@index([customerId, ratedAt])
+  @@map("crm_customer_rating_events")
+}
+
 /// Sales lead; may exist before an SdCustomer is created.
 model CrmLead {
   id            String           @id @default(cuid())
@@ -9186,8 +9216,10 @@ model CrmLead {
   name          String
   email         String?
   phone         String?
-  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OTHER
+  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OCULAR | OTHER
   source        String           @default("OTHER")
+  /// SCM ocular-trip stop this lead was captured at (soft reference; SCM owns the stop)
+  originTripStopId String?
   /// NEW | CONTACTED | QUALIFIED | UNQUALIFIED | CONVERTED | LOST
   status        String           @default("NEW")
   assignedTo    String?
@@ -9220,6 +9252,8 @@ model CrmOpportunity {
   currency          String          @default("PHP")
   /// PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
   stage             String          @default("PROSPECTING")
+  /// When the opportunity entered its current stage (stall clock). Set on create and every stage change.
+  stageEnteredAt    DateTime        @default(now())
   /// 0–100
   probability       Int?
   expectedCloseDate DateTime?
@@ -9243,6 +9277,7 @@ model CrmOpportunity {
   @@index([stage])
   @@index([assignedTo])
   @@index([leadId])
+  @@index([stage, stageEnteredAt])
   @@map("crm_opportunities")
 }
 
@@ -9379,6 +9414,7 @@ model CrmActivity {
   @@index([leadId, dueAt])
   @@index([ticketId, dueAt])
   @@index([assignedTo, dueAt])
+  @@index([type, dueAt])
   @@map("crm_activities")
 }
 

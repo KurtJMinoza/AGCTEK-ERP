@@ -18,6 +18,18 @@ export class VehiclesController {
         return this.vehiclesService.findAll(query)
     }
 
+    /**
+     * Vehicles free for a time window (no overlapping reserving trip, in service).
+     * Without `from`/`to` every in-service vehicle is listed.
+     */
+    @Get('available')
+    @RequirePermission(SCM_REFERENCE_READ, 'read')
+    findAvailable(
+        @Query() query: { from?: string; to?: string; excludeTripId?: string },
+    ) {
+        return this.vehiclesService.findAvailable(query)
+    }
+
     @Get(':id/documents')
     @RequirePermission(SCM_REFERENCE_READ, 'read')
     listDocuments(@Param('id') id: string) {

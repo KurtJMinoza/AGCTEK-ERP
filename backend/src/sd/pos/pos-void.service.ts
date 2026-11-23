@@ -110,6 +110,16 @@ export class PosVoidService {
         // tenders (or the other way round).
         const voidNumber = `V-${order.receiptNumber ?? order.orderNumber}`
         const voidedAmount = new Decimal(order.totalAmount ?? 0).negated()
+        const salaryLoanCredit = order.payments
+            .filter(
+                (payment) =>
+                    payment.paymentMethod === 'SALARY_LOAN' &&
+                    !['Cancelled', 'Refunded'].includes(payment.status),
+            )
+            .reduce(
+                (sum, payment) => sum + Number(payment.amount ?? 0),
+                0,
+            )
 
         const { cancelled, voided, voidTransaction } =
             await this.prisma.$transaction(

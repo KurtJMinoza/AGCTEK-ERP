@@ -14,6 +14,7 @@ import PageHeader from '@/components/shared/PageHeader'
 import { scmPageBreadcrumbs } from '@/modules/scm/utils/breadcrumbs'
 import StatusBadge from '@/components/shared/StatusBadge'
 import TripLoadManifestDialog from '../components/trips/TripLoadManifestDialog'
+import OcularTripStopsDialog from '../components/trips/OcularTripStopsDialog'
 import { useTrips } from '../hooks/useTrips'
 import { computeCapacity } from '../utils/capacity'
 import { formatStatusLabel, statusTone } from '../utils/status'
@@ -33,15 +34,32 @@ const statusOptions: Option[] = [
     { value: 'CANCELLED', label: 'Cancelled' },
 ]
 
+const purposeOptions: Option[] = [
+    { value: '', label: 'All purposes' },
+    { value: 'DELIVERY', label: 'Delivery' },
+    { value: 'OCULAR', label: 'Ocular' },
+]
+
 export default function TripsPage() {
-    const { data, total, page, pageSize, loading, error, params, setParams } =
+    const { data, total, page, pageSize, loading, error, params, setParams, reload } =
         useTrips()
 
     const [manifestTripId, setManifestTripId] = useState<string | null>(null)
+    const [ocularTripId, setOcularTripId] = useState<string | null>(null)
 
     const columns = useMemo<ColumnDef<Trip>[]>(
         () => [
             { header: 'Code', accessorKey: 'code' },
+            {
+                header: 'Purpose',
+                cell: ({ row }) => (
+                    <StatusBadge
+                        tone={row.original.purpose === 'OCULAR' ? 'info' : undefined}
+                    >
+                        {formatStatusLabel(row.original.purpose ?? 'DELIVERY')}
+                    </StatusBadge>
+                ),
+            },
             {
                 header: 'Vehicle',
                 cell: ({ row }) =>
@@ -107,15 +125,26 @@ export default function TripsPage() {
             {
                 header: '',
                 id: 'actions',
-                cell: ({ row }) => (
-                    <Button
-                        size="xs"
-                        variant="plain"
-                        icon={<HiOutlineEye />}
-                        aria-label={`View load manifest for ${row.original.code}`}
-                        onClick={() => setManifestTripId(row.original.id)}
-                    />
-                ),
+                cell: ({ row }) =>
+                    row.original.purpose === 'OCULAR' ? (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineEye />}
+                            aria-label={`Manage ocular stops for ${row.original.code}`}
+                            onClick={() => setOcularTripId(row.original.id)}
+                        >
+                            Plan stops
+                        </Button>
+                    ) : (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineEye />}
+                            aria-label={`View load manifest for ${row.original.code}`}
+                            onClick={() => setManifestTripId(row.original.id)}
+                        />
+                    ),
             },
         ],
         [],
@@ -125,7 +154,7 @@ export default function TripsPage() {
         <PageContainer>
             <PageHeader
                 title="Trips"
-                description="Trip list and history. Trips are planned and dispatched in Trip Planning; drivers start and complete them in the driver app."
+                description="Trip list and history. Delivery and ocular trips are both created in Trip Planning; use Plan stops on an ocular trip to manage or follow it."
                 breadcrumbs={scmPageBreadcrumbs('Trips')}
             />
 
@@ -165,6 +194,22 @@ export default function TripsPage() {
                             }))
                         }
                     />
+                    <Select
+                        className="md:w-48"
+                        options={purposeOptions}
+                        value={
+                            purposeOptions.find(
+                                (option) => option.value === (params.purpose ?? ''),
+                            ) ?? purposeOptions[0]
+                        }
+                        onChange={(option) =>
+                            setParams((current) => ({
+                                ...current,
+                                page: 1,
+                                purpose: (option as Option | null)?.value || undefined,
+                            }))
+                        }
+                    />
                 </div>
             </AdaptiveCard>
 
@@ -196,6 +241,12 @@ export default function TripsPage() {
                 isOpen={Boolean(manifestTripId)}
                 tripId={manifestTripId}
                 onClose={() => setManifestTripId(null)}
+            />
+            <OcularTripStopsDialog
+                isOpen={Boolean(ocularTripId)}
+                tripId={ocularTripId}
+                onClose={() => setOcularTripId(null)}
+                onChanged={() => void reload()}
             />
         </PageContainer>
     )

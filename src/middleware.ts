@@ -27,11 +27,23 @@ import {
 } from '@/modules/storefront/retail/brand'
 import { repairErpModulePath } from '@/utils/erp-path'
 
-/** Edge-safe auth reader (JWT only). Match cookie Secure flag with `src/auth.ts`. */
+/**
+ * Edge middleware needs a static NextAuth instance. Keep cookie Secure aligned
+ * with `src/auth.ts` (AUTH_SECURE_COOKIES override, else AUTH_URL=http://…).
+ */
 const { auth } = NextAuth({
     ...authConfig,
     trustHost: true,
-    useSecureCookies: process.env.AUTH_SECURE_COOKIES === 'true',
+    useSecureCookies:
+        process.env.AUTH_SECURE_COOKIES === 'true'
+            ? true
+            : process.env.AUTH_SECURE_COOKIES === 'false'
+              ? false
+              : !(
+                    process.env.AUTH_URL ??
+                    process.env.NEXTAUTH_URL ??
+                    ''
+                ).startsWith('http://'),
 })
 
 const publicRoutes = Object.entries(_publicRoutes).map(([key]) => key)
