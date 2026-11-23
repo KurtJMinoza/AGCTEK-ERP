@@ -89,6 +89,8 @@ export type SalesOrderRecord = {
         variantBarcode?: string
         /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
         integrationStatus: string | null
+        /** MM material standard cost; 0 when the line has no material. */
+        unitCost: number
         /** VAT frozen at sale time (POS): VATABLE | VAT_EXEMPT | ZERO_RATED; null = none. */
         taxClassification: string | null
         taxRate: number | null
@@ -202,6 +204,8 @@ type ApiSalesOrderLine = {
     quantity: DecimalString
     unitPrice: DecimalString
     lineTotal: DecimalString
+    /** Nested MM material from the sales-order include (cost source). */
+    material?: { id?: string; standardCost?: DecimalString } | null
     taxClassification?: string | null
     taxRate?: DecimalString
     taxTreatment?: string | null
@@ -349,6 +353,7 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),
             lineTotal: num(line.lineTotal),
+            unitCost: num(line.material?.standardCost ?? 0),
             taxClassification: line.taxClassification ?? null,
             taxRate: numOrNull(line.taxRate ?? null),
             taxTreatment: line.taxTreatment ?? null,

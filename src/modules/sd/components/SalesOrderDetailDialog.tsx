@@ -119,6 +119,16 @@ const OrderLineRow = ({ line }: { line: Line }) => (
                     <div className="mt-0.5 text-sm font-bold tabular-nums">
                         {formatOrderPrice(line.lineTotal)}
                     </div>
+                    {line.unitCost > 0.005 ? (
+                        <div className="mt-0.5 text-[11px] tabular-nums text-gray-500">
+                            Cost{' '}
+                            {formatOrderPrice(line.unitCost * line.quantity)}
+                            <span className="text-gray-400">
+                                {' '}
+                                ({formatOrderPrice(line.unitCost)} ea)
+                            </span>
+                        </div>
+                    ) : null}
                     {line.taxClassification ? (
                         <div className="mt-1 flex flex-col items-end gap-0.5">
                             <TaxClassTag
@@ -166,6 +176,10 @@ const SalesOrderDetailDialog = ({
     }
 
     const items = orderItemCount(order)
+    const totalCost = order.lines.reduce(
+        (sum, line) => sum + line.unitCost * line.quantity,
+        0,
+    )
     // Totals of the VAT frozen on the lines at sale time (display only).
     const vat = order.lines.some((line) => line.taxClassification)
         ? order.lines.reduce(
@@ -575,6 +589,14 @@ const SalesOrderDetailDialog = ({
                                 {formatOrderPrice(order.totalAmount)}
                             </dd>
                         </div>
+                        {totalCost > 0.005 ? (
+                            <div className="flex justify-between text-gray-500">
+                                <dt>Total cost</dt>
+                                <dd className="tabular-nums font-medium">
+                                    {formatOrderPrice(totalCost)}
+                                </dd>
+                            </div>
+                        ) : null}
                         {vat ? (
                             <div className="space-y-1 border-t border-dashed border-gray-200 pt-2 text-xs dark:border-gray-700">
                                 {[

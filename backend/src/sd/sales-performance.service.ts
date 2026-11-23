@@ -7,8 +7,10 @@ import type {
     SalesTargetMonthDto,
 } from './dto/sales-performance.dto'
 import {
+    EXT_LINE_UNIT_COST,
     EXT_SALE_AT,
     LINE_AMOUNT,
+    LINE_UNIT_COST,
     MANILA_OFFSET_MS,
     roundMoney,
     scopedOrders,
@@ -265,7 +267,7 @@ export class SalesPerformanceService {
                     SELECT
                         l."quantity" AS quantity,
                         ${LINE_AMOUNT} AS amount,
-                        COALESCE(m."standardCost", 0) AS unit_cost
+                        ${LINE_UNIT_COST} AS unit_cost
                     FROM scoped s
                     JOIN "sd_sales_order_lines" l ON l."salesOrderId" = s."id"
                     LEFT JOIN "mm_materials" m ON m."id" = l."materialId"
@@ -274,7 +276,7 @@ export class SalesPerformanceService {
                     SELECT
                         el."quantity",
                         el."grossAmount",
-                        COALESCE(m."standardCost", 0)
+                        ${EXT_LINE_UNIT_COST}
                     FROM scoped s
                     JOIN "sd_ext_platform_transaction_lines" el ON el."transactionId" = s."id"
                     LEFT JOIN "mm_materials" m ON m."id" = el."materialId"

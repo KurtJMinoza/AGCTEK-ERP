@@ -76,6 +76,8 @@ export type PosReceiptLine = {
     quantity: number
     unitPrice: number
     lineTotal: number
+    /** MM material standard cost; 0 when the line has no material. */
+    unitCost?: number
     /** VATABLE | VAT_EXEMPT | ZERO_RATED, frozen at sale time; null = no tax setup. */
     taxClassification: string | null
     taxCode: string | null

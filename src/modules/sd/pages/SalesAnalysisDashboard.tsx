@@ -828,7 +828,7 @@ const SalesAnalysisDashboard = () => {
                 <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700 sm:px-5">
                     <SectionTitle
                         title="Detailed sales report"
-                        description="Key fields per sale line — open the complete report for cost, SRP, discount and invoice columns"
+                        description="Key fields per sale line including MM material cost — open the complete report for SRP, discount and invoice columns"
                         extra={
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                 {data ? (

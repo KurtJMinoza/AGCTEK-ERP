@@ -36,10 +36,11 @@ import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
-/** Barcode, brand and category of the MM material behind an order line (receipt display). */
+/** Barcode, brand, category and cost of the MM material behind an order line. */
 const MATERIAL_BARCODE_INCLUDE = {
     select: {
         brand: true,
+        standardCost: true,
         materialCategory: { select: { name: true } },
         barcodes: { select: { barcodeValue: true, isPrimary: true } },
     },
@@ -100,6 +101,8 @@ export type PosReceipt = {
         quantity: number
         unitPrice: number
         lineTotal: number
+        /** MM material standard cost (display / margin); 0 when unmapped. */
+        unitCost: number
         /** VATABLE | VAT_EXEMPT | ZERO_RATED; null when the material has no tax setup. */
         taxClassification: string | null
         taxCode: string | null
@@ -1545,6 +1548,7 @@ export class PosCheckoutService {
                 variantBarcode?: string | null
                 material?: {
                     brand?: string | null
+                    standardCost?: Prisma.Decimal | number | null
                     materialCategory?: { name: string } | null
                     barcodes?: Array<{
                         barcodeValue: string
@@ -1620,6 +1624,7 @@ export class PosCheckoutService {
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),
                     lineTotal,
+                    unitCost: Number(line.material?.standardCost ?? 0),
                     taxClassification: classification,
                     taxCode: line.taxCode ?? null,
                     taxRate: Number(line.taxRate ?? 0),

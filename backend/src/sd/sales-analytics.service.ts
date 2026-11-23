@@ -20,6 +20,43 @@ const LINE_REPORT_LIMIT = 2000
 export const LINE_AMOUNT = Prisma.raw(
     'COALESCE(l."lineTotal", l."unitPrice" * l."quantity")',
 )
+/** MM material standard cost for a sales line, with variant / assignment fallback. */
+export const LINE_UNIT_COST = Prisma.raw(`COALESCE(
+    NULLIF(m."standardCost", 0),
+    (
+        SELECT mv."standardCost"
+        FROM "sd_product_variants" pv
+        JOIN "mm_materials" mv ON mv."id" = pv."materialId"
+        WHERE pv."id" = l."variantId"
+        LIMIT 1
+    ),
+    (
+        SELECT ma."standardCost"
+        FROM "sd_product_material_assignments" a
+        JOIN "mm_materials" ma ON ma."id" = a."materialId"
+        WHERE a."productId" = l."productId"
+          AND a."status" = 'ACTIVE'
+        ORDER BY a."effectiveFrom" ASC
+        LIMIT 1
+    ),
+    m."standardCost",
+    0
+)`)
+/** External-platform line cost (material on the line, else product assignment). */
+export const EXT_LINE_UNIT_COST = Prisma.raw(`COALESCE(
+    NULLIF(m."standardCost", 0),
+    (
+        SELECT ma."standardCost"
+        FROM "sd_product_material_assignments" a
+        JOIN "mm_materials" ma ON ma."id" = a."materialId"
+        WHERE a."productId" = el."productId"
+          AND a."status" = 'ACTIVE'
+        ORDER BY a."effectiveFrom" ASC
+        LIMIT 1
+    ),
+    m."standardCost",
+    0
+)`)
 const PRODUCT_KEY = Prisma.raw('COALESCE(l."productSkuSnapshot", l."sku")')
 const PRODUCT_NAME = Prisma.raw(
     'COALESCE(l."productNameSnapshot", l."description", l."sku")',
@@ -682,8 +719,8 @@ export class SalesAnalyticsService {
                     ) AS particular,
                     l."quantity" AS qty,
                     COALESCE(su."code", bu."code", '') AS uom,
-                    COALESCE(m."standardCost", 0) AS unit_cost,
-                    (COALESCE(m."standardCost", 0) * l."quantity") AS total_cost,
+                    ${LINE_UNIT_COST} AS unit_cost,
+                    (${LINE_UNIT_COST} * l."quantity") AS total_cost,
                     COALESCE(l."unitPrice", 0) AS srp,
                     (COALESCE(l."unitPrice", 0) * l."quantity") AS sales,
                     (
@@ -855,8 +892,8 @@ export class SalesAnalyticsService {
                     ) AS particular,
                     el."quantity" AS qty,
                     COALESCE(u."code", bu."code", '') AS uom,
-                    COALESCE(m."standardCost", 0) AS unit_cost,
-                    (COALESCE(m."standardCost", 0) * el."quantity") AS total_cost,
+                    ${EXT_LINE_UNIT_COST} AS unit_cost,
+                    (${EXT_LINE_UNIT_COST} * el."quantity") AS total_cost,
                     el."unitPrice" AS srp,
                     (el."unitPrice" * el."quantity") AS sales,
                     el."discount" AS discount,

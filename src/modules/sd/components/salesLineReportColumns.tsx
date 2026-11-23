@@ -456,6 +456,8 @@ const SUMMARY_IDS = new Set([
     'location',
     'particular',
     'qty',
+    'cost',
+    'totalCost',
     'totalSales',
     'paidStatus',
     'balanceDue',

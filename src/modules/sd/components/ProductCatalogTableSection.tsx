@@ -31,6 +31,7 @@ import {
     PcBadgeCell,
     PcCategoryCell,
     PcCompanyCell,
+    PcCostCell,
     PcPriceCell,
     PcProductIdentityCell,
     PcStockCell,
@@ -158,6 +159,11 @@ const ProductCatalogTableSection = ({
                     return compareString(a.category, b.category)
                 case 'price':
                     return compareNumber(a.price, b.price)
+                case 'cost':
+                    return compareNumber(
+                        a.standardCost ?? -1,
+                        b.standardCost ?? -1,
+                    )
                 case 'badge':
                     return compareString(a.badge ?? '', b.badge ?? '')
                 case 'visible':
@@ -252,6 +258,15 @@ const ProductCatalogTableSection = ({
                 minSize: 88,
                 meta: { className: 'hidden md:table-cell' },
                 cell: ({ row }) => <PcPriceCell product={row.original} />,
+            },
+            {
+                id: 'cost',
+                header: 'Cost',
+                enableSorting: true,
+                size: 100,
+                minSize: 88,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => <PcCostCell product={row.original} />,
             },
             {
                 id: 'stock',

@@ -374,6 +374,10 @@ function TransactionRow({
                     tender.method === 'SALARY_LOAN' && tender.status === 'Unpaid',
             ))
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
+    const totalCost = receipt.lines.reduce(
+        (sum, line) => sum + Number(line.unitCost ?? 0) * line.quantity,
+        0,
+    )
     const statusLabel = voidTransaction
         ? 'Void transaction'
         : voided
@@ -482,6 +486,11 @@ function TransactionRow({
                         {voidTransaction ? '−' : ''}
                         {formatPrice(Math.abs(receipt.total))}
                     </div>
+                    {totalCost > 0.005 ? (
+                        <div className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
+                            Cost {formatPrice(totalCost)}
+                        </div>
+                    ) : null}
                     {partiallyPaid && outstanding > 0 ? (
                         <div className="text-[11px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                             Due {formatPrice(outstanding)}

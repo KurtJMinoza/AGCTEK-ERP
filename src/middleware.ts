@@ -27,7 +27,12 @@ import {
 } from '@/modules/storefront/retail/brand'
 import { repairErpModulePath } from '@/utils/erp-path'
 
-const { auth } = NextAuth(authConfig)
+/** Edge-safe auth reader (JWT only). Match cookie Secure flag with `src/auth.ts`. */
+const { auth } = NextAuth({
+    ...authConfig,
+    trustHost: true,
+    useSecureCookies: process.env.AUTH_SECURE_COOKIES === 'true',
+})
 
 const publicRoutes = Object.entries(_publicRoutes).map(([key]) => key)
 const authRoutes = Object.entries(_authRoutes).map(([key]) => key)
@@ -35,9 +40,16 @@ const authRoutes = Object.entries(_authRoutes).map(([key]) => key)
 const apiAuthPrefix = `${appConfig.apiPrefix}/auth`
 
 function isSessionActive(
-    auth: { user?: unknown; expires?: string } | null | undefined,
+    auth:
+        | {
+              user?: { id?: string | null; name?: string | null } | null
+              expires?: string
+          }
+        | null
+        | undefined,
 ): boolean {
-    if (!auth?.user) return false
+    // Hollow sessions (cookie present, no identity) must not count as signed-in.
+    if (!auth?.user?.id && !auth?.user?.name) return false
     if (auth.expires && new Date(auth.expires).getTime() <= Date.now()) {
         return false
     }

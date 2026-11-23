@@ -14,24 +14,38 @@ function isLanOrLocalHost(host: string | null | undefined) {
 }
 
 /**
- * Lazy config so public HTTPS (erp.agctek.co) keeps Secure cookies, while
- * LAN http://IP:3010 can still establish a session without Secure.
+ * Cookie Secure flag must match between login (route handler, has `req`) and
+ * RSC `auth()` (often no `req`). If they disagree, the layout sees `session: null`
+ * while `/api/auth/session` still works — empty home + Anonymous dropdown.
+ *
+ * Default: non-Secure (localhost / LAN HTTP). Opt into Secure only when the
+ * request is clearly public HTTPS, or AUTH_SECURE_COOKIES=true.
  */
-export const { handlers, signIn, signOut, auth } = NextAuth((req) => {
+function resolveUseSecureCookies(req: Request | undefined) {
+    if (process.env.AUTH_SECURE_COOKIES === 'true') return true
+    if (process.env.AUTH_SECURE_COOKIES === 'false') return false
+    if (!req) {
+        // RSC / server actions: keep the same jar as typical local login.
+        return false
+    }
     const host =
-        req?.headers?.get('x-forwarded-host') ?? req?.headers?.get('host')
-    const proto = (
-        req?.headers?.get('x-forwarded-proto') ??
-        ''
-    )
+        req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+    const proto = (req.headers.get('x-forwarded-proto') ?? '')
         .split(',')[0]
         .trim()
         .toLowerCase()
-    const lanHttp = isLanOrLocalHost(host) && proto !== 'https'
+    if (isLanOrLocalHost(host)) return false
+    return proto === 'https'
+}
 
+/**
+ * Lazy config so public HTTPS (erp.agctek.co) can use Secure cookies, while
+ * LAN http://IP:3010 keeps a readable non-Secure session in RSC.
+ */
+export const { handlers, signIn, signOut, auth } = NextAuth((req) => {
     return {
         trustHost: true,
-        useSecureCookies: !lanHttp,
+        useSecureCookies: resolveUseSecureCookies(req),
         pages: {
             signIn: appConfig.unAuthenticatedEntryPath,
             error: appConfig.unAuthenticatedEntryPath,

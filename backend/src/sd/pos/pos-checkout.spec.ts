@@ -338,7 +338,7 @@ describe('PosCheckoutService', () => {
         })
     })
 
-    it('puts the material category and brand on each receipt line', async () => {
+    it('puts the material category, brand and cost on each receipt line', async () => {
         const withMaterial = {
             ...order,
             status: 'COMPLETED',
@@ -349,6 +349,7 @@ describe('PosCheckoutService', () => {
                     ...order.lines[0],
                     material: {
                         brand: '  Aveeno ',
+                        standardCost: 1200,
                         materialCategory: { name: 'SKINCARE' },
                         barcodes: [],
                     },
@@ -360,8 +361,16 @@ describe('PosCheckoutService', () => {
 
         const receipt = await service.complete(dto() as never)
 
-        expect(receipt.lines[0]).toMatchObject({ category: 'SKINCARE', brand: 'Aveeno' })
-        expect(receipt.lines[1]).toMatchObject({ category: null, brand: null })
+        expect(receipt.lines[0]).toMatchObject({
+            category: 'SKINCARE',
+            brand: 'Aveeno',
+            unitCost: 1200,
+        })
+        expect(receipt.lines[1]).toMatchObject({
+            category: null,
+            brand: null,
+            unitCost: 0,
+        })
     })
 
     it('prints the cashier full name on the receipt, falling back to the login name', async () => {

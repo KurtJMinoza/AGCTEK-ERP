@@ -320,7 +320,7 @@ const POSReceipt = ({
                         <th className={HEAD}>Description</th>
                         <th className={HEAD}>Qty</th>
                         <th className={HEAD}>Unit price</th>
-                        <th className={HEAD}>Discount</th>
+                        <th className={HEAD}>Cost</th>
                         <th className={HEAD}>Total</th>
                     </tr>
                 </thead>
@@ -386,10 +386,12 @@ const POSReceipt = ({
                             <td
                                 className={classNames(
                                     CELL,
-                                    'text-center text-gray-500',
+                                    'text-right tabular-nums text-gray-700',
                                 )}
                             >
-                                —
+                                {Number(line.unitCost ?? 0) > 0
+                                    ? money(Number(line.unitCost))
+                                    : '—'}
                             </td>
                             <td
                                 className={classNames(

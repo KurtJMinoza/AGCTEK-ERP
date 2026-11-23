@@ -96,6 +96,7 @@ const WITH_MATERIAL_CATEGORY = {
             },
             material: {
                 select: {
+                    standardCost: true,
                     materialCategory: {
                         select: { name: true, imageUrl: true },
                     },
@@ -133,6 +134,7 @@ const WITH_MATERIAL_CATEGORY = {
             },
             material: {
                 select: {
+                    standardCost: true,
                     materialCategory: {
                         select: { name: true, imageUrl: true },
                     },
@@ -932,10 +934,18 @@ export class ProductService {
                   logoUrl: companyOwner.logoUrl,
               }
             : null
+        const rawCost =
+            primary?.material.standardCost ??
+            primaryVariant?.material?.standardCost ??
+            null
+        const standardCost =
+            rawCost === null || rawCost === undefined
+                ? null
+                : Number(rawCost)
         const base = category
             ? { ...product, category, categoryImageUrl }
             : product
-        return { ...base, company }
+        return { ...base, company, standardCost }
     }
 
     private async materialCategoryName(materialId: string | undefined) {

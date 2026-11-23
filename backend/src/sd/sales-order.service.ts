@@ -433,7 +433,14 @@ export class SalesOrderService {
             orderBy: { createdAt: 'desc' },
             take: query.limit ?? 200,
             include: {
-                lines: { orderBy: { lineNumber: 'asc' } },
+                lines: {
+                    orderBy: { lineNumber: 'asc' },
+                    include: {
+                        material: {
+                            select: { id: true, standardCost: true },
+                        },
+                    },
+                },
                 company: true,
                 // POS split sales need every tender on the detail dialog.
                 payments: { orderBy: { createdAt: 'asc' } },
