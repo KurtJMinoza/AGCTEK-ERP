@@ -20,8 +20,8 @@ const FALLBACK_LOGO = '/storefront/aw-logo-new.png'
 
 /** The form always shows at least this many item rows, like the paper receipt. */
 const MIN_ITEM_ROWS = 6
-/** ...and this many when two copies share one sheet. */
-const MIN_ITEM_ROWS_COMPACT = 3
+/** Compact (two-per-page) form: no blank padding — long sales must stay on one sheet. */
+const MIN_ITEM_ROWS_COMPACT = 0
 
 const money = (value: number) =>
     new Intl.NumberFormat('en-PH', {

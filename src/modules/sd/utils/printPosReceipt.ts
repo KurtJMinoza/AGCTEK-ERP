@@ -64,21 +64,23 @@ function waitForImages(root: HTMLElement, timeoutMs = 3000): Promise<void> {
 const PX_PER_MM = 96 / 25.4
 /** Printable width of an A4 sheet with 10 mm margins. */
 const CONTENT_WIDTH_MM = 190
-/** Height of each half: (277 mm printable - 9 mm cut line) / 2, minus a safety gap. */
-const HALF_HEIGHT_MM = 128
+/** Printable height of an A4 sheet with 10 mm margins. */
+const PAGE_HEIGHT_MM = 277
+/** Height of each half: (277 mm printable - 9 mm cut line) / 2. */
+const HALF_HEIGHT_MM = 134
 const CUT_HEIGHT_MM = 9
-/** Size of a copy relative to the form (1 = the full 190 mm wide layout). */
+/** Size of a short sale relative to the form (1 = the full 190 mm wide layout). */
 const BASE_SCALE = 0.88
-/** Below this the print would be too small to read: one copy per page instead. */
-const MIN_FIT_SCALE = 0.75
+/** Floor so a very long sale stays printable; never page-breaks to a second sheet. */
+const MIN_FIT_SCALE = 0.4
 
 /**
- * Lays the receipt copies of `POSReceiptSheet` out on the page.
+ * Lays the receipt copies of `POSReceiptSheet` out on **one** A4 page.
  *
  * Each copy is shrunk (never enlarged) to fit its half of the sheet; the copy
  * is laid out wider by the same factor, so the shrunken receipt still spans
- * the page width. A sale too long to fit at a readable size prints its copies
- * on separate pages and drops the cut line.
+ * the page width. Long sales shrink further instead of spilling onto another
+ * page — both copies and the cut line always stay on the same sheet.
  */
 export function layoutReceiptCopies(root: HTMLElement) {
     const copies = Array.from(
@@ -92,37 +94,42 @@ export function layoutReceiptCopies(root: HTMLElement) {
             copy.querySelector<HTMLElement>('[data-receipt-copy-inner]') ??
             copy,
     )
-    const naturalHeight = Math.max(...inners.map((inner) => inner.offsetHeight))
+    const naturalHeight = Math.max(
+        ...inners.map((inner) => inner.offsetHeight),
+        1,
+    )
     const fit = Math.min(1, (HALF_HEIGHT_MM * PX_PER_MM) / naturalHeight)
-    // Every copy is printed a little smaller than the page allows; a long sale
-    // is shrunk further, down to the readable minimum.
-    const scale = Math.min(BASE_SCALE, fit)
-    const applyScale = () =>
-        inners.forEach((inner) => {
-            inner.style.width = `${CONTENT_WIDTH_MM / scale}mm`
-            inner.style.maxWidth = 'none'
-            inner.style.setProperty('zoom', String(scale))
-        })
+    // Short sales print a little smaller than the page allows; long sales shrink
+    // further so both copies still share one sheet.
+    const scale = Math.max(MIN_FIT_SCALE, Math.min(BASE_SCALE, fit))
 
-    if (fit < MIN_FIT_SCALE) {
-        copies[0].style.breakAfter = 'page'
-        copies[0].style.pageBreakAfter = 'always'
-        if (cut) cut.style.display = 'none'
-        applyScale()
-        return
-    }
+    root.style.maxHeight = `${PAGE_HEIGHT_MM}mm`
+    root.style.overflow = 'hidden'
+    root.style.breakInside = 'avoid'
+    root.style.pageBreakInside = 'avoid'
+    root.style.breakAfter = 'avoid'
+    root.style.pageBreakAfter = 'avoid'
 
-    copies.forEach((copy, index) => {
+    copies.forEach((copy) => {
         copy.style.height = `${HALF_HEIGHT_MM}mm`
-        // The first copy sits at the top of its half, the second right under the cut line.
-        copy.style.overflow = 'visible'
+        copy.style.maxHeight = `${HALF_HEIGHT_MM}mm`
+        copy.style.overflow = 'hidden'
         copy.style.breakInside = 'avoid'
-        if (index === 0) copy.style.breakAfter = 'avoid'
+        copy.style.pageBreakInside = 'avoid'
+        copy.style.breakAfter = 'avoid'
+        copy.style.pageBreakAfter = 'avoid'
     })
-    applyScale()
+    inners.forEach((inner) => {
+        inner.style.width = `${CONTENT_WIDTH_MM / scale}mm`
+        inner.style.maxWidth = 'none'
+        inner.style.setProperty('zoom', String(scale))
+    })
     if (cut) {
         cut.style.height = `${CUT_HEIGHT_MM}mm`
         cut.style.padding = '0'
+        cut.style.display = ''
+        cut.style.breakInside = 'avoid'
+        cut.style.pageBreakInside = 'avoid'
     }
 }
 
@@ -191,6 +198,18 @@ export async function printPosReceipt(
         color: #000 !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
+      }
+      [data-receipt-sheet] {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        max-height: 277mm;
+        overflow: hidden;
+      }
+      [data-receipt-copy], [data-receipt-cut] {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        break-after: avoid !important;
+        page-break-after: avoid !important;
       }
     `
     doc.head.appendChild(pageStyle)

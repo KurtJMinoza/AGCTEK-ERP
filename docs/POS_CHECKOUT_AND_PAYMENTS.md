@@ -124,9 +124,9 @@ line and the order discount appears in the totals box as "Less: Discount".
 
 **Two copies per sheet.** `POSReceiptSheet` prints the receipt twice on one A4
 page (top and bottom half) with a dashed **cut line** between them.
-`printPosReceipt` fits each copy into its half (shrinking it, never below 75%).
-A sale with too many lines to fit at that size prints one copy per page
-instead, without the cut line.
+`printPosReceipt` always keeps both copies on the same sheet: each copy is
+shrunk to fit its half (down to about 40% for a long sale). It never page-breaks
+onto a second sheet.
 
 ## 5. Cashier shift
 
