@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx'
 import { PrismaService } from '../prisma/prisma.service'
 import { MaterialsService } from '../mm/materials/materials.service'
 import { ProductFamilyService } from './product-family.service'
+import { ensureMaterialBatch } from '../mm/batches/line-tracking.util'
 import {
     defaultMaterialTypeId,
     resolveImportBin,
@@ -33,6 +34,8 @@ type ImportRow = {
     storageLocation?: string
     salesDescription?: string
     salesAvailability?: string
+    batchNumber?: string
+    lotNumber?: string
 }
 
 type RowPlan = {
@@ -74,6 +77,8 @@ const COLUMN_ALIASES: Record<keyof ImportRow, string[]> = {
         'availability',
         'isactive',
     ],
+    batchNumber: ['batchnumber', 'batchno', 'batch', 'batchcode'],
+    lotNumber: ['lotnumber', 'lotno', 'lot', 'lotcode'],
 }
 
 const TEMPLATE_COLUMNS: Array<[keyof ImportRow, string]> = [
@@ -84,6 +89,8 @@ const TEMPLATE_COLUMNS: Array<[keyof ImportRow, string]> = [
     ['barcode', 'Barcode'],
     ['unitCost', 'Cost'],
     ['srp', 'Price'],
+    ['batchNumber', 'Batch Number'],
+    ['lotNumber', 'Lot Number'],
 ]
 
 const MAX_ROWS = 2000
@@ -151,6 +158,9 @@ export class ProductImportService {
             ['Initial stock is never posted by the import commit.'],
             [
                 'Post it with the separate opening-stock action after reviewing the import.',
+            ],
+            [
+                'Optional Batch Number and Lot Number create or update MM batches on the material.',
             ],
         ])
         XLSX.utils.book_append_sheet(book, notes, 'Notes')
@@ -993,6 +1003,15 @@ export class ProductImportService {
                     },
                 })
             }
+        }
+
+        if (payload.batchNumber || payload.lotNumber) {
+            await ensureMaterialBatch(
+                this.prisma,
+                materialId,
+                payload.batchNumber,
+                payload.lotNumber,
+            )
         }
 
         const companyId = await this.companyOfBatch(batchId)

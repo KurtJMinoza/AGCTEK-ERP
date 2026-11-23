@@ -7,6 +7,7 @@ import {
     HiOutlineCash,
     HiOutlineChartBar,
     HiOutlineCube,
+    HiOutlineExclamationCircle,
     HiOutlineReceiptTax,
     HiOutlineRefresh,
     HiOutlineShoppingCart,
@@ -37,6 +38,7 @@ import { SdMoneyCell, formatSdMoney } from '../components/SdDataTableCells'
 import {
     BestSellersLeaderboard,
     CustomerAvatar,
+    CustomerReceivablesPanel,
     EmptyState,
     KpiCard,
     ProductBuyersPanel,
@@ -45,6 +47,7 @@ import {
     sharePercent,
 } from '../components/SalesAnalysisWidgets'
 import SalesLineReportDialog from '../components/SalesLineReportDialog'
+import SalesPerformanceScorecard from '../components/SalesPerformanceScorecard'
 import SalesAnalyticsPeriodFilters, {
     toYmd,
 } from '../components/SalesAnalyticsPeriodFilters'
@@ -192,6 +195,13 @@ const SalesAnalysisDashboard = () => {
         setLoading(true)
         setReloadKey((key) => key + 1)
     }
+
+    // The scorecard reports on one calendar month, taken from the period filter:
+    // the month a custom range ends in, otherwise the current month.
+    const scorecardMonth =
+        dateRange === 'custom' && appliedCustomTo
+            ? appliedCustomTo.slice(0, 7)
+            : dayjs().format('YYYY-MM')
 
     const currency = data?.currency ?? 'PHP'
     const money = (value: number) => formatSdMoney(value, currency)
@@ -431,6 +441,18 @@ const SalesAnalysisDashboard = () => {
                   previous: data.previous.uniqueCustomers,
                   icon: <HiOutlineUserGroup />,
               },
+              {
+                  label: 'Balance due',
+                  value: money(data.totalBalanceDue),
+                  current: data.totalBalanceDue,
+                  previous: 0,
+                  icon: <HiOutlineExclamationCircle />,
+                  tone: 'warning' as const,
+                  subtext:
+                      data.ordersWithBalance > 0
+                          ? `${data.ordersWithBalance.toLocaleString('en-PH')} order${data.ordersWithBalance === 1 ? '' : 's'} not fully paid`
+                          : 'All orders fully paid',
+              },
           ]
         : [
               'Total revenue',
@@ -438,6 +460,7 @@ const SalesAnalysisDashboard = () => {
               'Average order value',
               'Units sold',
               'Customers',
+              'Balance due',
           ].map((label) => ({
               label,
               value: '—',
@@ -519,11 +542,17 @@ const SalesAnalysisDashboard = () => {
                 </Alert>
             ) : null}
 
-            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                 {kpis.map((kpi) => (
                     <KpiCard key={kpi.label} loading={loading} {...kpi} />
                 ))}
             </div>
+
+            <SalesPerformanceScorecard
+                channel={channel}
+                month={scorecardMonth}
+                reloadKey={reloadKey}
+            />
 
             <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <AdaptiveCard className="xl:col-span-2">
@@ -692,6 +721,28 @@ const SalesAnalysisDashboard = () => {
                 </AdaptiveCard>
             </div>
 
+            {loading || (data?.customerReceivables.length ?? 0) > 0 ? (
+                <AdaptiveCard className="mb-4 border-amber-200 dark:border-amber-500/30">
+                    <SectionTitle
+                        title="Customers with balance due"
+                        description="Down payments and partial payments still to be collected — largest balance first"
+                        extra={
+                            data && data.totalBalanceDue > 0 ? (
+                                <Tag className="shrink-0 bg-amber-100 font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                                    {money(data.totalBalanceDue)} outstanding
+                                </Tag>
+                            ) : null
+                        }
+                    />
+                    <CustomerReceivablesPanel
+                        receivables={data?.customerReceivables ?? []}
+                        totalBalanceDue={data?.totalBalanceDue ?? 0}
+                        currency={currency}
+                        loading={loading}
+                    />
+                </AdaptiveCard>
+            ) : null}
+
             <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <AdaptiveCard className="xl:col-span-2">
                     <SectionTitle
@@ -777,7 +828,7 @@ const SalesAnalysisDashboard = () => {
                 <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700 sm:px-5">
                     <SectionTitle
                         title="Detailed sales report"
-                        description="Key fields per sale line — open the complete report for cost, SRP, discount and invoice columns"
+                        description="Key fields per sale line including MM material cost — open the complete report for SRP, discount and invoice columns"
                         extra={
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                 {data ? (
@@ -828,6 +879,7 @@ const SalesAnalysisDashboard = () => {
                         </div>
                     ) : (
                         <SdDataTable
+                            wide
                             columns={
                                 lineReportSummaryColumns as ColumnDef<unknown>[]
                             }

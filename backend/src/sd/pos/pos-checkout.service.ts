@@ -17,6 +17,11 @@ import { SD_EVENTS } from '../sd-event.types'
 import { PosSessionService } from './pos-session.service'
 import { PosCustomerService } from './pos-customer.service'
 import { PosPaymentMethodService } from './pos-payment-method.service'
+import {
+    POS_CHARGE_PAYMENT_METHOD,
+    assertChargeAllowed,
+    resolveChargeDueDate,
+} from './pos-charge'
 import { setDynamicMethodCodes } from './pos-tender'
 import {
     allocateTenders,
@@ -31,9 +36,12 @@ import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
 
-/** Barcode of the MM material behind an order line (receipt display). */
+/** Barcode, brand, category and cost of the MM material behind an order line. */
 const MATERIAL_BARCODE_INCLUDE = {
     select: {
+        brand: true,
+        standardCost: true,
+        materialCategory: { select: { name: true } },
         barcodes: { select: { barcodeValue: true, isPrimary: true } },
     },
 } as const
@@ -65,6 +73,8 @@ export type PosReceipt = {
     branchId: string
     posSessionId: string | null
     cashierUserId: string | null
+    /** Full name of the cashier (receipt "Prepared By"); null when unknown. */
+    cashierName?: string | null
     customerName: string | null
     /** Set when the sale was voided. */
     voidedAt?: string | null
@@ -82,11 +92,17 @@ export type PosReceipt = {
         variantName: string | null
         /** Scannable barcode of the line (variant, else MM material). */
         barcode: string | null
+        /** MM material category name (receipt Category column). */
+        category: string | null
+        /** MM material brand (receipt Brand column). */
+        brand: string | null
         /** Product image snapshot of the sold line. */
         imageUrl: string | null
         quantity: number
         unitPrice: number
         lineTotal: number
+        /** MM material standard cost (display / margin); 0 when unmapped. */
+        unitCost: number
         /** VATABLE | VAT_EXEMPT | ZERO_RATED; null when the material has no tax setup. */
         taxClassification: string | null
         taxCode: string | null
@@ -128,7 +144,52 @@ export type PosReceipt = {
     downPaymentAmount: number | null
     outstandingBalance: number
     dueDate: string | null
-    paymentStatus: string | null
+    /** Paid | Partially Paid | Unpaid | PARTIALLY_PAID (legacy) — never blank. */
+    paymentStatus: string
+    /** Payment remarks entered at Take Payment. */
+    remarks: string | null
+    /** Selling company printed in the receipt header (null when unknown). */
+    business: PosReceiptBusiness | null
+}
+
+/** Legal entity of the sale, shown in the receipt header. */
+export type PosReceiptBusiness = {
+    name: string
+    address: string
+    tin: string
+    logoUrl: string | null
+}
+
+const RECEIPT_COMPANY_SELECT = {
+    name: true,
+    address: true,
+    tin: true,
+    logoUrl: true,
+    receiptLogoUrl: true,
+} as const
+
+export function toReceiptBusiness(
+    company:
+        | {
+              name?: string | null
+              address?: string | null
+              tin?: string | null
+              logoUrl?: string | null
+              receiptLogoUrl?: string | null
+          }
+        | null
+        | undefined,
+): PosReceiptBusiness | null {
+    const name = company?.name?.trim()
+    if (!company || !name) return null
+    return {
+        name,
+        address: company.address?.trim() ?? '',
+        tin: company.tin?.trim() ?? '',
+        // The receipt has its own logo; the company logo is the fallback.
+        logoUrl:
+            company.receiptLogoUrl?.trim() || company.logoUrl?.trim() || null,
+    }
 }
 
 /**
@@ -220,10 +281,86 @@ export class PosCheckoutService {
             include: {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
                 payments: true,
+                company: { select: RECEIPT_COMPANY_SELECT },
             },
         })
         if (!order) throw new NotFoundException('Sale not found')
-        return this.receipt(order as never, order.payments)
+        return this.withCashierName(this.receipt(order as never, order.payments))
+    }
+
+    /**
+     * Full names ("First Last", else the login name) of the users that served
+     * the given sales, by user id. A failed lookup never blocks the receipt:
+     * the "Prepared By" line is simply left without a name.
+     */
+    private async cashierNames(
+        ids: Array<string | null | undefined>,
+    ): Promise<Map<string, string>> {
+        const unique = [
+            ...new Set(ids.filter((id): id is string => Boolean(id))),
+        ]
+        const names = new Map<string, string>()
+        if (!unique.length) return names
+        try {
+            const users = await this.prisma.user.findMany({
+                where: { id: { in: unique } },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    userName: true,
+                },
+            })
+            for (const user of users) {
+                const fullName = [user.firstName, user.lastName]
+                    .map((part) => part.trim())
+                    .filter(Boolean)
+                    .join(' ')
+                names.set(user.id, fullName || user.userName)
+            }
+        } catch (error) {
+            this.logger.warn(
+                `Cashier name lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+        }
+        return names
+    }
+
+    private async withCashierName(receipt: PosReceipt): Promise<PosReceipt> {
+        const names = await this.cashierNames([receipt.cashierUserId])
+        return {
+            ...receipt,
+            cashierName: names.get(receipt.cashierUserId ?? '') ?? null,
+        }
+    }
+
+    /**
+     * Adds the selling company and the cashier's full name to a receipt built
+     * from an order that was not loaded with them.
+     */
+    private async withBusiness(receipt: PosReceipt): Promise<PosReceipt> {
+        return this.withCashierName(await this.withCompany(receipt))
+    }
+
+    /**
+     * Adds the selling company to a receipt built from an order that was not
+     * loaded with it. A failed lookup never blocks the receipt: the print
+     * layout falls back to the brand name.
+     */
+    private async withCompany(receipt: PosReceipt): Promise<PosReceipt> {
+        if (receipt.business) return receipt
+        try {
+            const row = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: receipt.salesOrderId },
+                select: { company: { select: RECEIPT_COMPANY_SELECT } },
+            })
+            return { ...receipt, business: toReceiptBusiness(row?.company) }
+        } catch (error) {
+            this.logger.warn(
+                `Receipt header lookup failed for ${receipt.receiptNumber}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+            return receipt
+        }
     }
 
     /** The POS sales of a branch, newest first (transaction history). */
@@ -242,14 +379,21 @@ export class PosCheckoutService {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
                 payments: true,
                 voidTransaction: true,
+                company: { select: RECEIPT_COMPANY_SELECT },
             },
             orderBy: { createdAt: 'desc' },
             take: Math.min(args.limit ?? 50, 200),
         })
         // The history is a ledger: a void is its own transaction, so it follows
         // the completed sale it reversed. The sale keeps its void stamp.
+        const names = await this.cashierNames(
+            orders.map((order) => order.cashierUserId),
+        )
         return orders.flatMap((order) => {
-            const sale = this.receipt(order as never, order.payments)
+            const sale = {
+                ...this.receipt(order as never, order.payments),
+                cashierName: names.get(order.cashierUserId ?? '') ?? null,
+            }
             if (!order.voidTransaction) return [sale]
             return [
                 {
@@ -310,7 +454,9 @@ export class PosCheckoutService {
             // A checkout that failed after the order existed is resumed, not
             // returned as a half-finished sale.
             if (existing.status === 'COMPLETED') {
-                return this.receipt(existing, existing.payments ?? [])
+                return this.withBusiness(
+                    this.receipt(existing, existing.payments ?? []),
+                )
             }
             if (existing.status === 'CONFIRMED') {
                 return this.finalizeStagedOrder(
@@ -343,15 +489,44 @@ export class PosCheckoutService {
         const total = round2(subtotal - discountAmount + taxAmount)
 
         await this.syncMethodCodes()
-        const enrichedTenders = await this.enrichSalaryTenders(dto.tenders)
+        const enrichedTenders = await this.enrichSalaryTenders(
+            dto.tenders ?? [],
+        )
 
         // Determine payment mode
+        const isCharge = dto.paymentMode === 'CHARGE'
         const isDownPayment = dto.paymentMode === 'DOWN_PAYMENT'
+        const wantsSplit =
+            !isCharge &&
+            (dto.paymentMode === 'SPLIT' ||
+                (!isDownPayment && (dto.tenders?.length ?? 0) > 1))
+        if (wantsSplit && (dto.tenders?.length ?? 0) < 2) {
+            throw new BadRequestException(
+                'Split payment requires at least two payment methods (for example Cash + GCash).',
+            )
+        }
         let tenders: PosTender[]
         let change: number
         let outstandingBalance = 0
+        // Charge (pay later): validated before anything is created.
+        let chargeDueDate: Date | null = null
 
-        if (isDownPayment) {
+        if (isCharge) {
+            if (enrichedTenders.length > 0) {
+                throw new BadRequestException(
+                    'A charge sale takes no payment now. Use a down payment to pay part of the total at the register.',
+                )
+            }
+            if (total <= 0) {
+                throw new BadRequestException(
+                    'The sale has no payable amount to charge.',
+                )
+            }
+            chargeDueDate = resolveChargeDueDate(dto.dueDate)
+            tenders = []
+            change = 0
+            outstandingBalance = total
+        } else if (isDownPayment) {
             // Compute effective down-payment amount
             let dpAmount = round2(dto.downPaymentAmount ?? 0)
             if (dto.downPaymentType === 'PERCENTAGE' && dto.downPaymentPct) {
@@ -360,6 +535,14 @@ export class PosCheckoutService {
             if (dpAmount <= 0 || dpAmount > total + 0.005) {
                 throw new BadRequestException(
                     'The down payment must be between ₱0.01 and the order total.',
+                )
+            }
+            if (
+                dto.downPaymentType !== 'PERCENTAGE' &&
+                dpAmount >= total - 0.005
+            ) {
+                throw new BadRequestException(
+                    `The down payment (₱${dpAmount.toFixed(2)}) must be less than the order total (₱${total.toFixed(2)}). Use Full Payment to settle the whole amount.`,
                 )
             }
             const result = allocatePartialTenders(
@@ -392,6 +575,33 @@ export class PosCheckoutService {
                 : null
         const customerId = customer?.id ?? dto.customerId
         const customerName = customer?.companyName ?? dto.customerName
+
+        // A charge sale needs a Customer Master customer; a CREDIT account is
+        // held to its limit (open POS receivables + this sale).
+        if (isCharge) {
+            const chargeCustomer =
+                customerId && customerId !== 'WALK-IN'
+                    ? await this.prisma.sdCustomer.findUnique({
+                          where: { id: customerId },
+                          select: {
+                              id: true,
+                              customerAccountType: true,
+                              creditLimit: true,
+                          },
+                      })
+                    : null
+            const exposure = chargeCustomer
+                ? await this.prisma.sdPosReceivable.aggregate({
+                      where: { customerId, status: 'OPEN' },
+                      _sum: { balance: true },
+                  })
+                : null
+            assertChargeAllowed({
+                customer: chargeCustomer,
+                total,
+                openExposure: Number(exposure?._sum.balance ?? 0),
+            })
+        }
 
         // A partial payment must have an identifiable customer
         if (isDownPayment && outstandingBalance > 0) {
@@ -444,10 +654,27 @@ export class PosCheckoutService {
             // Let createRetail accept paymentReceived < totalAmount when this
             // checkout is a down payment with an outstanding balance.
             allowPartialPayment: isDownPayment && outstandingBalance > 0.005,
+            // Charge sale: nothing is collected now; the total is the receivable.
+            chargeSale: isCharge,
             createdBy: dto.createdBy,
         })
 
         await this.saveLineTaxSnapshot(order.id, lines)
+
+        // Mark a staged charge sale right away: a checkout that stops before
+        // completion can then be resumed as a charge sale (it has no tender to
+        // recognise it by).
+        if (isCharge) {
+            await this.prisma.sdSalesOrder.update({
+                where: { id: order.id },
+                data: {
+                    paymentMethod: POS_CHARGE_PAYMENT_METHOD,
+                    paymentStatus: 'Unpaid',
+                    outstandingBalance: total,
+                    dueDate: chargeDueDate,
+                },
+            })
+        }
 
         const orderCompanyId = order.companyId ?? session.companyId
         await this.recordTenders({
@@ -464,30 +691,33 @@ export class PosCheckoutService {
         // Products are released immediately, even on partial payment.
         await this.postGoodsIssue(order, session)
 
-        // Determine payment status
-        let paymentStatus: string
-        if (outstandingBalance > 0.005) {
-            paymentStatus = 'PARTIALLY_PAID'
-        } else if (tenders.every((t) => t.status === 'Paid')) {
-            paymentStatus = 'Paid'
-        } else {
-            paymentStatus = 'Pending Verification'
-        }
+        // Paid only when the sale is fully covered and every tender has settled.
+        // Partially Paid = balance still due; Unpaid / Pending Verification otherwise.
+        // A charge sale has collected nothing yet: Unpaid, not Partially Paid.
+        const paymentStatus = isCharge
+            ? 'Unpaid'
+            : outstandingBalance > 0.005
+              ? 'Partially Paid'
+              : resolvePosOrderPaymentStatus(tenders)
 
         const receiptNumber = await this.nextReceiptNumber(orderCompanyId)
-        const dueDate = dto.dueDate ? new Date(dto.dueDate) : null
+        const dueDate = isCharge
+            ? chargeDueDate
+            : dto.dueDate
+              ? new Date(dto.dueDate)
+              : null
         const completed = await this.prisma.sdSalesOrder.update({
             where: { id: order.id },
             data: {
                 status: 'COMPLETED',
-                paymentMethod:
-                    tenders.length > 1 ? 'SPLIT' : tenders[0].method,
-                paymentStatus:
-                    outstandingBalance > 0.005
-                        ? paymentStatus
-                        : resolvePosOrderPaymentStatus(tenders),
-                paymentReference: tenders[0].referenceNumber ?? null,
-                paymentProvider: tenders[0].provider ?? null,
+                paymentMethod: isCharge
+                    ? POS_CHARGE_PAYMENT_METHOD
+                    : tenders.length > 1 || wantsSplit
+                      ? 'SPLIT'
+                      : tenders[0].method,
+                paymentStatus,
+                paymentReference: tenders[0]?.referenceNumber ?? null,
+                paymentProvider: tenders[0]?.provider ?? null,
                 changeAmount: change,
                 taxAmount,
                 posSessionId: session.id,
@@ -502,6 +732,7 @@ export class PosCheckoutService {
                 downPaymentAmount: isDownPayment
                     ? round2(initialPayment)
                     : null,
+                notes: dto.remarks?.trim() || null,
             },
             include: {
                 lines: { include: { material: MATERIAL_BARCODE_INCLUDE } },
@@ -568,7 +799,9 @@ export class PosCheckoutService {
             idempotencyKey: dto.idempotencyKey,
         })
 
-        return this.receipt(completed, completed.payments ?? [], warnings)
+        return this.withBusiness(
+            this.receipt(completed, completed.payments ?? [], warnings),
+        )
     }
 
     /**
@@ -590,14 +823,21 @@ export class PosCheckoutService {
         })
         if (!order) throw new NotFoundException('Sale not found')
         if (order.status === 'COMPLETED') {
-            return this.receipt(order as never, order.payments)
+            return this.withBusiness(
+                this.receipt(order as never, order.payments),
+            )
         }
         if (order.status !== 'CONFIRMED') {
             throw new ConflictException(
                 `Only a pending sale can be completed (this sale is ${order.status}).`,
             )
         }
-        if (!order.payments.length) {
+        // A staged charge sale (pay later) carries no tender by design; it is
+        // recognised by the marker written when the order was created.
+        const isCharge =
+            order.paymentMethod === POS_CHARGE_PAYMENT_METHOD &&
+            Number(order.outstandingBalance ?? 0) > 0.005
+        if (!order.payments.length && !isCharge) {
             throw new ConflictException(
                 'The pending sale has no tender; take the payment again at the register.',
             )
@@ -639,13 +879,16 @@ export class PosCheckoutService {
             where: { id: order.id },
             data: {
                 status: 'COMPLETED',
-                paymentMethod:
-                    payments.length > 1
-                        ? 'SPLIT'
-                        : payments[0].paymentMethod,
-                paymentStatus: resolvePosOrderPaymentStatus(payments),
-                paymentReference: payments[0].referenceNumber ?? null,
-                paymentProvider: payments[0].paymentProvider ?? null,
+                paymentMethod: isCharge
+                    ? POS_CHARGE_PAYMENT_METHOD
+                    : payments.length > 1
+                      ? 'SPLIT'
+                      : payments[0].paymentMethod,
+                paymentStatus: isCharge
+                    ? 'Unpaid'
+                    : resolvePosOrderPaymentStatus(payments),
+                paymentReference: payments[0]?.referenceNumber ?? null,
+                paymentProvider: payments[0]?.paymentProvider ?? null,
                 changeAmount: order.changeAmount ?? changeAmount,
                 posSessionId: session.id,
                 cashierUserId: actor ?? order.cashierUserId,
@@ -656,6 +899,23 @@ export class PosCheckoutService {
                 payments: true,
             },
         })
+
+        // A charge sale owes its whole total: book the receivable (the same
+        // one a completed checkout creates; safe to repeat).
+        if (isCharge) {
+            await this.prisma.sdPosReceivable.upsert({
+                where: { salesOrderId: order.id },
+                create: {
+                    companyId: order.companyId ?? session.companyId,
+                    salesOrderId: order.id,
+                    customerId: order.customerId,
+                    originalAmount: order.outstandingBalance as Prisma.Decimal,
+                    balance: order.outstandingBalance as Prisma.Decimal,
+                    dueDate: order.dueDate ?? null,
+                },
+                update: {},
+            })
+        }
 
         await this.sdEvents.emit(SD_EVENTS.POS_SALE_COMPLETED, {
             salesOrderId: completed.id,
@@ -668,11 +928,22 @@ export class PosCheckoutService {
             customerId: order.customerId,
             currency: order.currency ?? 'PHP',
             totalAmount: (order.totalAmount ?? 0).toString(),
+            ...(isCharge
+                ? {
+                      outstandingBalance: (
+                          order.outstandingBalance ?? 0
+                      ).toString(),
+                      paymentStatus: 'Unpaid',
+                      tenders: [],
+                  }
+                : {}),
             resumed: true,
             idempotencyKey: order.idempotencyKey ?? `pos:${order.id}`,
         })
 
-        return this.receipt(completed as never, completed.payments)
+        return this.withBusiness(
+            this.receipt(completed as never, completed.payments),
+        )
     }
 
     /** Cart lines → material, MM tax classification and the line tax split. */
@@ -1097,6 +1368,14 @@ export class PosCheckoutService {
     }
 
     private async assertEmployeeCredit(customerId: string, amount: number) {
+        // Salary deduction is keyed by employee name on the tender; a CREDIT
+        // account is optional. When the customer does have a credit limit,
+        // enforce available credit so the receivable stays within policy.
+        if (!customerId || customerId === 'WALK-IN') {
+            throw new BadRequestException(
+                'Select or create a customer before using salary deduction.',
+            )
+        }
         const customer = await this.prisma.sdCustomer.findUnique({
             where: { id: customerId },
             select: {
@@ -1112,9 +1391,7 @@ export class PosCheckoutService {
             )
         }
         if (customer.customerAccountType !== 'CREDIT') {
-            throw new BadRequestException(
-                'A salary deduction requires a CREDIT customer account with a credit limit.',
-            )
+            return
         }
         const available = Number(customer.availableCredit ?? 0)
         if (available < amount) {
@@ -1240,13 +1517,23 @@ export class PosCheckoutService {
             voidedAt?: Date | null
             voidedBy?: string | null
             voidReason?: string | null
+            /** Selling company, when the order was loaded with it. */
+            company?: {
+                name?: string | null
+                address?: string | null
+                tin?: string | null
+                logoUrl?: string | null
+                receiptLogoUrl?: string | null
+            } | null
             subtotal: Prisma.Decimal | null
             discountAmount: Prisma.Decimal | null
             taxAmount: Prisma.Decimal | null
             totalAmount: Prisma.Decimal | null
             paymentReceived: Prisma.Decimal | null
             changeAmount: Prisma.Decimal | null
+            paymentMethod?: string | null
             paymentStatus?: string | null
+            notes?: string | null
             outstandingBalance?: Prisma.Decimal | null
             dueDate?: Date | null
             downPaymentType?: string | null
@@ -1260,6 +1547,9 @@ export class PosCheckoutService {
                 productImageSnapshot?: string | null
                 variantBarcode?: string | null
                 material?: {
+                    brand?: string | null
+                    standardCost?: Prisma.Decimal | number | null
+                    materialCategory?: { name: string } | null
                     barcodes?: Array<{
                         barcodeValue: string
                         isPrimary: boolean
@@ -1328,10 +1618,13 @@ export class PosCheckoutService {
                         )?.barcodeValue ??
                         line.material?.barcodes?.[0]?.barcodeValue ??
                         null,
+                    category: line.material?.materialCategory?.name?.trim() || null,
+                    brand: line.material?.brand?.trim() || null,
                     imageUrl: line.productImageSnapshot?.trim() || null,
                     quantity: Number(line.quantity),
                     unitPrice: Number(line.unitPrice ?? 0),
                     lineTotal,
+                    unitCost: Number(line.material?.standardCost ?? 0),
                     taxClassification: classification,
                     taxCode: line.taxCode ?? null,
                     taxRate: Number(line.taxRate ?? 0),
@@ -1364,7 +1657,14 @@ export class PosCheckoutService {
                 verificationStatus: payment.verificationStatus,
             })),
             warnings,
-            paymentMode: order.downPaymentType ? 'DOWN_PAYMENT' : null,
+            paymentMode:
+                order.paymentMethod === POS_CHARGE_PAYMENT_METHOD
+                    ? 'CHARGE'
+                    : order.downPaymentType
+                      ? 'DOWN_PAYMENT'
+                      : payments.length > 1 || order.paymentMethod === 'SPLIT'
+                        ? 'SPLIT'
+                        : 'FULL',
             downPaymentType: order.downPaymentType ?? null,
             downPaymentPct: order.downPaymentPct
                 ? Number(order.downPaymentPct)
@@ -1375,9 +1675,11 @@ export class PosCheckoutService {
             outstandingBalance: Number(order.outstandingBalance ?? 0),
             dueDate: order.dueDate?.toISOString() ?? null,
             paymentStatus:
-                resolvePosOrderPaymentStatus(payments) ??
-                order.paymentStatus ??
-                order.status,
+                (order.paymentStatus ?? '').trim() ||
+                resolvePosOrderPaymentStatus(payments) ||
+                'Unpaid',
+            remarks: order.notes?.trim() || null,
+            business: toReceiptBusiness(order.company),
         }
     }
 }

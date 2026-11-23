@@ -123,7 +123,9 @@ export interface MmBarcode {
 export interface MmBatch {
     id: string
     materialId: string
+    material?: { materialCode: string; materialName: string }
     batchNumber: string
+    lotNumber?: string | null
     manufacturingDate?: string | null
     expiryDate?: string | null
     supplierId?: string | null
@@ -263,6 +265,9 @@ export interface Material {
     purchasable: boolean
     sellable: boolean
     batchManaged: boolean
+    /** Latest batch on list reads (MM batches, newest first). */
+    latestBatchNumber?: string | null
+    latestLotNumber?: string | null
     serialManaged: boolean
     /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
     serialTrackingPolicy: string
@@ -447,6 +452,10 @@ export interface CreateMaterialPayload {
 
     /** Serial number to register for serial-managed materials. */
     serialNumber?: string
+
+    /** Creates a batch row (shared with Material Master → Batches). */
+    initialBatchNumber?: string
+    initialLotNumber?: string
 }
 
 export type UpdateMaterialPayload = Partial<CreateMaterialPayload>

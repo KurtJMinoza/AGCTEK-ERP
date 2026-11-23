@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
+    HiOutlineBan,
     HiOutlineClipboardCheck,
     HiOutlineDocumentAdd,
     HiOutlineEye,
@@ -14,8 +15,7 @@ import {
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import { type ColumnDef } from '@/components/shared/DataTable'
-import SdDataTable from '../components/SdDataTable'
-import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
+import ExtPlatformResponsiveTable from '@/modules/mm/receiving/components/ReceivingResponsiveTable'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import Card from '@/components/ui/Card'
@@ -25,10 +25,26 @@ import Select from '@/components/ui/Select'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import { sdParentBreadcrumbs } from '../utils/sdPageUi'
-import { SdMoneyCell } from '../components/SdDataTableCells'
+import { SdDocCell } from '../components/SdDataTableCells'
+import {
+    RcvPartyCell,
+    rcvMobileCardEnterClass,
+} from '@/modules/mm/receiving/components/receivingTableUi'
+import {
+    EXT_PLATFORM_STATUS,
+    ExtPlatformCompanyCell,
+    ExtPlatformLinesCell,
+    ExtPlatformRefCell,
+    ExtPlatformStatusCell,
+    ExtPlatformTotalCell,
+    ExtPlatformTrackingCell,
+    uniqueLineValues,
+} from '../components/extPlatformTableUi'
 import ExtPlatformTransactionDialog from '../components/ExtPlatformTransactionDialog'
 import ExtPlatformTransactionDetailDialog from '../components/ExtPlatformTransactionDetailDialog'
 import { SourceBadge } from '../components/extPlatformUi'
+import POSVoidDialog from '../components/POSVoidDialog'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { orgService } from '@/modules/mm/material-master/services/referenceService'
 import {
     fetchSalesSources,
@@ -36,6 +52,7 @@ import {
     fetchExtPlatformReportSummary,
     updateExtPlatformTransactionStatus,
     deleteExtPlatformTransaction,
+    voidExtPlatformTransaction,
 } from '../services/extPlatformService'
 import type {
     SalesSource,
@@ -45,15 +62,6 @@ import type {
 
 const ROUTE_PATH = '/modules/sd/ext-platform-sales'
 
-// ── Status styling ──
-
-const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
-    DRAFT: { label: 'Draft', tone: 'default' },
-    CONFIRMED: { label: 'Confirmed', tone: 'info' },
-    APPROVED: { label: 'Approved', tone: 'success' },
-    CANCELLED: { label: 'Cancelled', tone: 'danger' },
-}
-
 const formatMoney = (v: number | string | null | undefined) => {
     const n = Number(v ?? 0)
     return `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -61,7 +69,17 @@ const formatMoney = (v: number | string | null | undefined) => {
 
 // ── Main page ──
 
+/** Quick-pick reasons when a confirmed / approved platform sale is voided. */
+const VOID_REASONS = [
+    'Order cancelled on the platform',
+    'Customer returned the order',
+    'Wrong item or quantity recorded',
+    'Duplicate transaction',
+    'Payment problem',
+]
+
 export default function ExtPlatformSalesDashboard() {
+    const { canUpdate } = useResourceAccess('sd.ext-platform-sales')
     // Master data
     const [sources, setSources] = useState<SalesSource[]>([])
     const [companies, setCompanies] = useState<{ value: string; label: string }[]>([])
@@ -86,6 +104,10 @@ export default function ExtPlatformSalesDashboard() {
 
     // Delete confirm
     const [deleteTx, setDeleteTx] = useState<ExtPlatformTransaction | null>(null)
+
+    // Void (confirmed / approved sales; needs a reason)
+    const [voidTx, setVoidTx] = useState<ExtPlatformTransaction | null>(null)
+    const [voiding, setVoiding] = useState(false)
 
     // ── Load master data ──
 
@@ -156,98 +178,161 @@ export default function ExtPlatformSalesDashboard() {
         [sources],
     )
 
-    const sourceMap = useMemo(
-        () => Object.fromEntries(sources.map((s) => [s.id, s])),
-        [sources],
-    )
-
     // ── Table columns ──
 
     const columns = useMemo<ColumnDef<ExtPlatformTransaction>[]>(
         () => [
             {
-                header: 'Transaction #',
+                header: 'Transaction',
                 accessorKey: 'transactionNumber',
+                size: 200,
+                minSize: 180,
+                enableSorting: false,
                 cell: ({ row }) => (
                     <button
-                        className="text-primary-600 hover:underline font-medium"
+                        type="button"
+                        className="min-w-0 text-left"
                         onClick={() => setDetailTx(row.original)}
                     >
-                        {row.original.transactionNumber}
+                        <SdDocCell
+                            primary={row.original.transactionNumber}
+                            secondary={dayjs(row.original.transactionDate).format('MMM D, YYYY')}
+                        />
                     </button>
                 ),
             },
             {
-                header: 'Date',
-                accessorKey: 'transactionDate',
-                cell: ({ row }) =>
-                    dayjs(row.original.transactionDate).format('MMM DD, YYYY'),
-            },
-            {
                 header: 'Source',
                 accessorKey: 'salesSource',
-                cell: ({ row }) => (
-                    <SourceBadge source={row.original.salesSource} />
-                ),
+                size: 170,
+                minSize: 150,
+                enableSorting: false,
+                cell: ({ row }) => <SourceBadge source={row.original.salesSource} />,
             },
             {
-                header: 'Ext. Ref',
+                header: 'Reference',
                 accessorKey: 'externalOrderRef',
-                cell: ({ row }) =>
-                    row.original.externalOrderRef || (
-                        <span className="text-gray-400">—</span>
-                    ),
+                size: 190,
+                minSize: 160,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformRefCell value={row.original.externalOrderRef} />
+                ),
             },
             {
                 header: 'Company',
                 accessorKey: 'company.name',
-                cell: ({ row }) => row.original.company?.name ?? '',
+                size: 230,
+                minSize: 200,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformCompanyCell
+                        name={row.original.company?.name}
+                        code={row.original.company?.code}
+                    />
+                ),
             },
             {
                 header: 'Customer',
                 accessorKey: 'customerName',
-                cell: ({ row }) =>
-                    row.original.customer?.companyName ||
-                    row.original.customerName || (
-                        <span className="text-gray-400">—</span>
-                    ),
+                size: 210,
+                minSize: 180,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <RcvPartyCell
+                        kind="user"
+                        name={
+                            row.original.customer?.companyName ||
+                            row.original.customerName
+                        }
+                        subtitle={row.original.customer?.customerNumber ?? undefined}
+                    />
+                ),
             },
             {
                 header: 'Items',
                 accessorKey: 'lines',
-                cell: ({ row }) => row.original.lines?.length ?? 0,
-            },
-            {
-                header: 'Grand Total',
-                accessorKey: 'grandTotal',
+                size: 110,
+                minSize: 96,
+                enableSorting: false,
                 cell: ({ row }) => (
-                    <SdMoneyCell amount={Number(row.original.grandTotal)} />
+                    <ExtPlatformLinesCell count={row.original.lines?.length ?? 0} />
                 ),
             },
             {
-                header: 'Tax',
-                accessorKey: 'taxTotal',
-                cell: ({ row }) => formatMoney(row.original.taxTotal),
+                header: 'Barcode',
+                id: 'lineBarcodes',
+                size: 170,
+                minSize: 150,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="barcode"
+                        values={uniqueLineValues(row.original.lines, 'barcode')}
+                    />
+                ),
+            },
+            {
+                header: 'Batch #',
+                id: 'lineBatches',
+                size: 160,
+                minSize: 140,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="batch"
+                        values={uniqueLineValues(row.original.lines, 'batchNumber')}
+                    />
+                ),
+            },
+            {
+                header: 'Lot #',
+                id: 'lineLots',
+                size: 150,
+                minSize: 130,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="lot"
+                        values={uniqueLineValues(row.original.lines, 'lotNumber')}
+                    />
+                ),
+            },
+            {
+                header: 'Total',
+                accessorKey: 'grandTotal',
+                size: 150,
+                minSize: 136,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTotalCell
+                        total={Number(row.original.grandTotal)}
+                        tax={Number(row.original.taxTotal)}
+                    />
+                ),
             },
             {
                 header: 'Status',
                 accessorKey: 'status',
-                cell: ({ row }) => {
-                    const meta = STATUS_META[row.original.status] ?? {
-                        label: row.original.status,
-                        tone: 'default' as StatusTone,
-                    }
-                    return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
-                },
+                size: 130,
+                minSize: 116,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformStatusCell status={row.original.status} />
+                ),
             },
             {
                 header: '',
                 id: 'actions',
+                size: 148,
+                minSize: 132,
+                enableSorting: false,
                 cell: ({ row }) => (
-                    <div className="flex gap-1">
+                    <div className="flex shrink-0 justify-end gap-0.5">
                         <Button
                             size="xs"
                             variant="plain"
+                            title="View"
                             icon={<HiOutlineEye />}
                             onClick={() => setDetailTx(row.original)}
                         />
@@ -282,17 +367,86 @@ export default function ExtPlatformSalesDashboard() {
                             <Button
                                 size="xs"
                                 variant="plain"
+                                title="Approve"
                                 icon={<HiOutlineClipboardCheck />}
                                 onClick={() => handleApprove(row.original)}
                             />
                         )}
+                        {canUpdate &&
+                            (row.original.status === 'CONFIRMED' ||
+                                row.original.status === 'APPROVED') && (
+                                <Button
+                                    size="xs"
+                                    variant="plain"
+                                    title="Void"
+                                    className="text-red-500"
+                                    icon={<HiOutlineBan />}
+                                    onClick={() => setVoidTx(row.original)}
+                                />
+                            )}
                     </div>
                 ),
             },
         ],
         // Row actions reload with the current filters.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [loadTransactions, loadSummary],
+        [loadTransactions, loadSummary, canUpdate],
+    )
+
+    const transactionsMobile = useMemo(
+        () => ({
+            title: (tx: ExtPlatformTransaction) => tx.transactionNumber,
+            subtitle: (tx: ExtPlatformTransaction) =>
+                [
+                    tx.salesSource?.name,
+                    dayjs(tx.transactionDate).format('MMM D, YYYY'),
+                ]
+                    .filter(Boolean)
+                    .join(' · '),
+            status: (tx: ExtPlatformTransaction) => {
+                const meta = EXT_PLATFORM_STATUS[tx.status]
+                return {
+                    text: meta?.label ?? tx.status,
+                    tone: meta?.tone ?? ('default' as const),
+                }
+            },
+            onPress: (tx: ExtPlatformTransaction) => setDetailTx(tx),
+            fields: [
+                {
+                    label: 'Total',
+                    value: (tx: ExtPlatformTransaction) => formatMoney(tx.grandTotal),
+                },
+                {
+                    label: 'Items',
+                    value: (tx: ExtPlatformTransaction) => tx.lines?.length ?? 0,
+                },
+                {
+                    label: 'Reference',
+                    value: (tx: ExtPlatformTransaction) => tx.externalOrderRef || '—',
+                },
+                {
+                    label: 'Customer',
+                    value: (tx: ExtPlatformTransaction) =>
+                        tx.customer?.companyName || tx.customerName || '—',
+                },
+                {
+                    label: 'Barcode',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'barcode').join(', ') || '—',
+                },
+                {
+                    label: 'Batch #',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'batchNumber').join(', ') || '—',
+                },
+                {
+                    label: 'Lot #',
+                    value: (tx: ExtPlatformTransaction) =>
+                        uniqueLineValues(tx.lines, 'lotNumber').join(', ') || '—',
+                },
+            ],
+        }),
+        [],
     )
 
     // ── Actions ──
@@ -334,6 +488,28 @@ export default function ExtPlatformSalesDashboard() {
                     {msg}
                 </Notification>,
             )
+        }
+    }
+
+    // Errors propagate to POSVoidDialog, which shows them next to the reason.
+    const handleVoid = async (reason: string) => {
+        if (!voidTx) return
+        setVoiding(true)
+        try {
+            await voidExtPlatformTransaction(voidTx.id, reason)
+            toast.push(
+                <Notification type="success" title="Voided">
+                    {voidTx.transactionNumber} voided
+                    {voidTx.status === 'APPROVED' && voidTx.isCompanyInventory
+                        ? ' — stock returned to MM.'
+                        : '.'}
+                </Notification>,
+            )
+            setVoidTx(null)
+            loadTransactions()
+            loadSummary()
+        } finally {
+            setVoiding(false)
         }
     }
 
@@ -381,7 +557,7 @@ export default function ExtPlatformSalesDashboard() {
             {/* ── Summary cards ── */}
             {summary && (
                 <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(0)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Transactions
                         </div>
@@ -389,7 +565,7 @@ export default function ExtPlatformSalesDashboard() {
                             {summary.totalTransactions}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(1)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Total Sales
                         </div>
@@ -397,7 +573,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalSales)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(2)}>
                         <div className="text-gray-500 text-xs mb-1">
                             VAT / Tax
                         </div>
@@ -405,7 +581,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalTax)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(3)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Discounts
                         </div>
@@ -413,7 +589,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalDiscount)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(4)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Platform Fees
                         </div>
@@ -421,7 +597,7 @@ export default function ExtPlatformSalesDashboard() {
                             {formatMoney(summary.totalPlatformFees)}
                         </div>
                     </AdaptiveCard>
-                    <AdaptiveCard>
+                    <AdaptiveCard className={rcvMobileCardEnterClass(5)}>
                         <div className="text-gray-500 text-xs mb-1">
                             Net Settlement
                         </div>
@@ -430,62 +606,6 @@ export default function ExtPlatformSalesDashboard() {
                         </div>
                     </AdaptiveCard>
                 </div>
-            )}
-
-            {/* ── Per-source breakdown ── */}
-            {summary && summary.bySource.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 mb-6">
-                    {summary.bySource.map((s) => (
-                        <Card key={s.salesSourceId} bodyClass="p-3">
-                            <SourceBadge
-                                source={{
-                                    name: s.salesSourceName,
-                                    code: s.salesSourceCode,
-                                    badgeColor:
-                                        sourceMap[s.salesSourceId]
-                                            ?.badgeColor ?? 'gray',
-                                }}
-                            />
-                            <div className="mt-2 text-sm font-semibold">
-                                {formatMoney(s.totalSales)}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                                {s.transactions} txn
-                                {s.transactions !== 1 ? 's' : ''}
-                            </div>
-                        </Card>
-                    ))}
-                </div>
-            )}
-
-            {/* ── Tax breakdown summary ── */}
-            {summary && summary.taxBreakdown.length > 0 && (
-                <Card className="mb-6" bodyClass="p-4">
-                    <h4 className="text-sm font-semibold mb-3">
-                        Tax Breakdown
-                    </h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        {summary.taxBreakdown.map((t) => (
-                            <div key={t.taxClassification}>
-                                <div className="text-gray-500 text-xs mb-1">
-                                    {t.taxClassification === 'VATABLE'
-                                        ? 'VATable Sales'
-                                        : t.taxClassification === 'VAT_EXEMPT'
-                                          ? 'VAT-Exempt Sales'
-                                          : t.taxClassification === 'ZERO_RATED'
-                                            ? 'Zero-Rated Sales'
-                                            : t.taxClassification}
-                                </div>
-                                <div className="font-semibold">
-                                    {formatMoney(t.taxableAmount)}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                    VAT: {formatMoney(t.taxAmount)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </Card>
             )}
 
             {/* ── Filters + Actions bar ── */}
@@ -561,17 +681,40 @@ export default function ExtPlatformSalesDashboard() {
 
             {/* ── Transactions table ── */}
             <Card bodyClass="p-0">
-                <SdDataTable<ExtPlatformTransaction>
-                    columns={columns}
-                    data={transactions}
-                    loading={loading}
-                    skeletonAvatarColumns={[]}
-                    pagingData={{
-                        total,
-                        pageIndex: 0,
-                        pageSize: 200,
-                    }}
-                />
+                <div className="p-3 sm:p-4">
+                    <ExtPlatformResponsiveTable<ExtPlatformTransaction>
+                        columns={columns}
+                        data={transactions}
+                        compact
+                        loading={loading}
+                        hidePagination
+                        tableMinWidthClass="min-w-0"
+                        overflow={false}
+                        getRowId={(row) => row.id}
+                        skeletonAvatarColumns={[]}
+                        pagingData={{
+                            total,
+                            pageIndex: 0,
+                            pageSize: 200,
+                        }}
+                        mobile={transactionsMobile}
+                        noData={transactions.length === 0}
+                        customNoDataIcon={
+                            <div className="flex w-full flex-col items-center gap-3 py-10 text-center">
+                                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-subtle text-primary-deep">
+                                    <HiOutlineDocumentAdd className="text-2xl" />
+                                </span>
+                                <p className="text-base font-semibold heading-text">
+                                    No transactions found
+                                </p>
+                                <p className="max-w-md text-sm text-gray-500">
+                                    Adjust the filters or record a sale made on Shopee,
+                                    Lazada, TikTok Shop or another channel.
+                                </p>
+                            </div>
+                        }
+                    />
+                </div>
             </Card>
 
             <ExtPlatformTransactionDialog
@@ -603,6 +746,32 @@ export default function ExtPlatformSalesDashboard() {
                     setDetailTx(null)
                     setDeleteTx(tx)
                 }}
+                onVoid={
+                    canUpdate
+                        ? (tx) => {
+                              setDetailTx(null)
+                              setVoidTx(tx)
+                          }
+                        : undefined
+                }
+            />
+
+            {/* ── Void (reason required) ── */}
+            <POSVoidDialog
+                isOpen={!!voidTx}
+                documentLabel="Sale"
+                receiptNumber={voidTx?.transactionNumber}
+                amount={voidTx ? Number(voidTx.grandTotal) : undefined}
+                consequence={
+                    voidTx?.status === 'APPROVED' && voidTx.isCompanyInventory
+                        ? 'is voided: the MM goods issue is reversed and the stock returns to inventory.'
+                        : 'is voided and leaves the sales totals. No stock moves.'
+                }
+                reasons={VOID_REASONS}
+                saving={voiding}
+                onVoid={handleVoid}
+                onClose={() => setVoidTx(null)}
+                formatPrice={formatMoney}
             />
 
             {/* ── Delete confirm ── */}

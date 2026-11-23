@@ -29,4 +29,15 @@
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
+
+    /* A4 documents (POS sales receipt) use their own page instead of the 80mm roll. */
+    @page a4-document {
+        size: A4 portrait;
+        margin: 10mm;
+    }
+
+    body:has(> .print-isolate--a4) > .print-isolate--a4 {
+        page: a4-document;
+        width: 190mm !important;
+    }
 }

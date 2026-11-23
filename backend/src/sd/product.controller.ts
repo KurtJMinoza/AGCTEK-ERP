@@ -134,8 +134,11 @@ export class ProductController {
 
     /** POS / scanner: barcode → the exact variant (plus parent product). */
     @Get('variants/barcode/:barcode')
-    variantByBarcode(@Param('barcode') barcode: string) {
-        return this.optionVariants.findVariantByBarcode(barcode)
+    variantByBarcode(
+        @Param('barcode') barcode: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.optionVariants.findVariantByBarcode(barcode, companyId)
     }
 
     /** Per-variant MM availability (selected variant is the stock item). */

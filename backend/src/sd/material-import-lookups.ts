@@ -77,6 +77,13 @@ export function resolveImportBin(
 }
 
 export async function defaultMaterialTypeId(prisma: PrismaService) {
+    // Excel import and POS quick-add create sellable retail goods: prefer
+    // MERCHANDISE rather than whichever type sorts first (ASSET).
+    const merchandise = await prisma.mmMaterialType.findFirst({
+        where: { deletedAt: null, isActive: true, code: 'MERCHANDISE' },
+        select: { id: true },
+    })
+    if (merchandise) return merchandise.id
     const type = await prisma.mmMaterialType.findFirst({
         where: { deletedAt: null, isActive: true },
         orderBy: [{ code: 'asc' }],

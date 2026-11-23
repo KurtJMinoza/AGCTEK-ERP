@@ -22,6 +22,8 @@ export type SdProductRecord = {
     description: string
     price: number
     originalPrice: number | null
+    /** MM material standard cost from the primary product ↔ material link. */
+    standardCost?: number | null
     category: string
     /** Category image from the linked MM material category (storefront). */
     categoryImageUrl?: string | null
@@ -164,15 +166,23 @@ export function productAttribute<T>(
     return value === undefined || value === null ? fallback : (value as T)
 }
 
-type ApiProduct = Omit<SdProductRecord, 'price' | 'originalPrice'> & {
+type ApiProduct = Omit<
+    SdProductRecord,
+    'price' | 'originalPrice' | 'standardCost'
+> & {
     price: string | number
     originalPrice: string | number | null
+    standardCost?: string | number | null
 }
 
 const fromApi = (p: ApiProduct): SdProductRecord => ({
     ...p,
     price: Number(p.price),
     originalPrice: p.originalPrice === null ? null : Number(p.originalPrice),
+    standardCost:
+        p.standardCost === null || p.standardCost === undefined
+            ? null
+            : Number(p.standardCost),
     variants: p.variants?.map((variant) => ({
         ...variant,
         price: variant.price == null ? null : Number(variant.price),
@@ -212,6 +222,10 @@ export type StorefrontAvailability = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode?: string | null
     state?:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -685,6 +699,9 @@ export type CatalogStockSnapshot = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
+    barcode?: string | null
 }
 
 /** MM-backed available qty per product (storefront ATP by division + SKU). */
@@ -714,6 +731,9 @@ export async function fetchProductCatalogStock(
                         hasVariants: data.hasVariants ?? false,
                         variantId: data.variantId ?? null,
                         materialId: data.materialId ?? null,
+                        primaryBatchNumber: data.primaryBatchNumber ?? null,
+                        primaryLotNumber: data.primaryLotNumber ?? null,
+                        barcode: data.barcode ?? null,
                     },
                 ] as const
             } catch (error) {

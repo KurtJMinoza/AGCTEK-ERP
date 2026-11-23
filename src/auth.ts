@@ -14,12 +14,18 @@ function isLanOrLocalHost(host: string | null | undefined) {
 }
 
 /**
- * Cookie Secure / `__Secure-` prefix must match between sign-in and sign-out.
- * Server actions often call NextAuth without a request — never default those to
- * Secure cookies when AUTH_URL is http://localhost, or logout clears the wrong name
- * and the browser JWT keeps the user signed in across Next restarts.
+ * Cookie Secure / `__Secure-` prefix must match between sign-in, RSC `auth()`,
+ * and sign-out. If they disagree, the layout sees `session: null` while
+ * `/api/auth/session` still works — empty home + Anonymous dropdown — or
+ * logout clears the wrong cookie name and the JWT survives Next restarts.
+ *
+ * Explicit AUTH_SECURE_COOKIES wins; otherwise AUTH_URL=http://… forces
+ * non-Secure; public HTTPS (erp.agctek.co) keeps Secure cookies; LAN HTTP does not.
  */
 function shouldUseSecureCookies(req?: Request | { headers: Headers } | null) {
+    if (process.env.AUTH_SECURE_COOKIES === 'true') return true
+    if (process.env.AUTH_SECURE_COOKIES === 'false') return false
+
     const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? ''
     if (authUrl.startsWith('http://')) return false
 
@@ -30,10 +36,9 @@ function shouldUseSecureCookies(req?: Request | { headers: Headers } | null) {
         .trim()
         .toLowerCase()
 
-    // No request context (some server actions): trust AUTH_URL / https only.
+    // No request context (RSC / some server actions): trust AUTH_URL / https only.
     if (!host) return authUrl.startsWith('https://')
 
-    // Public HTTPS (erp.agctek.co) keeps Secure cookies; LAN http://IP:3010 does not.
     if (isLanOrLocalHost(host) && proto !== 'https') return false
     if (proto === 'https') return true
     return authUrl.startsWith('https://')
@@ -44,11 +49,9 @@ function shouldUseSecureCookies(req?: Request | { headers: Headers } | null) {
  * and sign-out clears the same cookie name sign-in wrote.
  */
 export const { handlers, signIn, signOut, auth } = NextAuth((req) => {
-    const useSecureCookies = shouldUseSecureCookies(req)
-
     return {
         trustHost: true,
-        useSecureCookies,
+        useSecureCookies: shouldUseSecureCookies(req),
         pages: {
             signIn: appConfig.unAuthenticatedEntryPath,
             error: appConfig.unAuthenticatedEntryPath,

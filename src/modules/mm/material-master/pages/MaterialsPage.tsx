@@ -334,6 +334,34 @@ const MaterialsPage = () => {
                 ),
             },
             {
+                header: 'Batch #',
+                id: 'latestBatch',
+                enableSorting: false,
+                size: 120,
+                cell: ({ row }) => {
+                    const v = row.original.latestBatchNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                header: 'Lot #',
+                id: 'latestLot',
+                enableSorting: false,
+                size: 110,
+                cell: ({ row }) => {
+                    const v = row.original.latestLotNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
                 header: 'Batch / Serial',
                 id: 'batchSerial',
                 enableSorting: false,

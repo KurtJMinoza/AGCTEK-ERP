@@ -20,9 +20,17 @@ export class BatchesController {
     }
 
     @Post()
-    @MmMutation(mmFeatures('material-master', 'batches'), 'create')
+    @MmMutation(
+        [
+            ...mmFeatures('material-master', 'batches'),
+            ...mmFeatures('material-master', 'materials-skus'),
+        ],
+        'create',
+    )
     create(@Body() body: {
         materialId: string
+        batchNumber?: string
+        lotNumber?: string
         manufacturingDate?: string
         expiryDate?: string
         supplierId?: string
@@ -32,7 +40,13 @@ export class BatchesController {
     }
 
     @Put(':id')
-    @MmMutation(mmFeatures('material-master', 'batches'), 'update')
+    @MmMutation(
+        [
+            ...mmFeatures('material-master', 'batches'),
+            ...mmFeatures('material-master', 'materials-skus'),
+        ],
+        'update',
+    )
     update(@Param('id') id: string, @Body() body: any) {
         return this.service.update(id, body)
     }

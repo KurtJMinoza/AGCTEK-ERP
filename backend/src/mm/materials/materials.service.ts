@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { BarcodesService } from '../barcodes/barcodes.service'
+import { ensureMaterialBatch } from '../batches/line-tracking.util'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
@@ -217,6 +218,8 @@ export class MaterialsService {
         'barcodeValue',
         'barcodeType',
         'serialNumber',
+        'initialBatchNumber',
+        'initialLotNumber',
     ])
 
     private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUncheckedUpdateInput {
@@ -329,6 +332,37 @@ export class MaterialsService {
         })
     }
 
+    /**
+     * Register batch/lot from the Material Master wizard. Rows appear in the
+     * shared Batches list (`mm.material-master.batches`).
+     */
+    private async syncBatchFromForm(
+        client: PrismaService | Prisma.TransactionClient,
+        materialId: string,
+        dto: Pick<UpdateMaterialDto, 'initialBatchNumber' | 'initialLotNumber'>,
+        material: { batchManaged?: boolean },
+    ) {
+        const batchNumber = dto.initialBatchNumber?.trim()
+        const lotNumber = dto.initialLotNumber?.trim()
+        if (!batchNumber && !lotNumber) return
+
+        const db = 'mmMaterial' in client ? client : this.prisma
+
+        if (!material.batchManaged) {
+            await (db as PrismaService).mmMaterial.update({
+                where: { id: materialId },
+                data: { batchManaged: true },
+            })
+        }
+
+        await ensureMaterialBatch(
+            db as Parameters<typeof ensureMaterialBatch>[0],
+            materialId,
+            batchNumber ?? null,
+            lotNumber ?? null,
+        )
+    }
+
     private readonly includes = {
         materialType: true,
         materialCategory: true,
@@ -362,6 +396,12 @@ export class MaterialsService {
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
         taxCode: { include: { taxRates: true } },
         barcodes: { where: { deletedAt: null } },
+        batches: {
+            where: { deletedAt: null },
+            orderBy: { createdAt: 'desc' as const },
+            take: 1,
+            select: { batchNumber: true, lotNumber: true },
+        },
     }
 
     async findAll(query: MaterialQueryDto) {
@@ -409,12 +449,20 @@ export class MaterialsService {
             data.map((row) => row as Record<string, unknown>),
         )
         return {
-            data: enriched.map((row) =>
-                serializeMaterial({
-                    ...row,
+            data: enriched.map((row) => {
+                const batches = (row as { batches?: Array<{ batchNumber: string; lotNumber: string | null }> })
+                    .batches
+                const latest = batches?.[0]
+                const { batches: _batches, ...rest } = row as Record<string, unknown> & {
+                    batches?: unknown
+                }
+                return serializeMaterial({
+                    ...rest,
+                    latestBatchNumber: latest?.batchNumber ?? null,
+                    latestLotNumber: latest?.lotNumber ?? null,
                     tax: this.materialTax.projection(row as any),
-                }),
-            ),
+                })
+            }),
             meta: {
                 total,
                 page,
@@ -596,7 +644,17 @@ export class MaterialsService {
                       select: { id: true },
                   }))?.id ?? null)
 
-        const { barcodeValue, barcodeType, serialNumber, ...dtoWithoutBarcodes } = dto
+        const {
+            barcodeValue,
+            barcodeType,
+            serialNumber,
+            initialBatchNumber,
+            initialLotNumber,
+            ...dtoWithoutBarcodes
+        } = dto
+        const wantsBatch =
+            Boolean(initialBatchNumber?.trim()) ||
+            Boolean(initialLotNumber?.trim())
 
         // Validate the tax configuration before the row is written. A material
         // created by an import or by auto-created SD variants may omit tax
@@ -619,6 +677,7 @@ export class MaterialsService {
             currencyId,
             serialManaged,
             serialTrackingPolicy: policy,
+            batchManaged: Boolean(dto.batchManaged) || wantsBatch,
             onHandQty: new Decimal(0),
             reservedQty: new Decimal(0),
             storageBinId: undefined,
@@ -703,6 +762,10 @@ export class MaterialsService {
                         status: 'AVAILABLE',
                     },
                 })
+            }
+
+            if (wantsBatch) {
+                await this.syncBatchFromForm(db as PrismaService, material.id, dto, material)
             }
 
             return {
@@ -898,6 +961,7 @@ export class MaterialsService {
         // material row. Keep them in sync when the form changes them.
         await this.syncBarcodeFromForm(id, dto, updated)
         await this.syncSerialFromForm(id, dto, updated)
+        await this.syncBatchFromForm(this.prisma, id, dto, updated)
 
         if (targetOnHand !== undefined) {
             await this.postStockChange({

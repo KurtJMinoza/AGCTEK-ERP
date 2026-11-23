@@ -8,6 +8,7 @@ import { SdFulfillmentService } from './sd-fulfillment.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS } from './sd-event.types'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
+import { resolveMaterialLineTracking } from '../mm/batches/line-tracking.util'
 
 @Injectable()
 export class SdMmPipelineService {
@@ -177,6 +178,12 @@ export class SdMmPipelineService {
                 }
             }
 
+            const tracking = await resolveMaterialLineTracking(
+                this.prisma,
+                materialId,
+                effectiveCompanyId,
+            )
+
             await this.prisma.sdSalesOrderLine.update({
                 where: { id: line.id },
                 data: {
@@ -185,6 +192,9 @@ export class SdMmPipelineService {
                     salesUomId,
                     baseQuantity: baseQty,
                     baseUomId,
+                    batchId: tracking.batchId,
+                    batchNumber: tracking.batchNumber,
+                    lotNumber: tracking.lotNumber,
                     // Snapshots so historical picking / packing / shipment / invoice
                     // / report rows keep the sold identity even if the catalog
                     // product is later deleted.

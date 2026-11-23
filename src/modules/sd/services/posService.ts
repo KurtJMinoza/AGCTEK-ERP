@@ -67,11 +67,17 @@ export type PosReceiptLine = {
     variantName: string | null
     /** Scannable barcode of the line (variant, else MM material). */
     barcode: string | null
+    /** MM material category (receipt Category column); null when unknown. */
+    category?: string | null
+    /** MM material brand (receipt Brand column); null when unknown. */
+    brand?: string | null
     /** Product image snapshot of the sold line. */
     imageUrl: string | null
     quantity: number
     unitPrice: number
     lineTotal: number
+    /** MM material standard cost; 0 when the line has no material. */
+    unitCost?: number
     /** VATABLE | VAT_EXEMPT | ZERO_RATED, frozen at sale time; null = no tax setup. */
     taxClassification: string | null
     taxCode: string | null
@@ -107,6 +113,8 @@ export type PosReceipt = {
     branchId: string
     posSessionId: string | null
     cashierUserId: string | null
+    /** Full name of the cashier (receipt "Prepared By"). */
+    cashierName?: string | null
     customerName: string | null
     /** Set when the sale was voided. */
     voidedAt?: string | null
@@ -136,7 +144,7 @@ export type PosReceipt = {
     tendered: number
     change: number
     tenders: PosReceiptTender[]
-    /** Paid | Unpaid | Pending Verification — header collection state. */
+    /** Paid | Partially Paid | Unpaid | Pending Verification — never blank. */
     paymentStatus?: string | null
     warnings: string[]
     /** Partial-payment fields (null / 0 for full-payment sales). */
@@ -146,7 +154,18 @@ export type PosReceipt = {
     downPaymentAmount?: number | null
     outstandingBalance?: number
     dueDate?: string | null
-    paymentStatus?: string
+    /** Payment remarks entered at Take Payment. */
+    remarks?: string | null
+    /** Selling company printed in the receipt header. */
+    business?: PosReceiptBusiness | null
+}
+
+export type PosReceiptBusiness = {
+    name: string
+    address: string
+    /** BIR Taxpayer Identification Number; empty when not configured. */
+    tin: string
+    logoUrl: string | null
 }
 
 /** Server quote of a running cart: the amount the checkout will ask for. */
@@ -407,13 +426,16 @@ export async function listPosOrders(params: {
     limit?: number
 }): Promise<PosReceipt[]> {
     try {
-        const { data } = await ErpAxiosBase.get<PosReceipt[]>('/sd/pos/orders', {
-            params: {
-                companyId: params.companyId || undefined,
-                branchId: params.branchId || undefined,
-                limit: params.limit,
+        const { data } = await ErpAxiosBase.get<PosReceipt[]>(
+            '/sd/pos/orders',
+            {
+                params: {
+                    companyId: params.companyId || undefined,
+                    branchId: params.branchId || undefined,
+                    limit: params.limit,
+                },
             },
-        })
+        )
         return data ?? []
     } catch (error) {
         throw toApiError(error, 'Unable to load the transactions')

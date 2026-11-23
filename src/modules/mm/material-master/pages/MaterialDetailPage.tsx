@@ -57,6 +57,7 @@ import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import { materialMasterFeatureDescription } from '../utils/materialMasterPageUi'
 import { formatMaterialMoney } from '../utils/formatMaterialMoney'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
+import { useBatchAccess } from '../hooks/useBatchAccess'
 
 const STATUS_TONE: Record<string, 'success' | 'default' | 'warning' | 'danger'> = {
     ACTIVE: 'success', DRAFT: 'default', INACTIVE: 'warning', BLOCKED: 'danger',
@@ -1015,34 +1016,118 @@ const BarcodesTab = ({ material, onRefresh }: { material: Material; onRefresh: (
 
 const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: () => void }) => {
     const batches = material.batches ?? []
-    const { canCreate } = useResourceAccess()
-    const [addOpen, setAddOpen] = useState(false)
+    const { canCreate, canUpdate, loading: batchAccessLoading } = useBatchAccess()
+    const [batchDialogOpen, setBatchDialogOpen] = useState(false)
+    const [batchDialogMode, setBatchDialogMode] = useState<'add' | 'edit'>('add')
+    const [editingBatch, setEditingBatch] = useState<MmBatch | null>(null)
     const [manufacturingDate, setManufacturingDate] = useState('')
     const [expiryDate, setExpiryDate] = useState('')
     const [supplierId, setSupplierId] = useState('')
     const [status, setStatus] = useState('AVAILABLE')
-    const { options: supplierOpts } = useSupplierOptions({ enabled: addOpen })
+    const [batchNumber, setBatchNumber] = useState('')
+    const [lotNumber, setLotNumber] = useState('')
+    const { options: supplierOpts } = useSupplierOptions({ enabled: batchDialogOpen })
 
     const resetForm = () => {
-        setManufacturingDate(''); setExpiryDate(''); setSupplierId(''); setStatus('AVAILABLE')
+        setManufacturingDate('')
+        setExpiryDate('')
+        setSupplierId('')
+        setStatus('AVAILABLE')
+        setBatchNumber('')
+        setLotNumber('')
     }
 
-    const handleAdd = async () => {
+    const openBatchAdd = () => {
+        resetForm()
+        setBatchDialogMode('add')
+        setEditingBatch(null)
+        setBatchDialogOpen(true)
+    }
+
+    const openBatchEdit = (row: MmBatch) => {
+        resetForm()
+        setBatchDialogMode('edit')
+        setEditingBatch(row)
+        setBatchNumber(row.batchNumber ?? '')
+        setLotNumber(row.lotNumber ?? '')
+        setSupplierId(row.supplierId ?? '')
+        setManufacturingDate(
+            row.manufacturingDate ? String(row.manufacturingDate).slice(0, 10) : '',
+        )
+        setExpiryDate(row.expiryDate ? String(row.expiryDate).slice(0, 10) : '')
+        setStatus(row.status ?? 'AVAILABLE')
+        setBatchDialogOpen(true)
+    }
+
+    const handleBatchSave = async () => {
+        if (batchDialogMode === 'add') {
+            const hasManual = batchNumber.trim() || lotNumber.trim()
+            if (!hasManual && !supplierId) {
+                pushToast(
+                    'danger',
+                    'Validation',
+                    'Enter a batch or lot number, or choose a supplier so the system can auto-generate a batch.',
+                )
+                return
+            }
+        }
         try {
-            const created = await batchService.create({
-                materialId: material.id,
-                manufacturingDate: manufacturingDate || undefined,
-                expiryDate: expiryDate || undefined,
-                supplierId: supplierId || undefined,
-                status,
-            })
-            pushToast('success', 'Batch added', `Batch ${created.batchNumber} created.`)
-            setAddOpen(false); resetForm(); onRefresh()
-        } catch (err: any) { pushToast('danger', 'Error', err?.response?.data?.message || 'Failed') }
+            if (batchDialogMode === 'add') {
+                const created = await batchService.create({
+                    materialId: material.id,
+                    ...(batchNumber.trim()
+                        ? { batchNumber: formatTrackingNumber(batchNumber) }
+                        : {}),
+                    ...(lotNumber.trim()
+                        ? { lotNumber: formatTrackingNumber(lotNumber) }
+                        : {}),
+                    manufacturingDate: manufacturingDate || undefined,
+                    expiryDate: expiryDate || undefined,
+                    supplierId: supplierId || undefined,
+                    status,
+                })
+                pushToast('success', 'Batch added', `Batch ${created.batchNumber} created.`)
+            } else if (editingBatch) {
+                await batchService.update(editingBatch.id, {
+                    ...(batchNumber.trim()
+                        ? { batchNumber: formatTrackingNumber(batchNumber) }
+                        : {}),
+                    lotNumber: lotNumber.trim()
+                        ? formatTrackingNumber(lotNumber)
+                        : null,
+                    manufacturingDate: manufacturingDate || null,
+                    expiryDate: expiryDate || null,
+                    supplierId: supplierId || null,
+                    status,
+                })
+                pushToast(
+                    'success',
+                    'Batch updated',
+                    `Batch ${batchNumber || editingBatch.batchNumber} saved.`,
+                )
+            }
+            setBatchDialogOpen(false)
+            resetForm()
+            setEditingBatch(null)
+            onRefresh()
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ||
+                (typeof err?.response?.data === 'string' ? err.response.data : null) ||
+                err?.message ||
+                'Failed to save batch'
+            pushToast('danger', 'Error', msg)
+        }
     }
 
     const cols: ColumnDef<MmBatch>[] = [
-        { header: 'Batch #', accessorKey: 'batchNumber', size: 180 },
+        { header: 'Batch #', accessorKey: 'batchNumber', size: 160 },
+        {
+            header: 'Lot #',
+            id: 'lotNumber',
+            size: 140,
+            cell: ({ row }) => row.original.lotNumber || '—',
+        },
         { header: 'Status', accessorKey: 'status', size: 120, cell: ({ row }) => <Tag>{row.original.status}</Tag> },
         {
             header: 'Supplier',
@@ -1056,36 +1141,104 @@ const BatchesTab = ({ material, onRefresh }: { material: Material; onRefresh: ()
         },
         { header: 'Mfg date', accessorKey: 'manufacturingDate', size: 140, cell: ({ row }) => formatCalendarDate(row.original.manufacturingDate) },
         { header: 'Expiry', accessorKey: 'expiryDate', size: 140, cell: ({ row }) => formatCalendarDate(row.original.expiryDate) },
+        ...(canUpdate
+            ? [
+                  {
+                      id: 'batchActions',
+                      header: '',
+                      size: 72,
+                      cell: ({ row }: { row: { original: MmBatch } }) => (
+                          <Button
+                              size="xs"
+                              variant="plain"
+                              icon={<HiOutlinePencil />}
+                              onClick={() => openBatchEdit(row.original)}
+                          >
+                              Edit
+                          </Button>
+                      ),
+                  } as ColumnDef<MmBatch>,
+              ]
+            : []),
     ]
 
     return (
         <div>
             <div className="mb-4 flex items-center justify-between">
-                <h6 className="text-sm font-semibold heading-text">Batches</h6>
-                {canCreate && material.batchManaged && <Button size="xs" variant="solid" icon={<HiOutlinePlus />} onClick={() => { resetForm(); setAddOpen(true) }}>Add batch</Button>}
+                <div>
+                    <h6 className="text-sm font-semibold heading-text">Batches</h6>
+                    <p className="text-xs text-gray-500">
+                        Same registry as the Tracking step when creating/editing this SKU and
+                        Material Master → Batches.
+                    </p>
+                </div>
+                {canCreate && (
+                    <Button
+                        size="xs"
+                        variant="solid"
+                        icon={<HiOutlinePlus />}
+                        onClick={openBatchAdd}
+                    >
+                        Add batch / lot
+                    </Button>
+                )}
             </div>
             {!material.batchManaged ? (
-                <p className="text-sm text-gray-500">This material is not batch-managed.</p>
-            ) : (
-                <DataTable<MmBatch> columns={cols} data={batches} compact />
-            )}
+                <p className="mb-3 text-sm text-gray-500">
+                    Batch tracking is off for this material. Adding a batch or lot
+                    here will turn batch tracking on automatically.
+                </p>
+            ) : null}
+            {!batchAccessLoading && !canCreate ? (
+                <p className="mb-3 text-sm text-amber-600 dark:text-amber-400">
+                    You do not have permission to add batches. Ask an admin for
+                    Material Master → Batches (create) or Materials / SKUs (update).
+                </p>
+            ) : null}
+            <DataTable<MmBatch> columns={cols} data={batches} compact />
             <FormDialog
-                isOpen={addOpen}
-                onClose={() => setAddOpen(false)}
+                isOpen={batchDialogOpen}
+                onClose={() => {
+                    setBatchDialogOpen(false)
+                    setEditingBatch(null)
+                }}
                 size="md"
-                title="Add batch"
-                description="Create a batch for this material."
-                icon={<HiOutlinePlus />}
+                title={batchDialogMode === 'edit' ? 'Edit batch / lot' : 'Add batch / lot'}
+                description={
+                    batchDialogMode === 'edit'
+                        ? 'Changes sync to Material Master → Batches.'
+                        : 'Manual batch and lot numbers are saved on this material. Batch tracking turns on automatically.'
+                }
+                icon={batchDialogMode === 'edit' ? <HiOutlinePencil /> : <HiOutlinePlus />}
                 footer={
                     <>
-                        <Button size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
-                        <Button size="sm" variant="solid" onClick={handleAdd}>Add</Button>
+                        <Button size="sm" onClick={() => setBatchDialogOpen(false)}>Cancel</Button>
+                        <Button size="sm" variant="solid" onClick={handleBatchSave}>
+                            {batchDialogMode === 'edit' ? 'Save' : 'Add'}
+                        </Button>
                     </>
                 }
             >
                 <p className="mb-3 text-xs text-gray-500">
-                    Batch number is generated automatically when you save (supplier code + sequence, e.g. SUP-0001; use supplier on this form, or BATCH-0001 if omitted).
+                    Enter a batch and/or lot number, or leave batch blank to auto-generate
+                    (supplier code + sequence).
                 </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <FormItem label="Batch number">
+                        <TrackingNumberInput
+                            value={batchNumber}
+                            placeholder="Optional — auto if blank"
+                            onChange={setBatchNumber}
+                        />
+                    </FormItem>
+                    <FormItem label="Lot number">
+                        <TrackingNumberInput
+                            value={lotNumber}
+                            placeholder="Optional"
+                            onChange={setLotNumber}
+                        />
+                    </FormItem>
+                </div>
                 <FormItem label="Manufacture date">
                     <Input type="date" value={manufacturingDate} onChange={(e) => setManufacturingDate(e.target.value)} />
                 </FormItem>

@@ -28,17 +28,22 @@ import {
 import { repairErpModulePath } from '@/utils/erp-path'
 
 /**
- * Edge middleware needs a static NextAuth instance. Keep cookie Secure aligned with
- * `src/auth.ts`: AUTH_URL=http://… must never use `__Secure-` session cookies.
+ * Edge middleware needs a static NextAuth instance. Keep cookie Secure aligned
+ * with `src/auth.ts` (AUTH_SECURE_COOKIES override, else AUTH_URL=http://…).
  */
 const { auth } = NextAuth({
     ...authConfig,
     trustHost: true,
-    useSecureCookies: !(
-        process.env.AUTH_URL ??
-        process.env.NEXTAUTH_URL ??
-        ''
-    ).startsWith('http://'),
+    useSecureCookies:
+        process.env.AUTH_SECURE_COOKIES === 'true'
+            ? true
+            : process.env.AUTH_SECURE_COOKIES === 'false'
+              ? false
+              : !(
+                    process.env.AUTH_URL ??
+                    process.env.NEXTAUTH_URL ??
+                    ''
+                ).startsWith('http://'),
 })
 
 const publicRoutes = Object.entries(_publicRoutes).map(([key]) => key)
@@ -47,9 +52,16 @@ const authRoutes = Object.entries(_authRoutes).map(([key]) => key)
 const apiAuthPrefix = `${appConfig.apiPrefix}/auth`
 
 function isSessionActive(
-    auth: { user?: unknown; expires?: string } | null | undefined,
+    auth:
+        | {
+              user?: { id?: string | null; name?: string | null } | null
+              expires?: string
+          }
+        | null
+        | undefined,
 ): boolean {
-    if (!auth?.user) return false
+    // Hollow sessions (cookie present, no identity) must not count as signed-in.
+    if (!auth?.user?.id && !auth?.user?.name) return false
     if (auth.expires && new Date(auth.expires).getTime() <= Date.now()) {
         return false
     }

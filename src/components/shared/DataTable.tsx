@@ -61,6 +61,12 @@ type DataTableProps<T> = {
     /** Hide pagination controls (e.g. embedded line tables in modals) */
     hidePagination?: boolean
     /**
+     * Use when the table sits in a horizontal scroll container: the footer then
+     * wraps on narrow screens and the page-size select stays pinned to the right
+     * edge while the table is scrolled.
+     */
+    stickyPageSize?: boolean
+    /**
      * Stable row identity, used as the React key and to keep row state (such as
      * expansion) attached to the same record across refetches. Defaults to the
      * row index, which drifts when a list is reordered by a refresh.
@@ -153,6 +159,7 @@ function DataTable<T>(props: DataTableProps<T>) {
         instanceId = 'data-table',
         fit = false,
         hidePagination = false,
+        stickyPageSize = false,
         getRowId,
         renderSubRow,
         rowClassName,
@@ -522,14 +529,22 @@ function DataTable<T>(props: DataTableProps<T>) {
                 )}
             </Table>
             {!hidePagination ? (
-                <div className="flex items-center justify-between mt-4">
+                <div
+                    className={classNames(
+                        'flex items-center justify-between mt-4',
+                        stickyPageSize && 'flex-wrap gap-3',
+                    )}
+                >
                     <Pagination
                         pageSize={pageSize}
                         currentPage={pageIndex}
                         total={total}
                         onChange={handlePaginationChange}
                     />
-                    <div style={{ minWidth: 130 }}>
+                    <div
+                        style={{ minWidth: 130 }}
+                        className={classNames(stickyPageSize && 'sticky right-0 ml-auto')}
+                    >
                         <Select
                             instanceId={instanceId}
                             size="sm"

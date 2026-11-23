@@ -71,6 +71,8 @@ describe('ProductImportService', () => {
             'Barcode',
             'Cost',
             'Price',
+            'Batch Number',
+            'Lot Number',
         ])
     })
 

@@ -39,8 +39,11 @@ export default {
     ],
     callbacks: {
         async jwt({ token, user, trigger, session }) {
-            // Persist the authority to the token right after signin
+            // Persist identity + authority on the token right after sign-in.
             if (user) {
+                token.sub = user.id
+                token.name = user.name
+                token.email = user.email
                 token.authority = user.authority
                 token.rememberMe = user.rememberMe
 
@@ -82,6 +85,8 @@ export default {
                 user: {
                     ...session.user,
                     id: token.sub,
+                    name: token.name ?? session.user?.name ?? null,
+                    email: token.email ?? session.user?.email ?? null,
                     authority: token.authority ?? [],
                 },
             }

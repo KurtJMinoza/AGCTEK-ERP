@@ -51,19 +51,27 @@ const products = [
     { id: 'p-unlinked', sku: 'UNL', name: 'Unlinked item', divisionId: 'DIV_RETAIL', status: 'ACTIVE', productConfig: 'SIMPLE', defaultVariantId: null },
 ]
 const variants = [
-    { id: 'v-vat-def', productId: 'p-vat', variantName: 'Default', sku: 'VAT-1', materialId: 'm-vat' },
-    { id: 'v-red', productId: 'p-var', variantName: 'Red / M', sku: 'SHIRT-RED-M', materialId: 'm-vat' },
+    { id: 'v-vat-def', productId: 'p-vat', variantName: 'Default', sku: 'VAT-1', materialId: 'm-vat', barcode: null },
+    { id: 'v-red', productId: 'p-var', variantName: 'Red / M', sku: 'SHIRT-RED-M', materialId: 'm-vat', barcode: '4800001' },
+]
+/** Primary MM barcodes per material (m-none has none). */
+const mmBarcodes = [
+    { materialId: 'm-vat', barcodeValue: 'MM-VAT' },
+    { materialId: 'm-ex', barcodeValue: 'MM-EX' },
 ]
 const assignments: Record<string, string> = { 'p-ex': 'm-ex', 'p-none': 'm-none' }
 
 /** Available quantity per SKU (MM ATP via the storefront batch); absent = plenty. */
 let stockBySku: Record<string, number> = {}
+/** Barcode the storefront availability reports per SKU; absent = none. */
+const stockBarcodeBySku: Record<string, string> = { 'SHIRT': '4800001', 'VAT-1': 'MM-VAT' }
 
 function makeService(findUnique: jest.Mock = jest.fn().mockResolvedValue(null)) {
     const byIds = <T extends { id: string }>(rows: T[]) =>
         jest.fn(({ where }) => Promise.resolve(rows.filter((r) => where.id.in.includes(r.id))))
     const prisma = {
-        mmMaterial: { findMany: byIds(materials) },
+        // Not batch-managed: line batch/lot tracking resolves to nothing in these tests.
+        mmMaterial: { findMany: byIds(materials), findFirst: jest.fn().mockResolvedValue({ batchManaged: false }) },
         sdProduct: { findMany: byIds(products) },
         sdProductVariant: { findMany: byIds(variants) },
         sdExtPlatformTransaction: { findUnique },
@@ -85,9 +93,20 @@ function makeService(findUnique: jest.Mock = jest.fn().mockResolvedValue(null)) 
                 Promise.resolve(
                     items.map(({ sku }) => {
                         const qty = stockBySku[sku] ?? 999
-                        return { sku, availableQuantity: qty, state: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK' }
+                        return {
+                            sku,
+                            availableQuantity: qty,
+                            state: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
+                            // ProductService attaches the variant / primary MM barcode.
+                            barcode: stockBarcodeBySku[sku] ?? null,
+                        }
                     }),
                 ),
+        ),
+        primaryMaterialBarcodes: jest.fn((ids: string[]) =>
+            Promise.resolve(
+                new Map(mmBarcodes.filter((b) => ids.includes(b.materialId)).map((b) => [b.materialId, b.barcodeValue])),
+            ),
         ),
     }
     return new ExtPlatformTransactionService(
@@ -204,6 +223,37 @@ describe('ExtPlatformTransactionService catalog → material link', () => {
             materialId: 'm-vat',
             description: 'Shirt — Red / M',
         })
+    })
+})
+
+describe('ExtPlatformTransactionService barcode', () => {
+    type Resolver = {
+        resolveLines: (l: unknown[], c: string, d: string, s: boolean) => Promise<Array<{ barcode: string | null }>>
+    }
+
+    it('saves the sold variant barcode, else the primary MM barcode, else nothing', async () => {
+        const service = makeService() as unknown as Resolver
+        const saved = await service.resolveLines(
+            [
+                { productId: 'p-var', variantId: 'v-red', quantity: 1, unitPrice: 560 },
+                { productId: 'p-vat', quantity: 1, unitPrice: 100 },
+                { productId: 'p-ex', quantity: 1, unitPrice: 100 },
+                { productId: 'p-none', quantity: 1, unitPrice: 100 },
+            ],
+            'co-1',
+            '2026-11-14',
+            false,
+        )
+        expect(saved.map((l) => l.barcode)).toEqual(['4800001', 'MM-VAT', 'MM-EX', null])
+    })
+
+    it('shows the same barcode while entering the sale (stock lookup)', async () => {
+        const rows = await makeService().stockFor([
+            { productId: 'p-var', variantId: 'v-red' },
+            { productId: 'p-vat' },
+            { productId: 'p-none' },
+        ])
+        expect(rows.map((r) => r.barcode)).toEqual(['4800001', 'MM-VAT', null])
     })
 })
 
@@ -358,13 +408,62 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
         expect(goodsIssue.create).not.toHaveBeenCalled()
     })
 
-    it('reverses the goods issue when an approved sale is cancelled', async () => {
-        const { service, goodsIssue } = makeStatusService({
+    it('voiding an approved sale reverses its goods issue and keeps the reason', async () => {
+        const { service, prisma, goodsIssue } = makeStatusService({
             tx: { status: 'APPROVED' },
             postedIssues: [{ id: 'gi-9', status: 'POSTED' }],
         })
-        await service.updateStatus('tx-1', { status: 'CANCELLED' }, 'user-1')
+        await service.voidTransaction('tx-1', { reason: ' Wrong item ' }, 'user-1')
+        expect(prisma.sdExtPlatformTransaction.updateMany).toHaveBeenCalledWith({
+            where: { id: 'tx-1', status: 'APPROVED' },
+            data: expect.objectContaining({
+                status: 'CANCELLED',
+                voidedBy: 'user-1',
+                voidReason: 'Wrong item',
+                voidedAt: expect.any(Date),
+            }),
+        })
         expect(goodsIssue.reverse).toHaveBeenCalledWith('gi-9', 'user-1')
+    })
+
+    it('voiding a confirmed sale moves no stock', async () => {
+        const { service, goodsIssue } = makeStatusService({ tx: { status: 'CONFIRMED' } })
+        await service.voidTransaction('tx-1', { reason: 'Duplicate' }, 'user-1')
+        expect(goodsIssue.reverse).not.toHaveBeenCalled()
+    })
+
+    it('requires a reason and refuses drafts', async () => {
+        const { service } = makeStatusService({ tx: { status: 'APPROVED' } })
+        await expect(service.voidTransaction('tx-1', { reason: '   ' })).rejects.toThrow('Enter why the sale is voided.')
+        const draft = makeStatusService({ tx: { status: 'DRAFT' } })
+        await expect(draft.service.voidTransaction('tx-1', { reason: 'x' })).rejects.toThrow('Only confirmed or approved sales')
+    })
+
+    it('is idempotent for an already voided sale', async () => {
+        const { service, prisma, goodsIssue } = makeStatusService({ tx: { status: 'CANCELLED' } })
+        await service.voidTransaction('tx-1', { reason: 'again' }, 'user-1')
+        expect(prisma.sdExtPlatformTransaction.updateMany).not.toHaveBeenCalled()
+        expect(goodsIssue.reverse).not.toHaveBeenCalled()
+    })
+
+    it('rejects a second simultaneous void', async () => {
+        const { service, goodsIssue } = makeStatusService({ tx: { status: 'APPROVED' }, claimCount: 0 })
+        await expect(service.voidTransaction('tx-1', { reason: 'x' })).rejects.toBeInstanceOf(ConflictException)
+        expect(goodsIssue.reverse).not.toHaveBeenCalled()
+    })
+
+    it('restores the sale when the stock reversal fails', async () => {
+        const { service, prisma, goodsIssue } = makeStatusService({
+            tx: { status: 'APPROVED' },
+            postedIssues: [{ id: 'gi-9', status: 'POSTED' }],
+        })
+        goodsIssue.reverse.mockRejectedValueOnce(new Error('reverse failed'))
+        await expect(service.voidTransaction('tx-1', { reason: 'x' }, 'user-1')).rejects.toThrow('reverse failed')
+        expect(prisma.sdExtPlatformTransaction.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: { status: 'APPROVED', voidedAt: null, voidedBy: null, voidReason: null },
+            }),
+        )
     })
 
     it('rejects a second simultaneous approval instead of issuing stock twice', async () => {

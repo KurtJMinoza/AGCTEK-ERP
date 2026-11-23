@@ -1,5 +1,9 @@
 import * as XLSX from 'xlsx'
-import type { SalesLineReportRow } from '../services/salesAnalyticsService'
+import {
+    formatSalesDueDate,
+    salesPaymentMethodLabel,
+    type SalesLineReportRow,
+} from '../services/salesAnalyticsService'
 
 const money = (value: number) =>
     Number.isFinite(value) ? Number(value.toFixed(2)) : 0
@@ -26,13 +30,28 @@ export function downloadSalesLineReportExcel(
         Subtotal: money(row.subtotal),
         'Total sales': money(row.totalSales),
         'Sales type': row.salesType,
-        'Paid status': row.paidStatus ?? '',
+        'Paid status': row.paidStatus || 'Unpaid',
+        'Balance due': money(row.balanceDue ?? 0),
+        'Due date': formatSalesDueDate(row.dueDate),
+        Overdue: row.isOverdue ? 'Yes' : '',
+        'Payment method': row.paymentMethod
+            ? salesPaymentMethodLabel(row.paymentMethod)
+            : '',
+        'Payment breakdown': (row.payments ?? [])
+            .map(
+                (payment) =>
+                    `${salesPaymentMethodLabel(payment.method)} ${money(payment.amount).toFixed(2)}${payment.reference ? ` (Ref ${payment.reference})` : ''}`,
+            )
+            .join(' + '),
         'Invoice type': row.invoiceType,
         'Invoice number': row.invoiceNumber,
         'Order number': row.orderNumber,
         'Sold at': row.createdAt
             ? new Date(row.createdAt).toLocaleString('en-PH')
             : '',
+        'Batch number': row.batchNumber || '',
+        'Lot number': row.lotNumber || '',
+        Remarks: row.remarks || '',
     }))
 
     const workbook = XLSX.utils.book_new()

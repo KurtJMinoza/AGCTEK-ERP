@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import dayjs from 'dayjs'
 import {
+    HiOutlineBan,
     HiOutlineCheck,
     HiOutlineClipboardCheck,
     HiOutlineCreditCard,
@@ -33,12 +34,27 @@ const STEPS = ['DRAFT', 'CONFIRMED', 'APPROVED'] as const
 const money = (value: number | string | null | undefined) => formatSdMoney(Number(value ?? 0))
 const dateTime = (value?: string | null) => (value ? dayjs(value).format('MMM D, YYYY · h:mm A') : '—')
 
-/** Draft → Confirmed → Approved tracker; a cancelled transaction shows a single red state. */
-function StatusTracker({ status }: { status: string }) {
+/** Draft → Confirmed → Approved tracker; a voided transaction shows a single red state with its reason. */
+function StatusTracker({ tx }: { tx: ExtPlatformTransaction }) {
+    const { status } = tx
     if (status === 'CANCELLED') {
         return (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
-                <HiOutlineX className="h-4 w-4" /> This transaction was cancelled and is excluded from sales totals.
+            <div className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300">
+                <HiOutlineX className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0">
+                    <p>
+                        {tx.voidedAt ? 'This sale was voided' : 'This transaction was cancelled'} and is excluded from
+                        sales totals.
+                    </p>
+                    {tx.voidReason ? (
+                        <p className="mt-0.5 whitespace-pre-line font-normal">
+                            Reason: {tx.voidReason}
+                            {tx.voidedBy || tx.voidedAt
+                                ? ` — ${[tx.voidedBy, tx.voidedAt ? dateTime(tx.voidedAt) : null].filter(Boolean).join(' · ')}`
+                                : ''}
+                        </p>
+                    ) : null}
+                </div>
             </div>
         )
     }
@@ -179,6 +195,8 @@ export type ExtPlatformTransactionDetailDialogProps = {
     onConfirm?: (tx: ExtPlatformTransaction) => void
     onApprove?: (tx: ExtPlatformTransaction) => void
     onDelete?: (tx: ExtPlatformTransaction) => void
+    /** Void a confirmed / approved sale (asks for a reason); hidden when omitted. */
+    onVoid?: (tx: ExtPlatformTransaction) => void
 }
 
 export default function ExtPlatformTransactionDetailDialog({
@@ -188,6 +206,7 @@ export default function ExtPlatformTransactionDetailDialog({
     onConfirm,
     onApprove,
     onDelete,
+    onVoid,
 }: ExtPlatformTransactionDetailDialogProps) {
     if (!tx) return null
 
@@ -219,7 +238,7 @@ export default function ExtPlatformTransactionDetailDialog({
                 </span>
             }
             description={`${tx.salesSource.name} sale · ${dayjs(tx.transactionDate).format('MMMM D, YYYY')} · ${tx.company?.name ?? ''}`}
-            headerExtra={<StatusTracker status={tx.status} />}
+            headerExtra={<StatusTracker tx={tx} />}
             bodyClassName="bg-gray-50 dark:bg-gray-900/40"
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-3">
@@ -237,6 +256,17 @@ export default function ExtPlatformTransactionDetailDialog({
                                 onClick={() => onDelete(tx)}
                             >
                                 Delete
+                            </Button>
+                        ) : null}
+                        {(tx.status === 'CONFIRMED' || tx.status === 'APPROVED') && onVoid ? (
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                icon={<HiOutlineBan />}
+                                className="!text-red-500"
+                                onClick={() => onVoid(tx)}
+                            >
+                                Void
                             </Button>
                         ) : null}
                         <Button size="sm" onClick={onClose}>
@@ -293,6 +323,9 @@ export default function ExtPlatformTransactionDetailDialog({
                                         <th className="px-3 py-2.5 text-right">Qty</th>
                                         <th className="px-3 py-2.5 text-right">Unit price</th>
                                         <th className="px-3 py-2.5 text-right">Discount</th>
+                                        <th className="px-3 py-2.5">Barcode</th>
+                                        <th className="px-3 py-2.5">Batch</th>
+                                        <th className="px-3 py-2.5">Lot</th>
                                         <th className="px-3 py-2.5">Tax</th>
                                         <th className="px-3 py-2.5 text-right">VAT</th>
                                         <th className="px-4 py-2.5 text-right">Amount</th>
@@ -316,6 +349,15 @@ export default function ExtPlatformTransactionDetailDialog({
                                             <td className="px-3 py-3 text-right tabular-nums">{money(line.unitPrice)}</td>
                                             <td className="px-3 py-3 text-right tabular-nums text-gray-500">
                                                 {Number(line.discount) ? `− ${money(line.discount)}` : '—'}
+                                            </td>
+                                            <td className="px-3 py-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                                                {line.barcode || '—'}
+                                            </td>
+                                            <td className="px-3 py-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                                                {line.batchNumber || '—'}
+                                            </td>
+                                            <td className="px-3 py-3 font-mono text-[11px] text-gray-600 dark:text-gray-300">
+                                                {line.lotNumber || '—'}
                                             </td>
                                             <td className="px-3 py-3">
                                                 <TaxClassTag

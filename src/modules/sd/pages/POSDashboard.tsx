@@ -87,7 +87,7 @@ import {
     type PosSessionCollections,
 } from '../services/posService'
 import { PosHoldPayloadSchema, type PosTenderInput } from '../types/pos.schema'
-import POSReceipt from '../components/POSReceipt'
+import POSReceiptSheet from '../components/POSReceiptSheet'
 import POSCheckoutPanel, {
     type POSCustomerOption,
 } from '../components/POSCheckoutPanel'
@@ -101,7 +101,6 @@ import POSTransactionsDialog, {
     posReceiptKey,
 } from '../components/POSTransactionsDialog'
 import POSVoidDialog from '../components/POSVoidDialog'
-import BarcodeQuickAddDialog from '../components/BarcodeQuickAddDialog'
 import { PcProductThumbnail } from '../components/ProductCatalogTableCells'
 import {
     POS_GATEWAY_PATH,
@@ -163,7 +162,20 @@ const POSDashboard = () => {
     const setCustomer = usePOSCartStore((s) => s.setCustomer)
     const snapshotCart = usePOSCartStore((s) => s.snapshot)
     const restoreCart = usePOSCartStore((s) => s.restore)
-    const catalog = useDivisionProducts(RETAIL_DIVISION_ID, toRetailProduct)
+
+    /** The branch of the terminal and its company (the POS scope). */
+    const activeBranch = useMemo(
+        () => branches.find((row) => row.id === branchId) ?? null,
+        [branches, branchId],
+    )
+    const companyId = activeBranch?.companyId ?? null
+
+    /** Company-scoped retail catalog — other companies' SKUs are not sellable here. */
+    const catalog = useDivisionProducts(
+        RETAIL_DIVISION_ID,
+        toRetailProduct,
+        companyId,
+    )
     /** Parent with multiple variants → cashier picks the exact one. */
     const [variantPicker, setVariantPicker] = useState<{
         product: ReturnType<typeof toRetailProduct>
@@ -192,7 +204,6 @@ const POSDashboard = () => {
     const printIsolateRef = useRef<HTMLDivElement | null>(null)
     const [cameraOpen, setCameraOpen] = useState(false)
     const [addingSku, setAddingSku] = useState(false)
-    const [registerBarcode, setRegisterBarcode] = useState<string | null>(null)
 
     /** Collection dialog for partially paid sales. */
     const [collectTarget, setCollectTarget] = useState<PosReceipt | null>(null)
@@ -241,7 +252,7 @@ const POSDashboard = () => {
     const [lastScan, setLastScan] = useState<{ code: string; at: number } | null>(null)
 
     /** Live search over the loaded catalog plus the central barcode registry. */
-    const search = usePOSCatalogSearch(catalog.products, sku)
+    const search = usePOSCatalogSearch(catalog.products, sku, companyId)
     const searchRows =
         search.products.length + (search.barcode !== null ? 1 : 0)
     const showSearch = searchFocused && sku.trim().length > 0 && catalog.ready
@@ -265,12 +276,19 @@ const POSDashboard = () => {
         stockLines,
     )
 
-    /** The branch of the terminal and its company (the POS scope). */
-    const activeBranch = useMemo(
-        () => branches.find((row) => row.id === branchId) ?? null,
-        [branches, branchId],
-    )
-    const companyId = activeBranch?.companyId ?? null
+    /** Drop a prior company's cart when the terminal company changes. */
+    const lastCompanyRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!companyId) return
+        if (
+            lastCompanyRef.current &&
+            lastCompanyRef.current !== companyId &&
+            items.length > 0
+        ) {
+            clearCart()
+        }
+        lastCompanyRef.current = companyId
+    }, [companyId, clearCart, items.length])
 
     /** Reads the open shift of the register and the money it collected. */
     const loadShift = useCallback(async () => {
@@ -468,6 +486,7 @@ const POSDashboard = () => {
                 setCustomerOptions(
                     rows.map((row) => ({
                         value: row.id,
+                        name: row.companyName,
                         label: `${row.companyName} (${row.customerNumber})`,
                         accountType: row.customerAccountType,
                     })),
@@ -889,11 +908,21 @@ const POSDashboard = () => {
             setActiveIndex(-1)
             if (options?.focus !== false) focusScanner()
             if (!product) {
-                // Variant barcode (SD): public scanner lookup, works for cashiers.
+                if (!companyId) {
+                    notify(
+                        'danger',
+                        'No company scope',
+                        'Select a branch before scanning products.',
+                    )
+                    setAddingSku(false)
+                    return
+                }
+                // Variant barcode (SD): company-scoped scanner lookup.
                 try {
                     const variant =
                         await productOptionVariantsService.findVariantByBarcode(
                             code,
+                            companyId,
                         )
                     const parent = catalog.products.find(
                         (p) =>
@@ -905,7 +934,7 @@ const POSDashboard = () => {
                         notify(
                             'danger',
                             'Variant not in catalog',
-                            `${code} matched ${variant.variantName}, but its parent SKU is not in the POS catalog.`,
+                            `${code} matched ${variant.variantName}, but its parent SKU is not in this company's POS catalog.`,
                         )
                         setAddingSku(false)
                         return
@@ -925,7 +954,7 @@ const POSDashboard = () => {
                 // Central barcode registry: MM primary / alternative barcode,
                 // then SD variant barcode (same lookup MM, SD and POS share).
                 try {
-                    const hit = await lookupProductBarcode(code)
+                    const hit = await lookupProductBarcode(code, companyId)
                     const listing = hit.listing
                     if (listing) {
                         const parent = catalog.products.find(
@@ -938,7 +967,7 @@ const POSDashboard = () => {
                             notify(
                                 'danger',
                                 'Not in the POS catalog',
-                                `${listing.productName} is listed in another division and cannot be sold here.`,
+                                `${listing.productName} is not in this company's Product Catalog.`,
                             )
                             setAddingSku(false)
                             return
@@ -955,8 +984,8 @@ const POSDashboard = () => {
                     if (hit.found) {
                         notify(
                             'info',
-                            'Not in the catalog',
-                            `${hit.material?.name ?? code} exists in Material Master but is not listed. Use Quick Add to create the listing.`,
+                            'Not in Product Catalog',
+                            `${hit.material?.name ?? code} is in Material Master but not listed in Product Catalog, so it cannot be sold at POS.`,
                         )
                         setAddingSku(false)
                         return
@@ -964,7 +993,7 @@ const POSDashboard = () => {
                     notify(
                         'danger',
                         'Barcode not found',
-                        `${code} is not registered. Use Quick Add if you need to create it.`,
+                        `${code} is not in this company's Product Catalog.`,
                     )
                     setAddingSku(false)
                     return
@@ -1032,8 +1061,10 @@ const POSDashboard = () => {
         [
             addToCart,
             catalog.error,
+            catalog.products,
             catalog.ready,
             catalog.reload,
+            companyId,
             resolveProduct,
             sku,
         ],
@@ -1083,8 +1114,8 @@ const POSDashboard = () => {
     )
 
     /**
-     * Picking a barcode-registry row: listed → cart; otherwise open Quick Add
-     * (explicit choice from the dropdown — scans themselves never open it).
+     * Picking a barcode-registry row: Product Catalog listing → cart.
+     * Materials / unknown barcodes are not sellable at POS.
      */
     const selectBarcodeHit = useCallback(
         async (code: string) => {
@@ -1110,10 +1141,28 @@ const POSDashboard = () => {
                     })
                     return
                 }
+                notify(
+                    'danger',
+                    'Not in the POS catalog',
+                    `${listing.productName} is not in this company's Product Catalog.`,
+                )
+                setSku('')
+                return
             }
             setSku('')
-            setCameraOpen(false)
-            setRegisterBarcode(code)
+            if (hit?.found) {
+                notify(
+                    'info',
+                    'Not in Product Catalog',
+                    `${hit.material?.name ?? code} is not listed in Product Catalog.`,
+                )
+                return
+            }
+            notify(
+                'danger',
+                'Barcode not found',
+                `${code} is not in this company's Product Catalog.`,
+            )
         },
         [addToCart, catalog.products, search.barcode],
     )
@@ -1139,7 +1188,15 @@ const POSDashboard = () => {
      * tax configuration, captures the tenders and posts the goods issue.
      */
     const handleCompleteSale = async (result: TenderResult) => {
-        const { tenders, paymentMode, downPaymentType, downPaymentPct, downPaymentAmount } = result
+        const {
+            tenders,
+            paymentMode,
+            downPaymentType,
+            downPaymentPct,
+            downPaymentAmount,
+            dueDate,
+            remarks,
+        } = result
         if (!branchId || !companyId) {
             notify(
                 'danger',
@@ -1217,6 +1274,8 @@ const POSDashboard = () => {
                 ...(downPaymentType ? { downPaymentType } : {}),
                 ...(downPaymentPct !== undefined ? { downPaymentPct } : {}),
                 ...(downPaymentAmount !== undefined ? { downPaymentAmount } : {}),
+                ...(dueDate ? { dueDate } : {}),
+                ...(remarks ? { remarks } : {}),
             })
             clearCart()
             checkoutKeyRef.current = null
@@ -1247,7 +1306,7 @@ const POSDashboard = () => {
     }, [branchId])
 
     /**
-     * Prints the open receipt to the Xprinter (or the OS default thermal).
+     * Prints the open receipt on A4 through the browser print dialog.
      * Reprint / retry only re-sends the same receipt — never another sale.
      */
     const handlePrintReceipt = useCallback(async () => {
@@ -1767,8 +1826,8 @@ const POSDashboard = () => {
                                                                           .result
                                                                           .listing
                                                                         ? 'In catalog — Enter to add'
-                                                                        : 'Material found — use Quick Add to list'
-                                                                    : 'Not registered — use Quick Add'}
+                                                                        : 'Not in Product Catalog'
+                                                                    : 'Not in Product Catalog'}
                                                             </span>
                                                         </span>
                                                         {search.barcode.result
@@ -1790,8 +1849,8 @@ const POSDashboard = () => {
                                             {searchRows === 0 ? (
                                                 <li className="flex items-center gap-2 px-3 py-3 text-sm text-gray-500">
                                                     <HiOutlineSearch className="text-base" />
-                                                    No matching product. Use
-                                                    Quick Add to create one.
+                                                    No matching Product Catalog
+                                                    item.
                                                 </li>
                                             ) : null}
                                         </ul>
@@ -1807,7 +1866,7 @@ const POSDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             {canCreate && (
                                 <Button
                                     block
@@ -1824,20 +1883,6 @@ const POSDashboard = () => {
                                     Add item
                                 </Button>
                             )}
-                            <Button
-                                block
-                                size="lg"
-                                variant="default"
-                                className="h-12"
-                                icon={<HiOutlinePlus className="text-lg" />}
-                                disabled={addingSku}
-                                onClick={() => {
-                                    setCameraOpen(false)
-                                    setRegisterBarcode(sku.trim())
-                                }}
-                            >
-                                Quick Add
-                            </Button>
                             <Button
                                 block
                                 size="lg"
@@ -1946,6 +1991,7 @@ const POSDashboard = () => {
                         }
                         onOpenCustomerDialog={() => setCustomerDialogOpen(true)}
                         addingCustomer={addingCustomer}
+                        customersLoading={customersLoading}
                         canPay={canCheckout}
                         onPay={() => {
                             // Quote the cart on the server right before the
@@ -2032,95 +2078,6 @@ const POSDashboard = () => {
                     focusScanner()
                 }}
                 onDetected={handleCameraDetected}
-            />
-
-            <BarcodeQuickAddDialog
-                isOpen={registerBarcode !== null}
-                initialBarcode={registerBarcode ?? ''}
-                divisionId={RETAIL_DIVISION_ID}
-                onClose={() => {
-                    setRegisterBarcode(null)
-                    focusScanner()
-                }}
-                onAddListed={(hit) => {
-                    const listing = hit.listing
-                    if (!listing) return
-                    const parent = catalog.products.find(
-                        (p) =>
-                            p.productId === listing.productId ||
-                            p.sku.toLowerCase() ===
-                                listing.productSku.toLowerCase(),
-                    )
-                    if (parent) {
-                        void addToCart(parent, {
-                            id: listing.variantId,
-                            name: listing.variantName,
-                            sku: listing.variantSku,
-                            unitPrice: listing.price,
-                        })
-                        return
-                    }
-                    addItem(
-                        {
-                            productId: listing.productId,
-                            itemId: listing.productId,
-                            sku: listing.productSku,
-                            name: listing.productName,
-                            description: hit.material?.description ?? '',
-                            details: '',
-                            features: [],
-                            reviews: [],
-                            basePrice: listing.price,
-                            category: 'General Goods',
-                            imageUrl: '',
-                            imageGallery: [],
-                            salesOrgId: RETAIL_DIVISION_ID,
-                        },
-                        1,
-                        {
-                            id: listing.variantId,
-                            name: listing.variantName,
-                            sku: listing.variantSku,
-                            unitPrice: listing.price,
-                        },
-                    )
-                }}
-                onCreated={(created) => {
-                    void catalog.reload()
-                    const listing = created.listing
-                    if (!listing) return
-                    // The material and listing are already saved; add the new
-                    // line so the cashier does not have to scan it again.
-                    addItem(
-                        {
-                            productId: listing.productId,
-                            itemId: listing.productId,
-                            sku: listing.productSku,
-                            name: listing.productName,
-                            description: created.material?.description ?? '',
-                            details: '',
-                            features: [],
-                            reviews: [],
-                            basePrice: listing.price,
-                            category: 'General Goods',
-                            imageUrl: '',
-                            imageGallery: [],
-                            salesOrgId: RETAIL_DIVISION_ID,
-                        },
-                        1,
-                        {
-                            id: listing.variantId,
-                            name: listing.variantName,
-                            sku: listing.variantSku,
-                            unitPrice: listing.price,
-                        },
-                    )
-                    notify(
-                        'success',
-                        'Material registered',
-                        `${listing.productName} was added to the cart.`,
-                    )
-                }}
             />
 
             <ConfirmDialog
@@ -2401,7 +2358,7 @@ const POSDashboard = () => {
 
             <Dialog
                 isOpen={receipt !== null}
-                width={380}
+                width={900}
                 shouldReturnFocusAfterClose={false}
                 onAfterClose={focusScanner}
                 onClose={() => {
@@ -2438,19 +2395,26 @@ const POSDashboard = () => {
                 ) : null}
                 {printingReceipt ? (
                     <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
-                        Sending to the Xprinter… Confirm or cancel in the print
+                        Sending to the printer… Confirm or cancel in the print
                         dialog. The sale is already saved.
                     </p>
                 ) : null}
                 {receipt ? (
                     <div className="max-h-[60vh] overflow-y-auto rounded border border-gray-200 dark:border-gray-700">
-                        <POSReceipt
-                            receipt={receipt}
-                            branchName={branch?.label}
-                            terminalCode={shift?.terminalCode ?? null}
-                            cashierName={session?.user?.name ?? null}
-                        />
+                        {/* Same size as the printed copies (see BASE_SCALE in printPosReceipt). */}
+                        <div style={{ zoom: 0.88 }}>
+                            <POSReceiptSheet
+                                receipt={receipt}
+                                branchName={branch?.label}
+                            />
+                        </div>
                     </div>
+                ) : null}
+                {receipt ? (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Prints two copies on one A4 sheet. Cut along the dashed
+                        line.
+                    </p>
                 ) : null}
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {canCreate && (
@@ -2489,13 +2453,11 @@ const POSDashboard = () => {
                 ? createPortal(
                       <div
                           ref={printIsolateRef}
-                          className="print-isolate hidden print:block"
+                          className="print-isolate print-isolate--a4 hidden print:block"
                       >
-                          <POSReceipt
+                          <POSReceiptSheet
                               receipt={receipt}
                               branchName={branch?.label}
-                              terminalCode={shift?.terminalCode ?? null}
-                              cashierName={session?.user?.name ?? null}
                           />
                       </div>,
                       document.body,

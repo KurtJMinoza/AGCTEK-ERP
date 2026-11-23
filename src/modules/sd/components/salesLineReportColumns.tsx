@@ -1,11 +1,14 @@
 'use client'
 
 import type { ColumnDef } from '@/components/shared/DataTable'
+import StatusBadge, { type StatusTone } from '@/components/shared/StatusBadge'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
-import { SdMoneyCell } from './SdDataTableCells'
+import { SdMoneyCell, formatSdMoney } from './SdDataTableCells'
 import {
+    formatSalesDueDate,
     salesChannelLabel,
+    salesPaymentMethodLabel,
     type SalesLineReportRow,
 } from '../services/salesAnalyticsService'
 
@@ -21,53 +24,102 @@ type ColumnOptions = {
     variant: 'summary' | 'full'
 }
 
+/**
+ * Header + cell alignment. `th` carries its own `text-left` from the table theme,
+ * so the important modifier is needed for headers; cells inherit it too.
+ */
+const RIGHT = { className: '!text-right' } as const
+
 const relaxed = (variant: ColumnOptions['variant']) => variant === 'full'
 
-const fullHeaderClass =
-    'whitespace-normal text-xs font-semibold uppercase leading-tight tracking-wide'
-
-/** Full modal register — wide fixed columns; table scrolls horizontally. */
-const FULL_COL = {
-    customerName: { size: 200, min: 176 },
-    location: { size: 148, min: 128 },
-    barcode: { size: 148, min: 132 },
-    accountTitle: { size: 168, min: 148 },
-    particular: { size: 380, min: 320 },
-    qty: { size: 72, min: 64 },
-    uom: { size: 88, min: 76 },
-    cost: { size: 116, min: 104 },
-    totalCost: { size: 124, min: 112 },
-    srp: { size: 112, min: 100 },
-    sales: { size: 112, min: 100 },
-    discount: { size: 112, min: 100 },
-    subtotal: { size: 124, min: 112 },
+/** Fixed column widths (px). Tables scroll horizontally instead of squeezing columns. */
+const WIDTHS = {
+    customerName: { summary: 190, full: 200, min: 160 },
+    salesChannel: { summary: 112, full: 120, min: 96 },
+    location: { summary: 170, full: 170, min: 140 },
+    barcode: { summary: 150, full: 150, min: 132 },
+    accountTitle: { summary: 170, full: 170, min: 148 },
+    particular: { summary: 300, full: 380, min: 260 },
+    qty: { summary: 76, full: 76, min: 64 },
+    uom: { summary: 80, full: 88, min: 68 },
+    cost: { summary: 120, full: 120, min: 104 },
+    totalCost: { summary: 128, full: 128, min: 112 },
+    srp: { summary: 116, full: 116, min: 100 },
+    sales: { summary: 116, full: 116, min: 100 },
+    discount: { summary: 116, full: 116, min: 100 },
+    subtotal: { summary: 128, full: 128, min: 112 },
+    totalSales: { summary: 132, full: 132, min: 116 },
+    paidStatus: { summary: 128, full: 128, min: 112 },
+    balanceDue: { summary: 150, full: 150, min: 132 },
+    paymentMethod: { summary: 230, full: 240, min: 200 },
+    salesType: { summary: 128, full: 132, min: 112 },
+    invoiceType: { summary: 130, full: 140, min: 112 },
+    invoiceNumber: { summary: 170, full: 170, min: 150 },
+    batchNumber: { summary: 140, full: 140, min: 120 },
+    lotNumber: { summary: 130, full: 130, min: 112 },
+    remarks: { summary: 200, full: 220, min: 160 },
 } as const
 
-const fullSize = (
-    variant: ColumnOptions['variant'],
-    key: keyof typeof FULL_COL,
-    summary: { size: number; min: number },
-) =>
-    relaxed(variant)
-        ? { size: FULL_COL[key].size, minSize: FULL_COL[key].min }
-        : { size: summary.size, minSize: summary.min }
+type WidthKey = keyof typeof WIDTHS
+
+const sized = (variant: ColumnOptions['variant'], key: WidthKey) => ({
+    size: WIDTHS[key][relaxed(variant) ? 'full' : 'summary'],
+    minSize: WIDTHS[key].min,
+})
+
+const Dash = () => <span className="text-gray-400">—</span>
+
+const TextCell = ({
+    value,
+    className,
+}: {
+    value?: string | null
+    className?: string
+}) =>
+    value?.trim() ? (
+        <span
+            className={classNames('block truncate text-sm', className)}
+            title={value}
+        >
+            {value}
+        </span>
+    ) : (
+        <Dash />
+    )
+
+const MonoCell = ({ value }: { value?: string | null }) =>
+    value?.trim() ? (
+        <span
+            className="block max-w-[10.5rem] truncate font-mono text-xs text-gray-700 dark:text-gray-300"
+            title={value}
+        >
+            {value}
+        </span>
+    ) : (
+        <Dash />
+    )
+
+const PAID_TONE: Record<string, StatusTone> = {
+    PAID: 'success',
+    'PARTIALLY PAID': 'info',
+    UNPAID: 'warning',
+}
+
+const paidTone = (status: string): StatusTone =>
+    PAID_TONE[status.replace(/_/g, ' ').toUpperCase()] ?? 'default'
 
 const ProductLineCell = ({
     row,
     productByName,
     onParticularClick,
-    isRelaxed,
 }: {
     row: SalesLineReportRow
     productByName: ColumnOptions['productByName']
     onParticularClick?: ColumnOptions['onParticularClick']
-    isRelaxed: boolean
 }) => {
     const linked = productByName.has(row.particular)
-    const thumbClass = isRelaxed ? 'h-11 w-11' : 'h-10 w-10'
-    const textClass = isRelaxed
-        ? 'min-w-0 flex-1 whitespace-normal text-left text-sm leading-snug'
-        : 'min-w-0 flex-1 truncate text-sm'
+    const textClass =
+        'min-w-0 flex-1 line-clamp-2 break-words text-left text-sm leading-snug'
 
     const label =
         linked && onParticularClick ? (
@@ -86,19 +138,16 @@ const ProductLineCell = ({
         )
 
     return (
-        <div className="flex min-w-0 items-center gap-2">
-            <div
-                className={`${thumbClass} shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800`}
-            >
+        <div className="flex min-w-0 max-w-[22rem] items-center gap-2.5">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-800">
                 {row.productImageUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                         src={row.productImageUrl}
                         alt=""
                         className="h-full w-full object-cover"
                     />
                 ) : (
-                    <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold uppercase text-gray-500">
+                    <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase text-gray-500">
                         {row.particular.trim().slice(0, 2) || '—'}
                     </span>
                 )}
@@ -108,335 +157,321 @@ const ProductLineCell = ({
     )
 }
 
-const ALL_COLUMN_BUILDERS: Array<
-  (opts: ColumnOptions) => ColumnDef<SalesLineReportRow>
-> = [
-  (opts) => ({
-    header: 'Customer name',
-    id: 'customerName',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'customerName', { size: 180, min: 140 }),
-    cell: ({ row }) => (
-      <span
-        className={
-          relaxed(opts.variant)
-            ? 'block whitespace-normal text-sm font-medium leading-snug heading-text'
-            : 'block max-w-[16rem] truncate text-sm font-medium heading-text'
-        }
-        title={row.original.customerName}
-      >
-        {row.original.customerName}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Channel',
-    id: 'salesChannel',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 120 : 104,
-    minSize: relaxed(opts.variant) ? 100 : 88,
-    cell: ({ row }) => (
-      <Tag className="whitespace-nowrap text-[11px]">
-        {salesChannelLabel(row.original.salesChannel)}
-      </Tag>
-    ),
-  }),
-  (opts) => ({
-    header: 'Location',
-    id: 'location',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'location', { size: 120, min: 96 }),
-    cell: ({ row }) => (
-      <span
-        className={
-          relaxed(opts.variant)
-            ? 'block whitespace-normal text-sm leading-snug'
-            : 'whitespace-nowrap text-sm'
-        }
-      >
-        {row.original.location}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Barcode',
-    id: 'barcode',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'barcode', { size: 130, min: 130 }),
-    cell: ({ row }) => (
-      <span
-        className={classNames(
-          'whitespace-nowrap font-mono text-gray-600 dark:text-gray-300',
-          relaxed(opts.variant) ? 'text-sm' : 'text-xs',
-        )}
-      >
-        {row.original.barcode}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Account title',
-    id: 'accountTitle',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'accountTitle', { size: 120, min: 110 }),
-    cell: ({ row }) => (
-      <span
-        className={
-          relaxed(opts.variant)
-            ? 'block whitespace-normal text-sm uppercase leading-snug'
-            : 'block max-w-[10rem] truncate text-sm uppercase'
-        }
-      >
-        {row.original.accountTitle || '—'}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Particular',
-    id: 'particular',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'particular', { size: 200, min: 160 }),
-    cell: ({ row }) => (
-      <ProductLineCell
-        row={row.original}
-        productByName={opts.productByName}
-        onParticularClick={opts.onParticularClick}
-        isRelaxed={relaxed(opts.variant)}
-      />
-    ),
-  }),
-  (opts) => ({
-    header: 'Qty',
-    id: 'qty',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'qty', { size: 72, min: 56 }),
-    cell: ({ row }) => (
-      <span
-        className={classNames(
-          'tabular-nums',
-          relaxed(opts.variant) ? 'text-sm' : 'text-[11px]',
-        )}
-      >
-        {formatQty(row.original.quantity)}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'UOM',
-    id: 'uom',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'uom', { size: 72, min: 56 }),
-    cell: ({ row }) => (
-      <span
-        className={classNames(
-          'text-gray-600 dark:text-gray-300',
-          relaxed(opts.variant) ? 'text-sm' : 'text-[11px]',
-        )}
-      >
-        {row.original.uom || '—'}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Cost',
-    id: 'cost',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'cost', { size: 112, min: 96 }),
-    cell: ({ row }) => (
-      <SdMoneyCell amount={row.original.unitCost} currency={opts.currency} />
-    ),
-  }),
-  (opts) => ({
-    header: 'Total cost',
-    id: 'totalCost',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'totalCost', { size: 118, min: 104 }),
-    cell: ({ row }) => (
-      <SdMoneyCell amount={row.original.totalCost} currency={opts.currency} />
-    ),
-  }),
-  (opts) => ({
-    header: 'SRP',
-    id: 'srp',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'srp', { size: 104, min: 88 }),
-    cell: ({ row }) => (
-      <SdMoneyCell amount={row.original.srp} currency={opts.currency} />
-    ),
-  }),
-  (opts) => ({
-    header: 'Sales',
-    id: 'sales',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'sales', { size: 104, min: 88 }),
-    cell: ({ row }) => (
-      <SdMoneyCell amount={row.original.sales} currency={opts.currency} />
-    ),
-  }),
-  (opts) => ({
-    header: 'Discount',
-    id: 'discount',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'discount', { size: 104, min: 88 }),
-    cell: ({ row }) =>
-      row.original.discount > 0 ? (
-        <SdMoneyCell
-          amount={row.original.discount}
-          currency={opts.currency}
-          negative
-        />
-      ) : (
-        <span className="text-gray-400">—</span>
-      ),
-  }),
-  (opts) => ({
-    header: 'Subtotal',
-    id: 'subtotal',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    ...fullSize(opts.variant, 'subtotal', { size: 112, min: 96 }),
-    cell: ({ row }) => (
-      <SdMoneyCell
-        emphasize
-        amount={row.original.subtotal}
-        currency={opts.currency}
-      />
-    ),
-  }),
-  (opts) => ({
-    header: 'Total sales',
-    id: 'totalSales',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 68 : 118,
-    minSize: relaxed(opts.variant) ? 56 : 104,
-    cell: ({ row }) => (
-      <SdMoneyCell
-        emphasize
-        amount={row.original.totalSales}
-        currency={opts.currency}
-      />
-    ),
-  }),
-  (opts) => ({
-    header: 'Paid status',
-    id: 'paidStatus',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 88 : 108,
-    minSize: relaxed(opts.variant) ? 72 : 92,
-    cell: ({ row }) =>
-      row.original.paidStatus ? (
-        <Tag
-          className={classNames(
-            row.original.paidStatus === 'PAID' &&
-              'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-            row.original.paidStatus === 'UNPAID' &&
-              'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
-          )}
-        >
-          {row.original.paidStatus}
-        </Tag>
-      ) : (
-        <span className="text-gray-400">—</span>
-      ),
-  }),
-  (opts) => ({
-    header: 'Sales type',
-    id: 'salesType',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 64 : 108,
-    minSize: relaxed(opts.variant) ? 52 : 92,
-    cell: ({ row }) => (
-      <Tag
-        className={classNames(
-          relaxed(opts.variant) && 'text-[10px]',
-          (row.original.salesType === 'CREDIT' ||
-            row.original.salesType === 'SALARY DEDUCTION') &&
+const SALES_TYPE_CLASS = (type: string) =>
+    classNames(
+        'whitespace-nowrap text-[11px]',
+        (type === 'CREDIT' || type === 'SALARY DEDUCTION') &&
             'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
-        )}
-      >
-        {row.original.salesType}
-      </Tag>
-    ),
-  }),
-  (opts) => ({
-    header: 'Invoice type',
-    id: 'invoiceType',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 80 : 116,
-    minSize: relaxed(opts.variant) ? 64 : 108,
-    cell: ({ row }) => (
-      <span className="whitespace-normal text-[10px] leading-tight text-gray-600 dark:text-gray-300">
-        {row.original.invoiceType}
-      </span>
-    ),
-  }),
-  (opts) => ({
-    header: 'Invoice number',
-    id: 'invoiceNumber',
-    meta: relaxed(opts.variant)
-        ? { className: fullHeaderClass }
-        : undefined,
-    size: relaxed(opts.variant) ? 88 : 124,
-    minSize: relaxed(opts.variant) ? 72 : 120,
-    cell: ({ row }) => (
-      <span className="break-all font-mono text-[10px] text-primary">
-        {row.original.invoiceNumber || '—'}
-      </span>
-    ),
-  }),
+        type === 'CHARGE' &&
+            'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+    )
+
+const moneyColumn = (
+    header: string,
+    id: string,
+    key: WidthKey,
+    pick: (row: SalesLineReportRow) => number,
+    options: { emphasize?: boolean; hideZero?: boolean; negative?: boolean } = {},
+) =>
+    (opts: ColumnOptions): ColumnDef<SalesLineReportRow> => ({
+        header,
+        id,
+        meta: RIGHT,
+        ...sized(opts.variant, key),
+        cell: ({ row }) => {
+            const amount = pick(row.original)
+            if (options.hideZero && !(amount > 0)) return <Dash />
+            return (
+                <SdMoneyCell
+                    amount={amount}
+                    currency={opts.currency}
+                    emphasize={options.emphasize}
+                    negative={options.negative}
+                />
+            )
+        },
+    })
+
+const ALL_COLUMN_BUILDERS: Array<
+    (opts: ColumnOptions) => ColumnDef<SalesLineReportRow>
+> = [
+    (opts) => ({
+        header: 'Customer name',
+        id: 'customerName',
+        ...sized(opts.variant, 'customerName'),
+        cell: ({ row }) => (
+            <TextCell
+                value={row.original.customerName}
+                className="max-w-[15rem] font-medium heading-text"
+            />
+        ),
+    }),
+    (opts) => ({
+        header: 'Channel',
+        id: 'salesChannel',
+        ...sized(opts.variant, 'salesChannel'),
+        cell: ({ row }) => (
+            <Tag className="whitespace-nowrap text-[11px]">
+                {salesChannelLabel(row.original.salesChannel)}
+            </Tag>
+        ),
+    }),
+    (opts) => ({
+        header: 'Location',
+        id: 'location',
+        ...sized(opts.variant, 'location'),
+        cell: ({ row }) => (
+            <TextCell
+                value={row.original.location}
+                className="max-w-[11rem] text-gray-700 dark:text-gray-300"
+            />
+        ),
+    }),
+    (opts) => ({
+        header: 'Barcode',
+        id: 'barcode',
+        ...sized(opts.variant, 'barcode'),
+        cell: ({ row }) => <MonoCell value={row.original.barcode} />,
+    }),
+    (opts) => ({
+        header: 'Account title',
+        id: 'accountTitle',
+        ...sized(opts.variant, 'accountTitle'),
+        cell: ({ row }) => (
+            <TextCell
+                value={row.original.accountTitle}
+                className="max-w-[11rem] uppercase"
+            />
+        ),
+    }),
+    (opts) => ({
+        header: 'Particular',
+        id: 'particular',
+        ...sized(opts.variant, 'particular'),
+        cell: ({ row }) => (
+            <ProductLineCell
+                row={row.original}
+                productByName={opts.productByName}
+                onParticularClick={opts.onParticularClick}
+            />
+        ),
+    }),
+    (opts) => ({
+        header: 'Qty',
+        id: 'qty',
+        meta: RIGHT,
+        ...sized(opts.variant, 'qty'),
+        cell: ({ row }) => (
+            <span className="text-sm font-medium tabular-nums">
+                {formatQty(row.original.quantity)}
+            </span>
+        ),
+    }),
+    (opts) => ({
+        header: 'UOM',
+        id: 'uom',
+        ...sized(opts.variant, 'uom'),
+        cell: ({ row }) => (
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+                {row.original.uom || '—'}
+            </span>
+        ),
+    }),
+    moneyColumn('Cost', 'cost', 'cost', (r) => r.unitCost),
+    moneyColumn('Total cost', 'totalCost', 'totalCost', (r) => r.totalCost),
+    moneyColumn('SRP', 'srp', 'srp', (r) => r.srp),
+    moneyColumn('Sales', 'sales', 'sales', (r) => r.sales),
+    moneyColumn('Discount', 'discount', 'discount', (r) => r.discount, {
+        hideZero: true,
+        negative: true,
+    }),
+    moneyColumn('Subtotal', 'subtotal', 'subtotal', (r) => r.subtotal, {
+        emphasize: true,
+    }),
+    moneyColumn('Total sales', 'totalSales', 'totalSales', (r) => r.totalSales, {
+        emphasize: true,
+    }),
+    (opts) => ({
+        header: 'Paid status',
+        id: 'paidStatus',
+        ...sized(opts.variant, 'paidStatus'),
+        cell: ({ row }) => {
+            const status = row.original.paidStatus || 'Unpaid'
+            return (
+                <StatusBadge tone={paidTone(status)}>
+                    {status.replace(/_/g, ' ')}
+                </StatusBadge>
+            )
+        },
+    }),
+    (opts) => ({
+        header: 'Balance due',
+        id: 'balanceDue',
+        meta: RIGHT,
+        ...sized(opts.variant, 'balanceDue'),
+        cell: ({ row }) =>
+            row.original.balanceDue > 0.005 ? (
+                <div className="leading-tight">
+                    <span className="whitespace-nowrap text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                        {formatSdMoney(row.original.balanceDue, opts.currency)}
+                    </span>
+                    {row.original.dueDate ? (
+                        <div
+                            className={classNames(
+                                'whitespace-nowrap text-[11px]',
+                                row.original.isOverdue
+                                    ? 'font-semibold text-red-600 dark:text-red-400'
+                                    : 'text-gray-500 dark:text-gray-400',
+                            )}
+                        >
+                            {row.original.isOverdue ? 'Overdue · ' : 'Due '}
+                            {formatSalesDueDate(row.original.dueDate)}
+                        </div>
+                    ) : null}
+                </div>
+            ) : (
+                <Dash />
+            ),
+    }),
+    (opts) => ({
+        header: 'Payment method',
+        id: 'paymentMethod',
+        ...sized(opts.variant, 'paymentMethod'),
+        cell: ({ row }) => {
+            const { paymentMethod, payments } = row.original
+            if (!paymentMethod) return <Dash />
+            const isSplit = paymentMethod === 'SPLIT'
+            // A charge sale lists the payments collected after the sale.
+            const isCharge = paymentMethod === 'CHARGE'
+            const showPayments = isSplit || (isCharge && payments.length > 0)
+            return (
+                <div className="min-w-0 max-w-[16rem] space-y-1">
+                    <Tag
+                        className={classNames(
+                            'whitespace-nowrap text-[11px]',
+                            isSplit &&
+                                'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+                            isCharge &&
+                                'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+                        )}
+                    >
+                        {salesPaymentMethodLabel(paymentMethod)}
+                        {isSplit ? ` · ${payments.length}` : ''}
+                    </Tag>
+                    {showPayments
+                        ? payments.map((payment, index) => (
+                              <div
+                                  key={`${payment.method}-${index}`}
+                                  className="flex items-baseline justify-between gap-3 text-[11px] leading-tight"
+                                  title={
+                                      payment.reference
+                                          ? `${salesPaymentMethodLabel(payment.method)} · Ref ${payment.reference}`
+                                          : salesPaymentMethodLabel(payment.method)
+                                  }
+                              >
+                                  <span className="truncate text-gray-600 dark:text-gray-300">
+                                      {index + 1}.{' '}
+                                      {salesPaymentMethodLabel(payment.method)}
+                                      {payment.reference ? (
+                                          <span className="ml-1 font-mono text-gray-400">
+                                              #{payment.reference}
+                                          </span>
+                                      ) : null}
+                                  </span>
+                                  <span className="shrink-0 font-semibold tabular-nums heading-text">
+                                      {formatSdMoney(payment.amount, opts.currency)}
+                                  </span>
+                              </div>
+                          ))
+                        : null}
+                </div>
+            )
+        },
+    }),
+    (opts) => ({
+        header: 'Sales type',
+        id: 'salesType',
+        ...sized(opts.variant, 'salesType'),
+        cell: ({ row }) => (
+            <Tag className={SALES_TYPE_CLASS(row.original.salesType)}>
+                {row.original.salesType}
+            </Tag>
+        ),
+    }),
+    (opts) => ({
+        header: 'Invoice type',
+        id: 'invoiceType',
+        ...sized(opts.variant, 'invoiceType'),
+        cell: ({ row }) => (
+            <TextCell
+                value={row.original.invoiceType}
+                className="max-w-[10rem] text-xs text-gray-600 dark:text-gray-300"
+            />
+        ),
+    }),
+    (opts) => ({
+        header: 'Invoice number',
+        id: 'invoiceNumber',
+        ...sized(opts.variant, 'invoiceNumber'),
+        cell: ({ row }) =>
+            row.original.invoiceNumber ? (
+                <span
+                    className="block max-w-[10.5rem] truncate font-mono text-xs font-semibold text-primary"
+                    title={row.original.invoiceNumber}
+                >
+                    {row.original.invoiceNumber}
+                </span>
+            ) : (
+                <Dash />
+            ),
+    }),
+    (opts) => ({
+        header: 'Batch #',
+        id: 'batchNumber',
+        ...sized(opts.variant, 'batchNumber'),
+        cell: ({ row }) => <MonoCell value={row.original.batchNumber} />,
+    }),
+    (opts) => ({
+        header: 'Lot #',
+        id: 'lotNumber',
+        ...sized(opts.variant, 'lotNumber'),
+        cell: ({ row }) => <MonoCell value={row.original.lotNumber} />,
+    }),
+    (opts) => ({
+        header: 'Remarks',
+        id: 'remarks',
+        ...sized(opts.variant, 'remarks'),
+        cell: ({ row }) => (
+            <TextCell
+                value={row.original.remarks}
+                className="max-w-[14rem] text-xs text-gray-600 dark:text-gray-300"
+            />
+        ),
+    }),
 ]
 
 const SUMMARY_IDS = new Set([
-  'customerName',
-  'salesChannel',
-  'location',
-  'particular',
-  'qty',
-  'totalSales',
-  'salesType',
-  'paidStatus',
-  'invoiceNumber',
+    'customerName',
+    'salesChannel',
+    'location',
+    'particular',
+    'qty',
+    'cost',
+    'totalCost',
+    'totalSales',
+    'paidStatus',
+    'balanceDue',
+    'paymentMethod',
+    'salesType',
+    'invoiceNumber',
+    'batchNumber',
+    'lotNumber',
 ])
 
 export function buildSalesLineReportColumns(
-  options: ColumnOptions,
+    options: ColumnOptions,
 ): ColumnDef<SalesLineReportRow>[] {
-  const built = ALL_COLUMN_BUILDERS.map((build) => build(options))
-  if (options.variant === 'full') return built
-  return built.filter((col) => col.id && SUMMARY_IDS.has(col.id as string))
+    const built = ALL_COLUMN_BUILDERS.map((build) => build(options))
+    if (options.variant === 'full') return built
+    return built.filter((col) => col.id && SUMMARY_IDS.has(col.id as string))
 }

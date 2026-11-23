@@ -223,3 +223,29 @@ export function SdStatusBadgeCell({
         </StatusBadge>
     )
 }
+
+/** One or more batch/lot values on a transaction line summary. */
+export function SdTrackingValuesCell({ values }: { values: string[] }) {
+    if (!values.length) {
+        return <span className="text-sm text-gray-400">—</span>
+    }
+    const joined = values.join(', ')
+    if (values.length === 1) {
+        return (
+            <span
+                className="block max-w-[9rem] truncate font-mono text-xs font-semibold text-gray-800 dark:text-gray-100 sm:max-w-[11rem]"
+                title={joined}
+            >
+                {values[0]}
+            </span>
+        )
+    }
+    return (
+        <div className="min-w-[5.5rem] max-w-[11rem]">
+            <span className="block truncate font-mono text-xs font-semibold" title={joined}>
+                {values[0]}
+            </span>
+            <span className="text-[10px] text-gray-500">+{values.length - 1} more</span>
+        </div>
+    )
+}
