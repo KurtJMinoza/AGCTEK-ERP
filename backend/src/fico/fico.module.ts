@@ -31,7 +31,6 @@ import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
 import { DocumentTypesController } from './document-types/document-types.controller'
 import { DocumentTypesService } from './document-types/document-types.service'
-import { JournalEntryController } from './journal-entries/journal-entry.controller'
 import { JournalEntryService } from './journal-entries/journal-entry.service'
 
 @Module({
@@ -40,7 +39,8 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoPhase1Controller,
         FicoAccountDeterminationController,
         DocumentTypesController,
-        JournalEntryController,
+        // Manual-journal routes live on FicoPhase1Controller (main).
+        // Do not also register JournalEntryController — duplicate Fastify routes.
         FicoNumberRangeController,
         FicoTaxCodeController,
         FicoDocumentTypeController,
