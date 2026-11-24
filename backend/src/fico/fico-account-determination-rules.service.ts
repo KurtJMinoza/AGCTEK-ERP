@@ -207,8 +207,8 @@ export class FicoAccountDeterminationRulesService {
             dimensions: FICO_DETERMINATION_DIMENSIONS,
             valuationClasses,
             materialTypes,
-            /** SD has no account-group master yet; SdCustomer.customerType is the available grouping. */
-            customerAccountGroups: ['B2B', 'RETAIL'],
+            /** SD customer categories used for account-group determination. */
+            customerAccountGroups: ['RETAIL', 'CORPORATE', 'EMPLOYEE', 'WHOLESALE'],
             /** SD division codes used by SdProduct/SdSalesOrder.divisionId. */
             salesOrganizations: divisions
                 .map((row) => row.divisionId)

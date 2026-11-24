@@ -30,6 +30,11 @@ export async function generateMetadata({ params }: PageProps) {
 export default async function Page({ params }: PageProps) {
     const { moduleCode } = await params
 
+    // Documents was replaced by CRM › Emails.
+    if (moduleCode === 'documents') {
+        redirect('/emails')
+    }
+
     if (!isValidModuleCode(moduleCode)) {
         notFound()
     }

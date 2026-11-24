@@ -2,20 +2,20 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-    ficoDocumentTypeService,
+    fiDocumentTypeService,
     ficoErrorMessage,
 } from '../services/ficoService'
-import type { FicoDocumentType, FicoDocumentTypeInput } from '../types'
+import type { FiDocumentType, FiDocumentTypeInput } from '../types'
 
 export function useDocumentTypes() {
-    const [data, setData] = useState<FicoDocumentType[]>([])
+    const [data, setData] = useState<FiDocumentType[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const reload = useCallback(async () => {
         setLoading(true)
         setError(null)
         try {
-            setData(await ficoDocumentTypeService.list())
+            setData(await fiDocumentTypeService.list())
         } catch (error) {
             setError(ficoErrorMessage(error, 'Failed to load document types'))
         } finally {
@@ -40,11 +40,11 @@ export function useDocumentTypeMutations(onSuccess?: () => void | Promise<void>)
     }
     return {
         saving,
-        create: (body: FicoDocumentTypeInput) =>
-            mutate(() => ficoDocumentTypeService.create(body)),
-        update: (id: string, body: Partial<FicoDocumentTypeInput>) =>
-            mutate(() => ficoDocumentTypeService.update(id, body)),
+        create: (body: FiDocumentTypeInput) =>
+            mutate(() => fiDocumentTypeService.create(body)),
+        update: (id: string, body: Partial<FiDocumentTypeInput>) =>
+            mutate(() => fiDocumentTypeService.update(id, body)),
         deactivate: (id: string) =>
-            mutate(() => ficoDocumentTypeService.deactivate(id)),
+            mutate(() => fiDocumentTypeService.deactivate(id)),
     }
 }

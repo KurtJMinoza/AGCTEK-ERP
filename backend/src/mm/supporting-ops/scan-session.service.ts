@@ -1,13 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ComplianceAuditService } from './compliance-audit.service'
 
 @Injectable()
 export class ScanSessionService {
-    constructor(
-        private prisma: PrismaService,
-        private complianceAudit: ComplianceAuditService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     async start(input: {
         companyId: string
@@ -38,33 +34,14 @@ export class ScanSessionService {
                 status: 'OPEN',
             },
         })
-        await this.complianceAudit.record({
-            companyId: input.companyId,
-            domain: 'scan_session',
-            action: 'SESSION_STARTED',
-            entityType: 'SCAN_SESSION',
-            entityId: session.id,
-            entityNumber: sessionNumber,
-            performedBy: input.userId,
-            performedByRole: input.userRole,
-        })
         return session
     }
 
-    async complete(sessionId: string, userId?: string) {
-        const session = await this.findOpen(sessionId)
+    async complete(sessionId: string) {
+        await this.findOpen(sessionId)
         const updated = await this.prisma.mmScanSession.update({
             where: { id: sessionId },
             data: { status: 'COMPLETED', completedAt: new Date() },
-        })
-        await this.complianceAudit.record({
-            companyId: session.companyId,
-            domain: 'scan_session',
-            action: 'SESSION_COMPLETED',
-            entityType: 'SCAN_SESSION',
-            entityId: session.id,
-            entityNumber: session.sessionNumber,
-            performedBy: userId,
         })
         return updated
     }

@@ -114,6 +114,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/billing',
                         icon: 'fileText',
                     },
+                    {
+                        code: 'ext-platform-sales',
+                        permissionCode: 'sd.ext-platform-sales',
+                        title: 'External Platform Sales',
+                        description:
+                            'Manually record sales from Shopee, Lazada, TikTok Shop, Facebook Marketplace, distributors, resellers, and other external channels with automatic tax determination.',
+                        path: '/modules/sd/ext-platform-sales',
+                        icon: 'shoppingCart',
+                    },
                 ],
             },
             {
@@ -138,29 +147,14 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/backorder-report',
                         icon: 'lineChart',
                     },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
                     {
-                        code: 'sales-org',
-                        permissionCode: 'sd.configuration',
-                        title: 'Sales Organization',
+                        code: 'monthly-collection',
+                        permissionCode: 'sd.reports',
+                        title: 'Monthly Collection',
                         description:
-                            'Configure sales orgs, distribution channels, and divisions.',
-                        path: '/modules/sd/sales-org',
-                        icon: 'building',
-                    },
-                    {
-                        code: 'document-types',
-                        permissionCode: 'sd.configuration',
-                        title: 'Document Types',
-                        description:
-                            'Define SD document types and number ranges.',
-                        path: '/modules/sd/document-types',
-                        icon: 'settings',
+                            'Monthly collection monitoring by tender type — Cash, GCash, bank, cheque, and others.',
+                        path: '/modules/sd/monthly-collection',
+                        icon: 'receipt',
                     },
                 ],
             },
@@ -259,14 +253,6 @@ export const ERP_MODULES: ErpModule[] = [
                 title: 'Transactional',
                 submodules: [
                     {
-                        code: 'journal-entries',
-                        title: 'Journal Entries',
-                        description:
-                            'Post and reverse financial accounting documents.',
-                        path: '/modules/fico/journal-entries',
-                        icon: 'fileText',
-                    },
-                    {
                         code: 'accounts-payable',
                         title: 'Accounts Payable',
                         description:
@@ -341,12 +327,30 @@ export const ERP_MODULES: ErpModule[] = [
                     },
                     {
                         code: 'document-types-fi',
-                        permissionCode: 'fico.configuration',
-                        title: 'FI Document Types',
+                        permissionCode: 'fico.document-types',
+                        title: 'Document Types',
                         description:
-                            'Configure financial document types and number ranges.',
-                        path: '/modules/fico/document-types-fi',
+                            'Configure accounting document types, numbering, posting controls, and reversal settings.',
+                        path: '/modules/fico/document-types',
                         icon: 'settings',
+                    },
+                    {
+                        code: 'number-ranges',
+                        permissionCode: 'fico.number-ranges',
+                        title: 'Number Ranges',
+                        description:
+                            'Configure document number ranges for accounting and financial documents.',
+                        path: '/modules/fico/number-ranges',
+                        icon: 'settings',
+                    },
+                    {
+                        code: 'tax-codes',
+                        permissionCode: 'fico.tax-codes',
+                        title: 'Tax Codes',
+                        description:
+                            'Configure tax classifications, rates, calculation methods, and General Ledger mappings for financial transactions.',
+                        path: '/modules/fico/tax-codes',
+                        icon: 'receipt',
                     },
                 ],
             },
@@ -372,6 +376,15 @@ export const ERP_MODULES: ErpModule[] = [
                             'New leads, pipeline by stage and open tickets at a glance.',
                         path: '/crm',
                         icon: 'barChart',
+                    },
+                    {
+                        code: 'calendar',
+                        title: 'Activity calendar',
+                        description:
+                            'Week and month view of calls, meetings and tasks (Asia/Manila).',
+                        path: '/crm/calendar',
+                        icon: 'calendar',
+                        permissionCode: 'crm.activities',
                     },
                     {
                         code: 'customers',
@@ -416,6 +429,22 @@ export const ERP_MODULES: ErpModule[] = [
                             'Customer service cases with priorities, status and comments.',
                         path: '/crm/tickets',
                         icon: 'clipboard',
+                    },
+                ],
+            },
+            {
+                code: 'communications',
+                title: 'Communications',
+                submodules: [
+                    {
+                        code: 'emails',
+                        title: 'Emails',
+                        description:
+                            'Cover letters sent with quotations: subject, message, placeholders, default and active.',
+                        path: '/emails',
+                        icon: 'mail',
+                        // Mail hub; messages for compose/sent, templates for cover letters.
+                        permissionCode: 'emails.messages',
                     },
                 ],
             },
@@ -544,6 +573,17 @@ export const ERP_MODULES: ErpModule[] = [
             'HRIS — people, attendance, payroll, and workforce operations.',
         path: 'https://hris.agctek.co/',
         icon: 'users',
+        isExternalLink: true,
+        categories: [],
+    },
+    {
+        code: 'wpd',
+        shortTitle: 'WPD',
+        title: 'Workforce Productivity Dashboard',
+        description:
+            'Workforce productivity KPIs and operational performance (opens in a new tab).',
+        path: 'https://wpd.agctek.co/',
+        icon: 'lineChart',
         isExternalLink: true,
         categories: [],
     },

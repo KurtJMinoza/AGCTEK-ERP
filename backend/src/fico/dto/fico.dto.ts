@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsNumber, IsArray, ValidateNested, Min, Max } from 'class-validator'
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsNumber, IsArray, ValidateNested, Min, Max, IsBoolean } from 'class-validator'
 import { Type, Transform } from 'class-transformer'
 
 export class FicoPeriodQueryDto {
@@ -74,6 +74,14 @@ export class FicoReconciliationQueryDto {
     @IsString()
     currencyCode?: string
 
+    @IsOptional()
+    @IsBoolean()
+    requiresApproval?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    autoPost?: boolean
+
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => CreateJournalLineDto)
@@ -144,6 +152,23 @@ export class ReverseJournalEntryDto {
     @IsString()
     journalEntryId!: string
 
+    @IsString()
+    reason!: string
+}
+
+export class SubmitJournalEntryDto {
+    @IsOptional()
+    @IsString()
+    reason?: string
+}
+
+export class ApproveJournalEntryDto {
+    @IsOptional()
+    @IsString()
+    reason?: string
+}
+
+export class RejectJournalEntryDto {
     @IsString()
     reason!: string
 }

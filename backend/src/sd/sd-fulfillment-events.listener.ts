@@ -58,9 +58,13 @@ export class SdFulfillmentEventsListener {
 
         const order = await this.prisma.sdSalesOrder.findUnique({
             where: { id: salesOrderId },
-            select: { companyId: true, warehouseId: true },
+            select: { companyId: true, warehouseId: true, channel: true },
         })
         if (!order?.companyId) return
+
+        // A POS counter sale is completed at the register: the goods issue
+        // deducts the stock, but there is no dispatch and no delivery invoice.
+        if (order.channel === 'POS') return
 
         // SD shipment marker (GI reference) — one row per sales order.
         const marker = await this.prisma.sdShipment.findFirst({

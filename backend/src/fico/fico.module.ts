@@ -12,14 +12,21 @@ import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
 import { FicoCompanySettingsService } from './fico-company-settings.service'
 import { FicoController } from './fico.controller'
+import { FicoDocumentTypeController } from './fico-document-type.controller'
+import { FicoDocumentTypeService } from './fico-document-type.service'
 import { FicoFiscalCalendarService } from './fico-fiscal-calendar.service'
 import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoNumberRangeController } from './fico-number-range.controller'
+import { FicoNumberRangeService } from './fico-number-range.service'
 import { FicoOverviewService } from './fico-overview.service'
 import { FicoPhase1Controller } from './fico-phase1.controller'
 import { FicoPostingPeriodService } from './fico-posting-period.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
 import { FicoReconciliationService } from './fico-reconciliation.service'
+import { FicoTaxCodeController } from './fico-tax-code.controller'
+import { FicoTaxCalculationService } from './fico-tax-calculation.service'
+import { FicoTaxCodeService } from './fico-tax-code.service'
 import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
 import { DocumentTypesController } from './document-types/document-types.controller'
@@ -34,6 +41,9 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoAccountDeterminationController,
         DocumentTypesController,
         JournalEntryController,
+        FicoNumberRangeController,
+        FicoTaxCodeController,
+        FicoDocumentTypeController,
     ],
     providers: [
         FicoFinancialPeriodService,
@@ -57,6 +67,10 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoOverviewService,
         DocumentTypesService,
         JournalEntryService,
+        FicoNumberRangeService,
+        FicoTaxCalculationService,
+        FicoTaxCodeService,
+        FicoDocumentTypeService,
         {
             provide: FINANCIAL_PERIOD_PORT,
             useExisting: FicoFinancialPeriodAdapter,
@@ -78,6 +92,10 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoFiscalCalendarService,
         FicoPostingPeriodService,
         FicoPostingValidationService,
+        FicoNumberRangeService,
+        FicoTaxCalculationService,
+        FicoTaxCodeService,
+        FicoDocumentTypeService,
         FINANCIAL_PERIOD_PORT,
     ],
 })

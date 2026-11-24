@@ -29,7 +29,9 @@ export const MODULE_CODES = {
     FICO: 'fico',
     SCM: 'scm',
     CRM: 'crm',
+    EMAILS: 'emails',
     HCM: 'hcm',
+    WPD: 'wpd',
     ADMIN: 'admin',
 } as const
 
@@ -73,10 +75,22 @@ export const MODULE_CATALOG: {
         sortOrder: 50,
     },
     {
+        code: 'emails',
+        name: 'Emails',
+        description: 'Cover-letter templates sent with quotations and other customer documents.',
+        sortOrder: 55,
+    },
+    {
         code: 'hcm',
         name: 'Human Capital Management',
         description: 'Employees, positions, and HR records.',
         sortOrder: 60,
+    },
+    {
+        code: 'wpd',
+        name: 'Workforce Productivity Dashboard',
+        description: 'External workforce productivity KPIs and operations dashboard.',
+        sortOrder: 70,
     },
     {
         code: 'admin',
@@ -262,12 +276,6 @@ export const MM_FEATURES = {
         ['mobile-packing', 'Mobile Packing'],
         ['warehouse-devices', 'Warehouse Devices'],
     ],
-    'supporting-operations': [
-        ['document-management', 'Document Management'],
-        ['audit-trail', 'Audit Trail'],
-        ['workflow-admin', 'Workflow & Approvals'],
-        ['compliance-dashboard', 'Compliance Dashboard'],
-    ],
     'reports-analytics': [
         ['stock-reports', 'Stock Reports'],
         ['inventory-valuation-reports', 'Inventory Valuation'],
@@ -365,14 +373,14 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ],
         ['billing', 'Billing', 'Customer invoices and billing documents.'],
         [
+            'ext-platform-sales',
+            'External Platform Sales',
+            'Manual entry of Shopee, Lazada, TikTok and other external channel sales.',
+        ],
+        [
             'reports',
             'Reports & Analytics',
             'Sales analysis and backorder reports.',
-        ],
-        [
-            'configuration',
-            'Configuration',
-            'Sales organizations and document types.',
         ],
     ]),
     ...group('mm', [
@@ -450,11 +458,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'reports-analytics',
             'MM Reports & Analytics',
             'Stock, valuation, procurement, and warehouse analytics.',
-        ],
-        [
-            'supporting-operations',
-            'Supporting Operations',
-            'Controlled documents, audit trail, and compliance monitoring.',
         ],
     ]),
     ...group('fico', [
@@ -543,6 +546,21 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Accounts Receivable',
             'Customer invoices and incoming payments.',
         ],
+        [
+            'number-ranges',
+            'Number Ranges',
+            'Document number ranges for accounting and financial documents.',
+        ],
+        [
+            'tax-codes',
+            'Tax Codes',
+            'Tax codes, rates, calculation, and G/L account mappings for financial documents.',
+        ],
+        [
+            'document-types',
+            'Document Types',
+            'Accounting document types, numbering, posting controls, and reversal configuration.',
+        ],
     ]),
     ...group('scm', [
         [
@@ -609,7 +627,26 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Manual / demo point grants (mock earn); real points come from paid invoices.',
         ],
     ]),
+    ...group('emails', [
+        [
+            'messages',
+            'Email Messages',
+            'CRM emailer: compose, drafts, and sent mail (outbound).',
+        ],
+        [
+            'templates',
+            'Email Templates',
+            'Cover-letter templates sent with customer documents (quotations).',
+        ],
+    ]),
     ...group('hcm', [['hris', 'HRIS Access', 'Link to the external HRIS.']]),
+    ...group('wpd', [
+        [
+            'dashboard',
+            'Workforce Productivity Dashboard',
+            'Link to the external Workforce Productivity Dashboard.',
+        ],
+    ]),
     ...mmFeatureResources(),
 ]
 
@@ -659,13 +696,18 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         fico: NO_DELETE,
         scm: FULL_ACCESS,
         crm: FULL_ACCESS,
+        emails: FULL_ACCESS,
         hcm: NO_DELETE,
+        wpd: READ,
     },
     [USER_ROLES.EMPLOYEE]: {
         sd: READ_CREATE,
         mm: READ_CREATE,
         scm: READ_CREATE,
         crm: READ_CREATE,
+        // Compose / drafts / sent; template edits stay available so quote cover letters work.
+        emails: NO_DELETE,
+        wpd: READ,
     },
 }
 

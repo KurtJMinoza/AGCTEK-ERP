@@ -13,8 +13,13 @@ import { MaintenanceService } from '../maintenance/maintenance.service'
 import { VehicleDocumentsService } from '../maintenance/vehicle-documents.service'
 import { computeCapacity } from '../scm.capacity'
 import {
+    tripOverlapsWindow,
+    VEHICLE_RESERVING_TRIP_STATUSES,
+} from './vehicle-availability'
+import {
     assertFound,
     optionalBoolean,
+    optionalDate,
     optionalNumber,
     optionalString,
     parsePagination,
@@ -55,6 +60,70 @@ export class VehiclesService {
         private readonly maintenanceService: MaintenanceService,
         private readonly vehicleDocumentsService: VehicleDocumentsService,
     ) {}
+
+    /**
+     * Vehicles free for `[from, to)`: in service (not routing-blocked / maintenance / inactive)
+     * and with no overlapping reserving trip. `excludeTripId` lets a trip keep its own vehicle.
+     */
+    async findAvailable(query: { from?: string; to?: string; excludeTripId?: string }) {
+        const from = optionalDate(query.from)
+        const to = optionalDate(query.to)
+        if (Boolean(from) !== Boolean(to)) {
+            throw new BadRequestException('from and to must be given together')
+        }
+        if (from && to && to.getTime() <= from.getTime()) {
+            throw new BadRequestException('`to` must be after `from`')
+        }
+        // Without a window every assignable vehicle is listed (no overlap filter).
+        const vehicles = await this.availableVehicles(from ?? null, to ?? null, query.excludeTripId)
+        return { data: vehicles, total: vehicles.length, from: from ?? null, to: to ?? null }
+    }
+
+    async availableVehicles(from: Date | null, to: Date | null, excludeTripId?: string) {
+        const candidates = await this.prisma.vehicle.findMany({
+            where: {
+                routingBlocked: false,
+                status: {
+                    notIn: [
+                        VehicleStatus.MAINTENANCE,
+                        VehicleStatus.OUT_OF_SERVICE,
+                        VehicleStatus.INACTIVE,
+                    ],
+                },
+            },
+            orderBy: { plateNumber: 'asc' },
+            select: {
+                id: true,
+                code: true,
+                plateNumber: true,
+                make: true,
+                model: true,
+                type: true,
+                status: true,
+                telematicsDeviceId: true,
+            },
+        })
+        if (candidates.length === 0 || !from || !to) return candidates
+
+        const trips = await this.prisma.trip.findMany({
+            where: {
+                vehicleId: { in: candidates.map((v) => v.id) },
+                status: { in: [...VEHICLE_RESERVING_TRIP_STATUSES] as TripStatus[] },
+                ...(excludeTripId ? { id: { not: excludeTripId } } : {}),
+            },
+            select: {
+                vehicleId: true,
+                status: true,
+                plannedStartAt: true,
+                plannedEndAt: true,
+                startedAt: true,
+            },
+        })
+        const busy = new Set(
+            trips.filter((t) => tripOverlapsWindow(t, from, to)).map((t) => t.vehicleId),
+        )
+        return candidates.filter((v) => !busy.has(v.id))
+    }
 
     async findAll(query: ListQuery): Promise<PaginatedResult<unknown>> {
         const { page, pageSize, skip } = parsePagination(query)

@@ -70,7 +70,7 @@ function mockDeps() {
     }
 }
 
-const service = (prisma: ReturnType<typeof mockPrisma>, deps = mockDeps()) =>
+const service = (prisma: ReturnType<typeof mockPrisma>, deps = mockDeps(), events?: { emitAsync: jest.Mock }) =>
     new CrmLeadsService(
         prisma as unknown as PrismaService,
         deps.opportunities as unknown as CrmOpportunitiesService,
@@ -78,6 +78,7 @@ const service = (prisma: ReturnType<typeof mockPrisma>, deps = mockDeps()) =>
         deps.customers as unknown as CustomerService,
         deps.permissions as unknown as PermissionsService,
         deps.messages as unknown as CrmMessagesService,
+        events as never,
     )
 
 const admin = { id: 'user-1', role: 'admin' }
@@ -394,5 +395,78 @@ describe('CrmLeadsController RBAC metadata', () => {
     it.each(Object.entries(expected))('%s requires crm.leads:%s', (handler, action) => {
         const fn = CrmLeadsController.prototype[handler as keyof CrmLeadsController]
         expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.leads', action })
+    })
+})
+
+describe('CrmLeadsService ocular capture', () => {
+    const stop = (overrides: Record<string, unknown> = {}) => ({
+        createdLeadId: null,
+        trip: { purpose: 'OCULAR' },
+        ...overrides,
+    })
+    const withStop = (value: unknown) => {
+        const prisma = mockPrisma() as ReturnType<typeof mockPrisma> & {
+            tripStop: { findUnique: jest.Mock }
+        }
+        prisma.tripStop = { findUnique: jest.fn().mockResolvedValue(value) }
+        return prisma
+    }
+
+    it('rejects capturing a lead at a pickup point', async () => {
+        await expect(
+            service(withStop(stop({ stopType: 'SHIP' }))).create(
+                { name: 'X', originTripStopId: 's' },
+                'user-1',
+            ),
+        ).rejects.toThrow(/dropoff/)
+    })
+
+    it('accepts OCULAR as a lead source', async () => {
+        const prisma = mockPrisma()
+        await service(prisma).create({ name: 'Field prospect', source: 'OCULAR' }, 'user-1')
+        expect((prisma.crmLead.create.mock.calls[0][0].data as { source: string }).source).toBe('OCULAR')
+    })
+
+    it('forces source OCULAR from a stop and tells SCM which lead came from it', async () => {
+        const prisma = withStop(stop())
+        const events = { emitAsync: jest.fn().mockResolvedValue([]) }
+        await service(prisma, mockDeps(), events).create(
+            { name: 'Field prospect', source: 'WEBSITE', originTripStopId: 'stop-1' },
+            'user-1',
+        )
+        expect(prisma.crmLead.create.mock.calls[0][0].data).toEqual(
+            expect.objectContaining({ source: 'OCULAR', originTripStopId: 'stop-1' }),
+        )
+        expect(events.emitAsync).toHaveBeenCalledWith('crm.lead.captured-at-ocular-stop', {
+            leadId: 'lead-new',
+            tripStopId: 'stop-1',
+        })
+    })
+
+    it('rejects a stop that is missing, not ocular, or already has a lead', async () => {
+        await expect(
+            service(withStop(null)).create({ name: 'X', originTripStopId: 's' }, 'user-1'),
+        ).rejects.toBeInstanceOf(BadRequestException)
+        await expect(
+            service(withStop(stop({ trip: { purpose: 'DELIVERY' } }))).create(
+                { name: 'X', originTripStopId: 's' },
+                'user-1',
+            ),
+        ).rejects.toBeInstanceOf(BadRequestException)
+        const prisma = withStop(stop({ createdLeadId: 'lead-9' }))
+        await expect(
+            service(prisma).create({ name: 'X', originTripStopId: 's' }, 'user-1'),
+        ).rejects.toBeInstanceOf(ConflictException)
+        expect(prisma.crmLead.create).not.toHaveBeenCalled()
+    })
+
+    it('keeps the lead when SCM cannot link the stop', async () => {
+        const prisma = withStop(stop())
+        const events = { emitAsync: jest.fn().mockRejectedValue(new Error('scm down')) }
+        const created = await service(prisma, mockDeps(), events).create(
+            { name: 'Field prospect', originTripStopId: 'stop-1' },
+            'user-1',
+        )
+        expect(created.id).toBe('lead-new')
     })
 })

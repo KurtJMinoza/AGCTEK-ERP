@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import type { ReactNode } from 'react'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -25,7 +25,7 @@ export function icTableRowEnterClass(index: number): string {
     const delay = Math.min(index, 14) * 40
     return [
         'group/row',
-        'animate-mm-row-in motion-reduce:animate-none opacity-0',
+        'animate-mm-row-in motion-reduce:animate-none',
         `[animation-delay:${delay}ms]`,
         'transition-colors duration-200',
         'hover:bg-gray-50/90 dark:hover:bg-gray-800/45',
@@ -34,7 +34,7 @@ export function icTableRowEnterClass(index: number): string {
 
 function icIconPopClass(extraDelayMs = 0): string {
     return [
-        'animate-mm-icon-pop motion-reduce:animate-none opacity-0',
+        'animate-mm-icon-pop motion-reduce:animate-none',
         extraDelayMs > 0 ? `[animation-delay:${extraDelayMs}ms]` : '',
         'transition-transform duration-200 group-hover/row:scale-105',
     ]

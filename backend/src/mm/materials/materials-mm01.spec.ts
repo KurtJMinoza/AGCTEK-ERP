@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { ConflictException, BadRequestException } from '@nestjs/common'
 import { MaterialsService } from './materials.service'
+import { MaterialTaxService } from './material-tax.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { BarcodesService } from '../barcodes/barcodes.service'
 
 describe('MaterialsService MM-01 lifecycle (mocked)', () => {
     let service: MaterialsService
@@ -65,6 +67,20 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
                             }),
                     },
                 },
+                { provide: BarcodesService, useValue: {} },
+                {
+                    provide: MaterialTaxService,
+                    useValue: {
+                        validateForWrite: jest.fn().mockResolvedValue({
+                            data: {},
+                            warnings: [],
+                            taxCode: null,
+                        }),
+                        projection: jest.fn().mockReturnValue(null),
+                        recordHistory: jest.fn(),
+                        taxChanged: jest.fn().mockReturnValue(false),
+                    },
+                },
             ],
         }).compile()
         service = module.get(MaterialsService)
@@ -76,6 +92,47 @@ describe('MaterialsService MM-01 lifecycle (mocked)', () => {
         prisma.mmMaterialAudit.create.mockResolvedValue({})
         prisma.mmMaterial.findMany.mockResolvedValue([])
         availability.getCompanyMaterialTotalsBatch.mockResolvedValue(new Map())
+    })
+
+    describe('optional tax on update', () => {
+        const taxedMaterial = {
+            ...draftMaterial,
+            status: 'ACTIVE',
+            companyId: 'co-1',
+            taxClassification: 'VATABLE',
+            taxCodeId: 'tc-1',
+            priceTaxTreatment: 'VAT_INCLUSIVE',
+            taxStatus: 'ACTIVE',
+        }
+
+        beforeEach(() => {
+            jest.spyOn(service, 'findOne').mockResolvedValue(taxedMaterial as any)
+            jest.spyOn(service as any, 'syncBarcodeFromForm').mockResolvedValue(undefined)
+            jest.spyOn(service as any, 'syncSerialFromForm').mockResolvedValue(undefined)
+            prisma.mmMaterial.update.mockResolvedValue({ ...taxedMaterial, taxClassification: null })
+        })
+
+        it('clears every tax field when the classification is set to null', async () => {
+            await service.update('mat-1', { taxClassification: null } as any)
+
+            const { data } = prisma.mmMaterial.update.mock.calls[0][0]
+            expect(data).toMatchObject({
+                taxClassification: null,
+                taxCodeId: null,
+                priceTaxTreatment: null,
+                taxStatus: null,
+                taxEffectiveFrom: null,
+                taxEffectiveTo: null,
+                taxDescription: null,
+            })
+        })
+
+        it('leaves the tax untouched when the update carries no tax fields', async () => {
+            await service.update('mat-1', { materialName: 'Renamed' } as any)
+
+            const { data } = prisma.mmMaterial.update.mock.calls[0][0]
+            expect(data).not.toHaveProperty('taxCodeId')
+        })
     })
 
     it('rejects duplicate SKU on create', async () => {

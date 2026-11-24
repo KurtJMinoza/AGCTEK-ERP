@@ -3,8 +3,10 @@ import {
     IsArray,
     IsBoolean,
     IsDateString,
+    IsDefined,
     IsIn,
     IsInt,
+    IsNumber,
     IsObject,
     IsOptional,
     IsString,
@@ -23,6 +25,15 @@ import {
     FICO_PERIOD_TYPES,
     FICO_POSTING_MODULES,
     FICO_YEAR_ASSIGNMENTS,
+    FICO_TAX_APPLICATION_TYPES,
+    FICO_TAX_CODE_CATEGORIES,
+    FICO_TAX_CODE_STATUSES,
+    FICO_TAX_CODE_TYPES,
+    FICO_TAX_CALCULATION_METHODS,
+    FICO_TAX_RATE_UNITS,
+    FICO_TAX_ROUNDING_LEVELS,
+    FICO_TAX_ROUNDING_METHODS,
+    FICO_TAX_RATE_STATUSES,
 } from '../fico.constants'
 
 export class FicoListQueryDto {
@@ -982,4 +993,880 @@ export class FicoAuditQueryDto {
     @Min(1)
     @Max(200)
     pageSize?: number
+}
+
+// ============================================================================
+// FICO Phase 2 — Number Ranges DTOs
+// ============================================================================
+
+export const FICO_NUMBER_RANGE_STATUSES = [
+    'ACTIVE',
+    'INACTIVE',
+    'EXHAUSTED',
+] as const
+export type FicoNumberRangeStatus = (typeof FICO_NUMBER_RANGE_STATUSES)[number]
+
+export const FICO_NUMBER_RANGE_NUMBERING_METHODS = ['INTERNAL', 'EXTERNAL'] as const
+export type FicoNumberRangeNumberingMethod =
+    (typeof FICO_NUMBER_RANGE_NUMBERING_METHODS)[number]
+
+export const FICO_NUMBER_RANGE_RESET_FREQUENCIES = [
+    'NEVER',
+    'ANNUALLY',
+    'PER_FISCAL_YEAR',
+] as const
+export type FicoNumberRangeResetFrequency =
+    (typeof FICO_NUMBER_RANGE_RESET_FREQUENCIES)[number]
+
+export class FicoNumberRangeListQueryDto {
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    documentCategory?: string
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_NUMBERING_METHODS)
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_RESET_FREQUENCIES)
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(500)
+    pageSize?: number
+}
+
+export class FicoNumberRangeCreateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(32)
+    rangeCode!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    rangeName!: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(64)
+    documentCategory!: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    assignmentType?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    prefix?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    suffix?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    startNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    endNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    currentNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(20)
+    paddingLength?: number
+
+    @IsOptional()
+    @IsDateString()
+    validFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    validTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsIn(['NEVER', 'ANNUALLY', 'PER_FISCAL_YEAR'])
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsBoolean()
+    allowManualAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternalAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowGaps?: boolean
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoNumberRangeUpdateDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    rangeName?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(64)
+    documentCategory?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    assignmentType?: string
+
+    @IsOptional()
+    @IsIn(['INTERNAL', 'EXTERNAL'])
+    numberingMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    prefix?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(32)
+    suffix?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    startNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    endNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    currentNumber?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(20)
+    paddingLength?: number
+
+    @IsOptional()
+    @IsDateString()
+    validFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    validTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsIn(['NEVER', 'ANNUALLY', 'PER_FISCAL_YEAR'])
+    resetFrequency?: string
+
+    @IsOptional()
+    @IsBoolean()
+    allowManualAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternalAssignment?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    allowGaps?: boolean
+
+    @IsOptional()
+    @IsIn(FICO_NUMBER_RANGE_STATUSES)
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoNumberRangeActivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoNumberRangeDeactivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoNumberRangeNextNumberDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    rangeCode!: string
+
+    @IsOptional()
+    @IsString()
+    documentReference?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    allowExternal?: boolean
+
+    @IsOptional()
+    @IsString()
+    externalNumber?: string | null
+}
+
+export class FicoNumberRangeHistoryQueryDto {
+    @IsString()
+    numberRangeId!: string
+
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    assignmentMethod?: string
+
+    @IsOptional()
+    @IsString()
+    fiscalYearId?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
+}
+
+// ============================================================================
+// FICO Phase 2 — Tax Codes DTOs
+// ============================================================================
+
+export class FicoTaxCodeListQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    taxCategory?: string
+
+    @IsOptional()
+    @IsString()
+    taxType?: string
+
+    @IsOptional()
+    @IsString()
+    taxJurisdiction?: string
+
+    @IsOptional()
+    @IsString()
+    countryCode?: string
+
+    @IsOptional()
+    @IsString()
+    calculationMethod?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveDate?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_APPLICATION_TYPES)
+    transactionType?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(500)
+    pageSize?: number
+}
+
+export class FicoTaxCodeCreateDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string | null
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(32)
+    code!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    name!: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsString()
+    @IsIn(FICO_TAX_CODE_CATEGORIES)
+    taxCategory!: string
+
+    @IsString()
+    @IsIn(FICO_TAX_CODE_TYPES)
+    taxType!: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    taxJurisdiction?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2)
+    countryCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_CALCULATION_METHODS)
+    calculationMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_UNITS)
+    rateUnit?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_ROUNDING_METHODS)
+    roundingMethod?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10)
+    decimalPrecision?: number
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_ROUNDING_LEVELS)
+    roundingLevel?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    calculationPriority?: number
+
+    @IsOptional()
+    @IsBoolean()
+    isSalesApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isPurchaseApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isServiceApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isInventoryApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isRecoverable?: boolean
+
+    @IsOptional()
+    @IsString()
+    inputTaxGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    outputTaxGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    withholdingPayableGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    withholdingReceivableGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    nonRecoverableTaxGlAccountId?: string | null
+
+    /** Optional first effective-dated rate created atomically with the code. */
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    initialRate?: number
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_UNITS)
+    initialRateUnit?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_CODE_STATUSES)
+    status?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    rateDescription?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoTaxCodeUpdateDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    name?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(128)
+    taxJurisdiction?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2)
+    countryCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_CALCULATION_METHODS)
+    calculationMethod?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_UNITS)
+    rateUnit?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_ROUNDING_METHODS)
+    roundingMethod?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10)
+    decimalPrecision?: number
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_ROUNDING_LEVELS)
+    roundingLevel?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    calculationPriority?: number
+
+    @IsOptional()
+    @IsBoolean()
+    isSalesApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isPurchaseApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isServiceApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isInventoryApplicable?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    isRecoverable?: boolean
+
+    @IsOptional()
+    @IsString()
+    inputTaxGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    outputTaxGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    withholdingPayableGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    withholdingReceivableGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    nonRecoverableTaxGlAccountId?: string | null
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_CODE_STATUSES)
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    remarks?: string
+}
+
+export class FicoTaxCodeActivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    taxCodeId!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoTaxCodeDeactivateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    taxCodeId!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(3)
+    reason?: string
+}
+
+export class FicoTaxRateCreateDto {
+    @IsString()
+    taxCodeId!: string
+
+    @IsString()
+    companyId!: string
+
+    @IsNumber()
+    @Min(0)
+    rate!: number
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_UNITS)
+    rateUnit?: string
+
+    @IsDateString()
+    effectiveFrom!: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+}
+
+export class FicoTaxRateUpdateDto {
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    rate?: number
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_UNITS)
+    rateUnit?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string | null
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    @IsIn(FICO_TAX_RATE_STATUSES)
+    status?: string
+}
+
+export class FicoTaxRateQueryDto {
+    @IsString()
+    taxCodeId!: string
+
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    effectiveTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
+}
+
+export class FicoTaxCalculationDto {
+    @IsString()
+    taxCodeId!: string
+
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    @MinLength(1)
+    transactionDate!: string
+
+    @IsString()
+    @IsIn(FICO_TAX_APPLICATION_TYPES)
+    transactionType!: string
+
+    /**
+     * Accepts a JSON number or a decimal string. Strings are preferred so the
+     * request never loses precision before the decimal-safe engine sees it.
+     */
+    @IsDefined()
+    amount!: number | string
+
+    @IsOptional()
+    @IsString()
+    documentReference?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    dryRun?: boolean
+}
+
+export class FicoTaxCalculationResult {
+    taxCodeId!: string
+    taxCode!: string
+    companyId!: string
+    transactionDate!: string
+    transactionType!: string
+    netAmount!: number
+    taxableBase!: number
+    taxRate!: number
+    rateUnit!: string
+    taxAmount!: number
+    grossAmount!: number
+    recoverableTax!: number
+    nonRecoverableTax!: number
+    calculationMethod!: string
+    classification!:
+        | 'STANDARD'
+        | 'ZERO_RATED'
+        | 'EXEMPT'
+        | 'NON_TAXABLE'
+        | 'WITHHOLDING'
+    taxType!: string
+    appliedRateId!: string | null
+    appliedRateEffectiveFrom!: string | null
+    appliedRateEffectiveTo!: string | null
+    breakdown!: Array<{
+        componentName: string
+        lineRate: number
+        taxAmount: number
+        recoverableAmount: number
+        nonRecoverableAmount: number
+    }>
+}
+
+export class FicoTaxCodeHistoryQueryDto {
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    @IsOptional()
+    @IsString()
+    action?: string
+
+    @IsOptional()
+    @IsString()
+    actorId?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
+}
+
+export class FicoTaxCodeDuplicateDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(32)
+    code!: string
+
+    @IsOptional()
+    @IsString()
+    @MinLength(1)
+    @MaxLength(160)
+    name?: string
+
+    @IsOptional()
+    @IsBoolean()
+    includeRates?: boolean
 }

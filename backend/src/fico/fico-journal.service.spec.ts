@@ -29,6 +29,14 @@ describe('FicoJournalService', () => {
             prisma as never,
             { canPostToPeriod: jest.fn().mockResolvedValue({ allowed: true }) } as never,
             {
+                assertAccountPostable: jest.fn().mockResolvedValue({
+                    glAccountId: 'inventory',
+                    accountCode: '1000',
+                    accountName: 'Inventory',
+                    accountType: 'ASSET',
+                }),
+            } as never,
+            {
                 resolveMmPosting: jest.fn().mockResolvedValue([
                     {
                         debitAccountId: 'inventory',

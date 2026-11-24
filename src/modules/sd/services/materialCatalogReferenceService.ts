@@ -1,5 +1,6 @@
 import ErpAxiosBase from '@/services/axios/ErpAxiosBase'
 import { toApiError as toError } from './apiError'
+import type { MaterialTaxProjection } from '@/modules/mm/material-master/types'
 
 export type MaterialCatalogReference = {
     materialId: string
@@ -57,11 +58,20 @@ export type MaterialCatalogReference = {
         sellable: boolean
         purchasable: boolean
         qualityInspectionRequired: boolean
+        batches: Array<{
+            id: string
+            batchNumber: string
+            lotNumber: string | null
+            status: string
+            expiryDate: string | null
+            manufacturingDate: string | null
+        }>
     }
     expiry: {
         defaultShelfLifeDays: number | null
         earliestExpiryDate: string | null
         nearestBatchNumber: string | null
+        nearestLotNumber: string | null
     }
     inventory: {
         minimumStock: number
@@ -89,6 +99,8 @@ export type MaterialCatalogReference = {
         currencyCode: string
         valuationClass: string | null
     }
+    /** Read-only product tax classification, owned by MM Material Master. */
+    tax: MaterialTaxProjection
 }
 
 export type MaterialCatalogWarehouseStock = {

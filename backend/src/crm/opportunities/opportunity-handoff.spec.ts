@@ -146,6 +146,7 @@ describe('CrmOpportunityHandoffService.win', () => {
             updatedBy: 'user-1',
         })
         expect(data.closedAt).toBeInstanceOf(Date)
+        expect(data.stageEnteredAt).toBeInstanceOf(Date)
         expect(result.created).toBe(true)
         expect(result.salesOrder).toMatchObject({
             id: 'so-1',

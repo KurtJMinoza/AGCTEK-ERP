@@ -10,11 +10,19 @@ import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
+import CadencePanel from '../components/CadencePanel'
 import CrmSelect from '../components/CrmSelect'
+import PipelineMetricsPanel from '../components/PipelineMetricsPanel'
+import LeadSourcesPanel from '../components/LeadSourcesPanel'
+import StalledPanel from '../components/StalledPanel'
+import { useCrmCadence } from '../hooks/useCrmCadence'
 import { useCrmDashboard } from '../hooks/useCrmDashboard'
+import { useCrmLeadSources } from '../hooks/useCrmLeadSources'
+import { useCrmPipelineMetrics } from '../hooks/useCrmPipelineMetrics'
+import { useCrmStalled } from '../hooks/useCrmStalled'
 import { crmDashboardBreadcrumbs } from '../utils/breadcrumbs'
 import { CRM_PATHS, crmHref } from '../utils/deepLinks'
-import { crmTone, formatEnumLabel, formatMoney } from '../utils/format'
+import { crmTone, formatEnumLabel } from '../utils/format'
 import { DASHBOARD_PERIODS, type CrmDashboard, type DashboardPeriod } from '../types'
 
 const periodOptions = DASHBOARD_PERIODS.map((days) => ({
@@ -74,67 +82,6 @@ const Empty = ({ children }: { children: ReactNode }) => (
     <p className="py-6 text-center text-sm text-gray-500">{children}</p>
 )
 
-function PipelineWidget({ data }: { data: CrmDashboard }) {
-    const { pipeline } = data
-    return (
-        <WidgetCard
-            title="Weighted pipeline"
-            subtitle="Open opportunities · amount × probability, per currency"
-            action={
-                <Link
-                    href={crmHref(CRM_PATHS.opportunities, { view: 'board' })}
-                    className="text-sm text-primary"
-                >
-                    Open board
-                </Link>
-            }
-        >
-            {pipeline.totals.length === 0 ? (
-                <Empty>No open opportunities.</Empty>
-            ) : (
-                <>
-                    <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1">
-                        {pipeline.totals.map((total) => (
-                            <div key={total.currency}>
-                                <p className="text-2xl font-bold tabular-nums heading-text">
-                                    {formatMoney(Number(total.weightedAmount), total.currency)}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                    {plural(total.count, 'opportunity', 'opportunities')} ·{' '}
-                                    {formatMoney(Number(total.amount), total.currency)} open
-                                </p>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex flex-col">
-                        {pipeline.stages.map((stage) => (
-                            <LinkRow
-                                key={stage.stage}
-                                href={crmHref(CRM_PATHS.opportunities, { stage: stage.stage })}
-                                label={
-                                    <span className="flex items-center gap-2">
-                                        <StatusBadge tone={crmTone(stage.stage)}>
-                                            {formatEnumLabel(stage.stage)}
-                                        </StatusBadge>
-                                        <span className="text-xs text-gray-500">{stage.count}</span>
-                                    </span>
-                                }
-                                value={
-                                    stage.byCurrency.length === 0
-                                        ? '—'
-                                        : stage.byCurrency
-                                              .map((c) => formatMoney(Number(c.weightedAmount), c.currency))
-                                              .join(' · ')
-                                }
-                            />
-                        ))}
-                    </div>
-                </>
-            )}
-        </WidgetCard>
-    )
-}
-
 function TicketsWidget({ data }: { data: CrmDashboard }) {
     const { tickets } = data
     return (
@@ -191,78 +138,6 @@ function TicketsWidget({ data }: { data: CrmDashboard }) {
     )
 }
 
-function WinLossWidget({ data, periodLabel }: { data: CrmDashboard; periodLabel: string }) {
-    const { winLoss, periodFrom } = data
-    const closedFrom = periodFrom
-    const closed = winLoss.won.count + winLoss.lost.count
-    return (
-        <WidgetCard title="Win / loss" subtitle={`Closed in the ${periodLabel.toLowerCase()}`}>
-            {closed === 0 ? (
-                <Empty>No opportunities closed in this period.</Empty>
-            ) : (
-                <>
-                    <div className="mb-3 flex items-end gap-6">
-                        <div>
-                            <p className="text-2xl font-bold tabular-nums heading-text">
-                                {winLoss.winRate === null ? '—' : `${winLoss.winRate}%`}
-                            </p>
-                            <p className="text-xs text-gray-500">Win rate</p>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                            {winLoss.won.byCurrency.map((c) => (
-                                <p key={c.currency}>
-                                    Won {formatMoney(Number(c.amount), c.currency)}
-                                </p>
-                            ))}
-                        </div>
-                    </div>
-                    <LinkRow
-                        href={crmHref(CRM_PATHS.opportunities, { stage: 'CLOSED_WON', closedFrom })}
-                        label={<StatusBadge tone="success">Won</StatusBadge>}
-                        value={winLoss.won.count}
-                    />
-                    <LinkRow
-                        href={crmHref(CRM_PATHS.opportunities, { stage: 'CLOSED_LOST', closedFrom })}
-                        label={<StatusBadge tone="danger">Lost</StatusBadge>}
-                        value={winLoss.lost.count}
-                    />
-                    {winLoss.lost.byReason.length > 0 ? (
-                        <div className="mt-3 border-t border-gray-100 pt-3 dark:border-gray-700">
-                            <p className="mb-1 px-2 text-xs font-semibold uppercase text-gray-500">
-                                Lost by reason
-                            </p>
-                            {winLoss.lost.byReason.map((row) => (
-                                <Link
-                                    key={row.reason}
-                                    href={crmHref(CRM_PATHS.opportunities, {
-                                        stage: 'CLOSED_LOST',
-                                        lostReason: row.reason,
-                                        closedFrom,
-                                    })}
-                                    className="block rounded-md px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                                >
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span>{formatEnumLabel(row.reason)}</span>
-                                        <span className="font-semibold tabular-nums heading-text">
-                                            {row.count}
-                                        </span>
-                                    </div>
-                                    <Progress
-                                        percent={pct(row.count, winLoss.lost.count)}
-                                        showInfo={false}
-                                        size="sm"
-                                        customColorClass="bg-rose-400"
-                                    />
-                                </Link>
-                            ))}
-                        </div>
-                    ) : null}
-                </>
-            )}
-        </WidgetCard>
-    )
-}
-
 function ConversionWidget({ data, periodLabel }: { data: CrmDashboard; periodLabel: string }) {
     const { conversion, periodFrom } = data
     const createdFrom = periodFrom
@@ -309,6 +184,10 @@ function ConversionWidget({ data, periodLabel }: { data: CrmDashboard; periodLab
 export default function CrmDashboardPage() {
     const [days, setDays] = useState<DashboardPeriod>(90)
     const { data, loading, error, reload } = useCrmDashboard(days)
+    const cadence = useCrmCadence()
+    const pipelineMetrics = useCrmPipelineMetrics(days, 'all')
+    const stalled = useCrmStalled('all')
+    const leadSources = useCrmLeadSources(days, 'all')
     const periodLabel = periodOptions.find((o) => o.value === String(days))?.label ?? ''
     const initialLoad = loading && !data
 
@@ -316,17 +195,35 @@ export default function CrmDashboardPage() {
         <PageContainer>
             <PageHeader
                 title="CRM"
-                description="Leads, pipeline and customer service for SD customers. Every number opens the matching list."
+                description="Your next actions first, then org pipeline and customer service. Every number opens the matching list."
                 breadcrumbs={crmDashboardBreadcrumbs()}
                 actions={
                     <div className="flex items-center gap-2">
+                        <Link href={CRM_PATHS.calendar} className="text-sm text-primary">
+                            Activity calendar
+                        </Link>
                         <CrmSelect
                             className="w-44"
                             options={periodOptions}
                             value={String(days)}
                             onChange={(value) => setDays(Number(value) as DashboardPeriod)}
                         />
-                        <Button onClick={() => void reload()} loading={loading}>
+                        <Button
+                            onClick={() => {
+                                void reload()
+                                void cadence.reload()
+                                void pipelineMetrics.reload()
+                                void stalled.reload()
+                                void leadSources.reload()
+                            }}
+                            loading={
+                                loading ||
+                                cadence.loading ||
+                                pipelineMetrics.loading ||
+                                stalled.loading ||
+                                leadSources.loading
+                            }
+                        >
                             Refresh
                         </Button>
                     </div>
@@ -338,6 +235,32 @@ export default function CrmDashboardPage() {
                     {error}
                 </Alert>
             ) : null}
+
+            <CadencePanel
+                data={cadence.data}
+                loading={cadence.loading}
+                error={cadence.error}
+            />
+
+            <PipelineMetricsPanel
+                data={pipelineMetrics.data}
+                loading={pipelineMetrics.loading}
+                error={pipelineMetrics.error}
+                periodLabel={periodLabel}
+            />
+
+            <StalledPanel
+                data={stalled.data}
+                loading={stalled.loading}
+                error={stalled.error}
+            />
+
+            <LeadSourcesPanel
+                data={leadSources.data}
+                loading={leadSources.loading}
+                error={leadSources.error}
+                periodLabel={periodLabel}
+            />
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <StatCard
@@ -388,9 +311,7 @@ export default function CrmDashboardPage() {
 
             {data ? (
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                    <PipelineWidget data={data} />
                     <TicketsWidget data={data} />
-                    <WinLossWidget data={data} periodLabel={periodLabel} />
                     <ConversionWidget data={data} periodLabel={periodLabel} />
                 </div>
             ) : (

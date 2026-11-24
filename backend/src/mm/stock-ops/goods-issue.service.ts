@@ -591,6 +591,13 @@ export class GoodsIssueService {
             })
             return order?.orderNumber ?? null
         }
+        if (doc.sourceDocumentType === 'EXT_PLATFORM_SALE' && doc.sourceDocumentId) {
+            const sale = await this.prisma.sdExtPlatformTransaction.findUnique({
+                where: { id: doc.sourceDocumentId },
+                select: { transactionNumber: true },
+            })
+            return sale?.transactionNumber ?? null
+        }
         if (doc.sourceDocumentType === 'PRODUCTION_ORDER' && doc.sourceDocumentId) {
             const order = await this.prisma.ppProductionOrder.findUnique({
                 where: { id: doc.sourceDocumentId },
@@ -620,16 +627,17 @@ export class GoodsIssueService {
                 'Sales goods issue requires issuePurpose=SALES',
             )
         }
-        // Sales issues originate from a sales order (SD) or a released package
-        // (warehouse / SCM trip start). Both must carry a traceable source id.
-        const salesSources = ['SALES_ORDER', 'PACKAGE']
+        // Sales issues originate from a sales order (SD), a released package
+        // (warehouse / SCM trip start) or an approved external platform sale
+        // (SD, company-owned stock). All must carry a traceable source id.
+        const salesSources = ['SALES_ORDER', 'PACKAGE', 'EXT_PLATFORM_SALE']
         if (
             !dto.sourceDocumentType ||
             !salesSources.includes(dto.sourceDocumentType) ||
             !dto.sourceDocumentId
         ) {
             throw new BadRequestException(
-                'Sales goods issue requires sourceDocumentType=SALES_ORDER or PACKAGE, and sourceDocumentId',
+                'Sales goods issue requires sourceDocumentType=SALES_ORDER, PACKAGE or EXT_PLATFORM_SALE, and sourceDocumentId',
             )
         }
     }

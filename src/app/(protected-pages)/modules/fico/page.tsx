@@ -6,12 +6,20 @@ export const metadata = {
     description: 'Chart of accounts and fiscal year configuration.',
 }
 
-/** FICO Phase 1 exposes the chart, G/L accounts, fiscal calendar, manual journals, and FI document types. */
-const FICO_PHASE1_SUBMODULES = [
+/**
+ * FICO module submodules.
+ * Phase 1: chart of accounts + fiscal calendar + manual journals.
+ * Phase 2: company accounting settings + posting periods + number ranges + tax codes.
+ */
+const FICO_SUBMODULES = [
     'chart-of-accounts',
     'gl-accounts',
     'journal-entries',
     'fiscal-years',
+    'company-settings',
+    'fiscal-periods',
+    'number-ranges',
+    'tax-codes',
     'document-types-fi',
 ]
 
@@ -20,7 +28,7 @@ export default async function Page() {
         <ModuleLandingPage
             moduleCode="fico"
             permissions={await getMyPermissions()}
-            submoduleCodes={FICO_PHASE1_SUBMODULES}
+            submoduleCodes={FICO_SUBMODULES}
         />
     )
 }

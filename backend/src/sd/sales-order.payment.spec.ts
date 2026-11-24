@@ -98,7 +98,7 @@ function setup() {
         resolveCheckoutCompanyId: jest.fn().mockResolvedValue('company-1'),
     }
     const commercialAvailability = {
-        assertMarketplaceCheckoutAvailability: jest
+        assertCheckoutAvailability: jest
             .fn()
             .mockResolvedValue(undefined),
     }
@@ -149,12 +149,12 @@ function setup() {
             findFirst: jest.fn().mockResolvedValue(null),
             upsert: jest.fn(
                 (args: {
-                    where: { salesOrderId: string }
+                    where: { idempotencyKey: string }
                     create: Record<string, unknown>
                 }) => {
                     const existing = payments.find(
                         (payment) =>
-                            payment.salesOrderId === args.where.salesOrderId,
+                            payment.idempotencyKey === args.where.idempotencyKey,
                     )
                     if (existing) return Promise.resolve(existing)
                     const record = { id: 'pay-1', ...args.create }
@@ -247,7 +247,7 @@ describe('SalesOrderService demo checkout payments', () => {
         expect(result.orderNumber).toBeTruthy()
         expect(prisma.sdSalesOrderPayment.upsert).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { salesOrderId: 'so-1' },
+                where: { idempotencyKey: 'order:so-1' },
                 create: expect.objectContaining({
                     companyId: 'company-1',
                     salesOrderId: 'so-1',
@@ -463,7 +463,7 @@ describe('SalesOrderService demo checkout payments', () => {
 
     it('rejects an out-of-stock checkout before creating a sales order', async () => {
         const { prisma, commercialAvailability, service } = setup()
-        commercialAvailability.assertMarketplaceCheckoutAvailability.mockRejectedValue(
+        commercialAvailability.assertCheckoutAvailability.mockRejectedValue(
             new Error('KIRKLAND Vitamin E is out of stock'),
         )
 
@@ -472,7 +472,7 @@ describe('SalesOrderService demo checkout payments', () => {
         ).rejects.toThrow('out of stock')
 
         expect(
-            commercialAvailability.assertMarketplaceCheckoutAvailability,
+            commercialAvailability.assertCheckoutAvailability,
         ).toHaveBeenCalledWith(
             expect.objectContaining({
                 companyId: 'company-1',

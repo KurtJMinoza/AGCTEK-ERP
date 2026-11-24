@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Skeleton from '@/components/ui/Skeleton'
 import {
@@ -34,7 +34,7 @@ const dayCount = (start: string, end: string) =>
     Math.round((new Date(end).getTime() - new Date(start).getTime()) / DAY_MS) + 1
 
 const tileEnterClass = (index: number) =>
-    `animate-mm-row-in motion-reduce:animate-none opacity-0 [animation-delay:${Math.min(index, 16) * 35}ms]`
+    `animate-mm-row-in motion-reduce:animate-none [animation-delay:${Math.min(index, 16) * 35}ms]`
 
 function SummaryItem({
     icon,

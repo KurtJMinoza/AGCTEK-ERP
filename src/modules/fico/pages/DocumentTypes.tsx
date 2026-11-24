@@ -16,20 +16,20 @@ import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { useDocumentTypeMutations, useDocumentTypes } from '../hooks/useDocumentTypes'
-import type { FicoDocumentType, FicoDocumentTypeInput } from '../types'
+import type { FiDocumentType, FiDocumentTypeInput } from '../types'
 
-const blank = (): FicoDocumentTypeInput => ({ code: '', name: '', prefix: '', numberRangeFrom: 1, numberRangeTo: 999999, nextNumber: 1, allowsManualEntry: true, isActive: true })
+const blank = (): FiDocumentTypeInput => ({ code: '', name: '', prefix: '', numberRangeFrom: 1, numberRangeTo: 999999, nextNumber: 1, allowsManualEntry: true, isActive: true })
 const apiMessage = (error: unknown) => (error as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Operation failed'
 
 export default function DocumentTypesPage() {
     const list = useDocumentTypes(); const mutations = useDocumentTypeMutations(list.reload)
     const access = useResourceAccess('fico.configuration')
     const breadcrumbs = buildErpBreadcrumbs('/modules/fico/document-types-fi')
-    const [open, setOpen] = useState(false); const [editing, setEditing] = useState<FicoDocumentType | null>(null)
-    const [form, setForm] = useState<FicoDocumentTypeInput>(blank()); const [error, setError] = useState<string | null>(null)
-    const show = (row?: FicoDocumentType) => { setEditing(row ?? null); setForm(row ? { code: row.code, name: row.name, prefix: row.prefix, numberRangeFrom: row.numberRangeFrom, numberRangeTo: row.numberRangeTo, nextNumber: row.nextNumber, allowsManualEntry: row.allowsManualEntry, isActive: row.isActive } : blank()); setError(null); setOpen(true) }
+    const [open, setOpen] = useState(false); const [editing, setEditing] = useState<FiDocumentType | null>(null)
+    const [form, setForm] = useState<FiDocumentTypeInput>(blank()); const [error, setError] = useState<string | null>(null)
+    const show = (row?: FiDocumentType) => { setEditing(row ?? null); setForm(row ? { code: row.code, name: row.name, prefix: row.prefix, numberRangeFrom: row.numberRangeFrom, numberRangeTo: row.numberRangeTo, nextNumber: row.nextNumber, allowsManualEntry: row.allowsManualEntry, isActive: row.isActive } : blank()); setError(null); setOpen(true) }
     const save = async () => { setError(null); try { editing ? await mutations.update(editing.id, form) : await mutations.create(form); setOpen(false) } catch (e) { setError(apiMessage(e)) } }
-    const columns = useMemo<ColumnDef<FicoDocumentType>[]>(() => [
+    const columns = useMemo<ColumnDef<FiDocumentType>[]>(() => [
         { header: 'Code', accessorKey: 'code' }, { header: 'Name', accessorKey: 'name' },
         { header: 'Prefix', cell: ({ row }) => row.original.prefix || '—' },
         { header: 'Number Range', cell: ({ row }) => `${row.original.numberRangeFrom.toLocaleString()} – ${row.original.numberRangeTo.toLocaleString()}` },

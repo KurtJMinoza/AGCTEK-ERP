@@ -5,6 +5,7 @@ import { ExpiryControlService } from '../returns-disposal/expiry-control.service
 import { formatTrackingNumber } from '../common/tracking-number.format'
 import { parseCalendarDateString } from '../common/calendar-date.util'
 import { generateBatchNumber } from './batch-number.util'
+import { ensureMaterialBatch } from './line-tracking.util'
 
 @Injectable()
 export class BatchesService {
@@ -54,6 +55,9 @@ export class BatchesService {
 
     async create(data: {
         materialId: string
+        /** When omitted, the system assigns the next batch number for the material. */
+        batchNumber?: string
+        lotNumber?: string
         manufacturingDate?: string
         expiryDate?: string
         shelfLifeDays?: number
@@ -65,7 +69,10 @@ export class BatchesService {
         })
         if (!material) throw new NotFoundException('Material not found')
         if (!material.batchManaged) {
-            throw new BadRequestException('Material is not batch-managed')
+            await this.prisma.mmMaterial.update({
+                where: { id: data.materialId },
+                data: { batchManaged: true },
+            })
         }
 
         if (data.supplierId) {
@@ -75,6 +82,57 @@ export class BatchesService {
             if (!supplier) {
                 throw new BadRequestException('Supplier not found')
             }
+        }
+
+        if (data.batchNumber?.trim() || data.lotNumber?.trim()) {
+            const ensured = await ensureMaterialBatch(
+                this.prisma,
+                data.materialId,
+                data.batchNumber,
+                data.lotNumber,
+            )
+            if (!ensured?.batchId) {
+                throw new BadRequestException('Batch number is required')
+            }
+
+            const manufacturingDate = parseCalendarDateString(data.manufacturingDate)
+            const expiryDateInput = parseCalendarDateString(data.expiryDate)
+            const resolved = this.expiryControl.resolveExpiryDate({
+                manufacturingDate,
+                expiryDate: expiryDateInput,
+                shelfLifeDays: data.shelfLifeDays ?? null,
+                defaultShelfLifeDays: material.defaultShelfLifeDays ?? null,
+            })
+
+            const updated = await this.prisma.mmBatch.update({
+                where: { id: ensured.batchId },
+                data: {
+                    manufacturingDate: manufacturingDate ?? undefined,
+                    expiryDate: resolved.expiryDate ?? undefined,
+                    shelfLifeDays: resolved.shelfLifeDays ?? undefined,
+                    supplierId: data.supplierId || null,
+                    status: data.status || 'AVAILABLE',
+                },
+                include: {
+                    material: {
+                        select: {
+                            id: true,
+                            materialCode: true,
+                            materialName: true,
+                            batchManaged: true,
+                        },
+                    },
+                    supplier: {
+                        select: {
+                            id: true,
+                            supplierCode: true,
+                            supplierName: true,
+                        },
+                    },
+                    serialNumbers: { where: { deletedAt: null } },
+                },
+            })
+            return this.withExpiryMeta(updated)
         }
 
         const batchNumber = await generateBatchNumber(
@@ -102,6 +160,9 @@ export class BatchesService {
                 data: {
                     materialId: data.materialId,
                     batchNumber,
+                    lotNumber: data.lotNumber?.trim()
+                        ? formatTrackingNumber(data.lotNumber.trim())
+                        : undefined,
                     manufacturingDate: manufacturingDate ?? undefined,
                     expiryDate: resolved.expiryDate ?? undefined,
                     shelfLifeDays: resolved.shelfLifeDays ?? undefined,
@@ -126,6 +187,7 @@ export class BatchesService {
 
     async update(id: string, data: Partial<{
         batchNumber: string
+        lotNumber: string | null
         manufacturingDate: string | null
         expiryDate: string | null
         shelfLifeDays: number | null
@@ -136,6 +198,27 @@ export class BatchesService {
         const patch = { ...data }
         if (patch.batchNumber !== undefined) {
             patch.batchNumber = formatTrackingNumber(patch.batchNumber)
+        }
+        if (data.lotNumber !== undefined) {
+            const lot =
+                data.lotNumber === null || data.lotNumber === ''
+                    ? null
+                    : formatTrackingNumber(data.lotNumber)
+            if (lot) {
+                const taken = await this.prisma.mmBatch.findFirst({
+                    where: {
+                        materialId: batch.materialId,
+                        lotNumber: lot,
+                        deletedAt: null,
+                        id: { not: id },
+                    },
+                })
+                if (taken) {
+                    throw new ConflictException(
+                        'Lot number already exists for this material',
+                    )
+                }
+            }
         }
         if (patch.batchNumber && patch.batchNumber !== batch.batchNumber) {
             const exists = await this.prisma.mmBatch.findFirst({
@@ -182,6 +265,14 @@ export class BatchesService {
             where: { id },
             data: {
                 ...(patch.batchNumber !== undefined ? { batchNumber: patch.batchNumber } : {}),
+                ...(data.lotNumber !== undefined
+                    ? {
+                          lotNumber:
+                              data.lotNumber === null || data.lotNumber === ''
+                                  ? null
+                                  : formatTrackingNumber(data.lotNumber),
+                      }
+                    : {}),
                 ...(data.status !== undefined ? { status: data.status } : {}),
                 ...(data.supplierId !== undefined ? { supplierId: data.supplierId } : {}),
                 ...(data.manufacturingDate !== undefined

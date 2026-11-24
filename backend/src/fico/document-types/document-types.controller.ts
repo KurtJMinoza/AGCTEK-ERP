@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { RequirePermission } from '../../permissions/permission.guard'
 import { CreateFiDocumentTypeDto, UpdateFiDocumentTypeDto } from '../dto/document-type.dto'
 import { DocumentTypesService } from './document-types.service'
-@Controller('fico/document-types')
+@Controller('fico/fi-document-types')
 export class DocumentTypesController {
     constructor(private service: DocumentTypesService) {}
     @Get() @RequirePermission('fico.configuration', 'read') list() { return this.service.list() }

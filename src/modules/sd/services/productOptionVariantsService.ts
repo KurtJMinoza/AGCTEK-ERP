@@ -255,9 +255,14 @@ export const productOptionVariantsService = {
                 throw toError(error, 'Unable to save options & variants')
             }),
 
-    findVariantByBarcode: (barcode: string) =>
+    findVariantByBarcode: (barcode: string, companyId?: string | null) =>
         ErpAxiosBase.get<VariantWithProduct>(
             `${BASE}/variants/barcode/${encodeURIComponent(barcode)}`,
+            {
+                params: {
+                    companyId: companyId?.trim() || undefined,
+                },
+            },
         ).then((r) => r.data),
 
     variantAvailability: (

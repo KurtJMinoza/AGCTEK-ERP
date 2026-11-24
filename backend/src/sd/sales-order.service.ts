@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
+import { PricingResolutionService } from './pricing-resolution.service'
 import {
     ChangeSalesOrderLineQtyDto,
     CheckoutPaymentMethod,
@@ -161,6 +162,7 @@ export class SalesOrderService {
         private quotations: QuotationService,
         private commercialAvailability: CommercialAvailabilityService,
         private invoices: SalesInvoiceService,
+        private pricingResolution: PricingResolutionService,
     ) {}
 
     private readonly includes = {
@@ -379,7 +381,10 @@ export class SalesOrderService {
                 where,
                 orderBy: { createdAt: 'desc' },
                 take: limit,
-                include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                include: {
+                    lines: { orderBy: { lineNumber: 'asc' } },
+                    company: { select: { id: true, name: true } },
+                },
             }),
             this.prisma.sdSalesOrder.count({ where }),
         ])
@@ -410,8 +415,8 @@ export class SalesOrderService {
         if (search) {
             and.push({
                 OR: [
-                    { orderNumber: { contains: search, mode: 'insensitive' } },
-                    { customerName: { contains: search, mode: 'insensitive' } },
+                { orderNumber: { contains: search, mode: 'insensitive' } },
+                { customerName: { contains: search, mode: 'insensitive' } },
                     {
                         customerEmail: {
                             contains: search,
@@ -431,8 +436,17 @@ export class SalesOrderService {
             orderBy: { createdAt: 'desc' },
             take: query.limit ?? 200,
             include: {
-                lines: { orderBy: { lineNumber: 'asc' } },
+                lines: {
+                    orderBy: { lineNumber: 'asc' },
+                    include: {
+                        material: {
+                            select: { id: true, standardCost: true },
+                        },
+                    },
+                },
                 company: true,
+                // POS split sales need every tender on the detail dialog.
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         const cancellation = await this.customerCancellationMap(rows)
@@ -497,7 +511,7 @@ export class SalesOrderService {
         })
         if (existing) return existing
 
-        await this.verifyCatalogPrices(dto.divisionId, dto.lines)
+        await this.resolveAndSetUnitPrices(dto.divisionId, dto.lines, dto.channel, dto.promoCode)
         const totals = this.verifyRetailTotals(dto)
         const isPos = dto.channel === 'POS'
         if (isPos && !dto.branchId) {
@@ -527,6 +541,22 @@ export class SalesOrderService {
             )
         }
 
+        // A counter sale is a request for stock too: require current MM ATP for
+        // the fulfillment warehouse before the order exists. Without this a POS
+        // terminal could sell stock that another terminal already took, and the
+        // sale would only fail later at reservation/PGI.
+        if (isPos) {
+            await this.commercialAvailability.assertCheckoutAvailability({
+                companyId: checkoutCompanyId,
+                lines: dto.lines.map((line) => ({
+                    ...line,
+                    divisionId: dto.divisionId,
+                })),
+                channel: 'POS',
+                branchId: dto.branchId ?? null,
+            })
+        }
+
         for (let attempt = 0; attempt < 3; attempt++) {
             const orderNumber = await this.nextOrderNumber(
                 isPos ? 'POS' : 'SO',
@@ -546,16 +576,26 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                const { integrated } =
+                const { integrated, order: enriched } =
                     await this.mmPipeline.integrateConfirmedOrder(created.id)
-                if (isPos && integrated) {
+                // A staged POS checkout completes the order only after the
+                // tenders are captured and the goods issue is posted.
+                if (isPos && integrated && dto.deferCompletion !== true) {
                     return this.prisma.sdSalesOrder.update({
                         where: { id: created.id },
                         data: { status: 'COMPLETED' },
                         include: { lines: { orderBy: { lineNumber: 'asc' } } },
                     })
                 }
-                return created
+                // Enrichment rewrites companyId/warehouseId from the linked MM
+                // material (e.g. AWIC stock while checkout defaulted to AGCTEK).
+                // Return that refreshed row so POS goods-issue looks up bins
+                // under the company that actually holds the stock.
+                if (enriched) return enriched
+                return this.prisma.sdSalesOrder.findUniqueOrThrow({
+                    where: { id: created.id },
+                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                })
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {
@@ -591,17 +631,17 @@ export class SalesOrderService {
             channel: 'ECOMMERCE',
             idempotencyKey: dto.checkoutId,
             divisionId: null,
-            customerId: dto.customerId,
-            customerName: dto.customerName,
-            customerEmail: dto.customerEmail,
+                customerId: dto.customerId,
+                customerName: dto.customerName,
+                customerEmail: dto.customerEmail,
             lines: dto.cartItems,
             subtotal: dto.subtotal,
             discountAmount: dto.discountAmount,
             promoCode: dto.promoCode,
             shippingAmount: dto.shippingAmount,
             totalAmount: dto.totalAmount,
-            shippingAddress: dto.shippingAddress,
-            createdBy: dto.createdBy,
+                shippingAddress: dto.shippingAddress,
+                createdBy: dto.createdBy,
             paymentMethod: dto.paymentMethod,
             paymentProvider: dto.paymentProvider,
             cardDemoSimulateFailure: dto.cardDemoSimulateFailure,
@@ -675,7 +715,7 @@ export class SalesOrderService {
         // resolve the product-to-material assignments and require current MM
         // ATP for the actual fulfillment warehouse. This prevents an
         // out-of-stock cart from becoming an order that cannot be reserved.
-        await this.commercialAvailability.assertMarketplaceCheckoutAvailability(
+        await this.commercialAvailability.assertCheckoutAvailability(
             {
                 companyId: checkoutCompanyId,
                 lines: dto.cartItems,
@@ -687,12 +727,12 @@ export class SalesOrderService {
             const orderNumber = await this.nextOrderNumber('SO', attempt)
             try {
                 const order = await this.prisma.sdSalesOrder.create({
-                    data: this.retailOrderData(
+                                data: this.retailOrderData(
                         master,
                         totals,
-                        account?.email,
-                        orderNumber,
-                        dto.checkoutId,
+                                    account?.email,
+                                    orderNumber,
+                                    dto.checkoutId,
                         payment,
                         snapshots,
                         checkoutCompanyId,
@@ -827,8 +867,17 @@ export class SalesOrderService {
         createdBy?: string,
     ) {
         if (!order.companyId) return null
-        return this.prisma.sdSalesOrderPayment.upsert({
+        // The first checkout is authoritative. A retry only heals a missing
+        // record; it must not rewrite its payment outcome. A POS sale may carry
+        // several tenders, so the write is keyed by the order, not by a unique
+        // per-order constraint.
+        const existing = await this.prisma.sdSalesOrderPayment.findFirst({
             where: { salesOrderId: order.id },
+        })
+        if (existing) return existing
+        const idempotencyKey = `order:${order.id}`
+        return this.prisma.sdSalesOrderPayment.upsert({
+            where: { idempotencyKey },
             create: {
                 companyId: order.companyId,
                 salesOrderId: order.id,
@@ -836,15 +885,15 @@ export class SalesOrderService {
                 paymentMethod: payment.method,
                 paymentProvider: payment.provider,
                 amount: order.totalAmount ?? new Decimal(0),
+                tenderAmount: order.totalAmount ?? new Decimal(0),
                 currency: SD_CATALOG_CURRENCY,
                 status: payment.status,
                 referenceNumber: payment.reference,
+                idempotencyKey,
                 isDemo: payment.isDemo,
                 paidAt: payment.paidAt,
                 createdBy: createdBy ?? null,
             },
-            // The first checkout is authoritative. A retry only heals a
-            // missing record; it must not rewrite its payment outcome.
             update: {},
         })
     }
@@ -1043,6 +1092,9 @@ export class SalesOrderService {
         | Prisma.SdSalesOrderCreateInput
         | Prisma.SdSalesOrderUncheckedCreateInput {
         const isPos = dto.channel === 'POS'
+        // A staged POS checkout keeps the order CONFIRMED until the tenders are
+        // captured and the goods issue is posted.
+        const deferred = isPos && dto.deferCompletion === true
         const shipTo = isPos ? undefined : dto.shippingAddress
         return {
             orderNumber,
@@ -1065,6 +1117,7 @@ export class SalesOrderService {
             discountAmount: totals.discountAmount,
             promoCode: dto.promoCode ?? null,
             shippingAmount: totals.shippingAmount,
+            taxAmount: totals.taxAmount,
             totalAmount: totals.totalAmount,
             paymentReceived: totals.paymentReceived,
             changeAmount: totals.changeAmount,
@@ -1073,7 +1126,7 @@ export class SalesOrderService {
             paymentReference: payment?.reference ?? null,
             paymentProvider: payment?.provider ?? null,
             isDemoPayment: payment?.isDemo ?? false,
-            status: isPos ? 'COMPLETED' : 'CONFIRMED',
+            status: isPos ? (deferred ? 'CONFIRMED' : 'COMPLETED') : 'CONFIRMED',
             correlationId,
             idempotencyKey: dto.idempotencyKey,
             createdBy: dto.createdBy ?? null,
@@ -1091,11 +1144,11 @@ export class SalesOrderService {
                         ? snapshots?.variantById.get(line.variantId)
                         : undefined
                     return {
-                        lineNumber: idx + 1,
+                    lineNumber: idx + 1,
                         divisionId,
                         companyId: companyId ?? null,
-                        sku: line.sku,
-                        description: line.description,
+                    sku: line.sku,
+                    description: line.description,
                         productNameSnapshot:
                             product?.name ?? line.description ?? undefined,
                         productSkuSnapshot:
@@ -1111,7 +1164,8 @@ export class SalesOrderService {
                         quantity: new Decimal(line.quantity),
                         unitPrice: new Decimal(line.unitPrice),
                         lineTotal: new Decimal(line.lineTotal),
-                        integrationStatus: isPos ? 'FULFILLED' : 'OPEN',
+                        integrationStatus:
+                            isPos && !deferred ? 'FULFILLED' : 'OPEN',
                     }
                 }),
             },
@@ -1622,7 +1676,7 @@ export class SalesOrderService {
 
         const gate = await this.customerCancellationState(order)
         if (!gate.canCancel) {
-            throw new ConflictException(
+                throw new ConflictException(
                 gate.reason ?? 'This order can no longer be cancelled',
             )
         }
@@ -1768,31 +1822,108 @@ export class SalesOrderService {
         return start
     }
 
-    /** Each line must be an active SdProduct of `divisionId`, at its current price. */
+    /**
+     * Resolve unit prices for each order line using active pricing conditions,
+     * then set the resolved unitPrice on each line for subsequent verification.
+     *
+     * Channel → customerType mapping:
+     *   POS / ecommerce walk-in → 'RETAIL'
+     *   B2B / wholesale customer → 'B2B'
+     *   Unknown → 'RETAIL' (prefer retail for storefront)
+     */
+    private async resolveAndSetUnitPrices(
+        divisionId: string,
+        lines: ReadonlyArray<CreateRetailSalesOrderLineDto>,
+        channel: string,
+        promoCode?: string | null,
+    ) {
+        // Map channel to customerType
+        const customerType = channel === 'POS' || channel === 'WEBSITE'
+            ? 'RETAIL'
+            : 'RETAIL' // default; B2B path should pass customerType explicitly
+
+        for (const line of lines) {
+            // Load product to get productId for resolver
+            const product = await this.prisma.sdProduct.findFirst({
+                where: { divisionId, sku: line.sku },
+                select: { id: true, sku: true },
+            })
+
+            if (!product) {
+                throw new BadRequestException(
+                    `Line with sku ${line.sku} is not an active ${divisionId} product`,
+                )
+            }
+
+            const resolved = await this.pricingResolution.resolveUnitPrice({
+                productId: product.id,
+                sku: line.sku,
+                variantId: line.variantId ?? undefined,
+                quantity: line.quantity,
+                customerType,
+                promoCode,
+            })
+
+            // Store resolved price on the line - we'll use a type assertion
+            // since CreateRetailSalesOrderLineDto has unitPrice as required
+            ;(line as any)._resolvedUnitPrice = resolved.unitPrice
+            ;(line as any)._resolvedDiscountPerUnit = resolved.discountPerUnit
+            ;(line as any)._resolvedAppliedConditionId = resolved.appliedConditionId
+            ;(line as any)._resolvedAppliedConditionCode = resolved.appliedConditionCode
+            ;(line as any)._resolvedAppliedValueType = resolved.appliedValueType
+            ;(line as any)._resolvedAppliedValue = resolved.appliedValue
+        }
+    }
+
+    /** Each line must be an active SdProduct of `divisionId`, at its resolved price. */
     private async verifyCatalogPrices(
         divisionId: string,
         lines: ReadonlyArray<
             CreateRetailSalesOrderLineDto & { lineNumber?: number }
         >,
     ) {
-        const prices = await this.products.activePriceMap(
-            divisionId,
-            lines.map((line) => line.sku),
-        )
-        lines.forEach((line, idx) => {
+        const pricePromises = lines.map(async (line, idx) => {
             const lineNumber = line.lineNumber ?? idx + 1
-            const price = prices.get(line.sku)
-            if (!price) {
-                throw new BadRequestException(
-                    `Line ${lineNumber}: ${line.sku} is not an active ${divisionId} product`,
+
+            // Use resolved price from pricing conditions; falls back to catalog base if no conditions
+            const resolvedPrice = Number(
+                (line as any)?._resolvedUnitPrice,
+            )
+
+            if (resolvedPrice <= 0) {
+                // No conditions applied; verify against catalog base price
+                const prices = await this.products.activePriceMap(
+                    divisionId,
+                    lines.map((l) => l.sku),
                 )
-            }
-            if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(price)) {
-                throw new BadRequestException(
-                    `Line ${lineNumber}: price for ${line.sku} changed to ${price.toFixed(2)}, refresh and try again`,
-                )
+                const price = prices.get(line.sku)
+                if (!price) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: ${line.sku} is not an active ${divisionId} product`,
+                    )
+                }
+                if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(price)) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: price for ${line.sku} changed to ${price.toFixed(
+                            2,
+                        )}, refresh and try again`,
+                    )
+                }
+            } else {
+                // Conditions applied; verify submitted unitPrice matches resolved price
+                if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(resolvedPrice)) {
+                    throw new BadRequestException(
+                        `Line ${lineNumber}: price for ${line.sku} is ${line.unitPrice.toFixed(
+                            2,
+                        )} but resolved price (with conditions) is ${resolvedPrice.toFixed(
+                            2,
+                        )}. Please verify the line price reflects active pricing conditions.`,
+                    )
+                }
             }
         })
+
+        await Promise.all(pricePromises)
     }
 
     private verifyRetailTotals(
@@ -1805,6 +1936,10 @@ export class SalesOrderService {
             | 'shippingAmount'
             | 'totalAmount'
             | 'paymentReceived'
+            | 'taxAmount'
+            | 'allowPartialPayment'
+            | 'chargeSale'
+            | 'deferCompletion'
         >,
     ) {
         const money = (value: number | Decimal) =>
@@ -1832,7 +1967,15 @@ export class SalesOrderService {
             throw new BadRequestException('Discount cannot exceed subtotal')
         }
         const shippingAmount = money(dto.shippingAmount)
-        const totalAmount = subtotal.minus(discountAmount).plus(shippingAmount)
+        // Tax is a POS concept: the amount the customer pays on top of the
+        // catalogue price (VAT-exclusive lines). VAT-inclusive lines already
+        // carry their tax inside the price.
+        const taxAmount =
+            dto.channel === 'POS' ? money(dto.taxAmount ?? 0) : new Decimal(0)
+        const totalAmount = subtotal
+            .minus(discountAmount)
+            .plus(shippingAmount)
+            .plus(taxAmount)
         mismatch('Total', totalAmount, dto.totalAmount)
 
         if (dto.channel === 'POS') {
@@ -1847,18 +1990,62 @@ export class SalesOrderService {
                 )
             }
             const paymentReceived = money(dto.paymentReceived)
-            if (paymentReceived.lt(totalAmount)) {
+            if (dto.chargeSale) {
+                // Charge sale: nothing is collected at the register. It must be
+                // a staged checkout so the POS checkout service books the
+                // receivable; a directly completed order would be unpaid with
+                // no receivable behind it.
+                if (dto.deferCompletion !== true) {
+                    throw new BadRequestException(
+                        'A charge sale must go through the POS checkout.',
+                    )
+                }
+                if (!paymentReceived.isZero()) {
+                    throw new BadRequestException(
+                        'A charge sale takes no payment at the register.',
+                    )
+                }
+                return {
+                    subtotal,
+                    discountAmount,
+                    shippingAmount,
+                    taxAmount,
+                    totalAmount,
+                    paymentReceived,
+                    changeAmount: new Decimal(0),
+                }
+            }
+            // Down payment / partial payment: tenders cover only the initial
+            // amount; the rest is an outstanding receivable. Full-payment POS
+            // sales still require paymentReceived >= totalAmount.
+            if (
+                paymentReceived.lt(totalAmount) &&
+                !dto.allowPartialPayment
+            ) {
                 throw new BadRequestException(
                     `Insufficient payment: received ${paymentReceived.toFixed(2)}, due ${totalAmount.toFixed(2)}`,
+                )
+            }
+            if (
+                dto.allowPartialPayment &&
+                (paymentReceived.lte(0) || paymentReceived.gt(totalAmount))
+            ) {
+                throw new BadRequestException(
+                    'A down payment must be greater than zero and not exceed the order total.',
                 )
             }
             return {
                 subtotal,
                 discountAmount,
                 shippingAmount,
+                taxAmount,
                 totalAmount,
                 paymentReceived,
-                changeAmount: paymentReceived.minus(totalAmount),
+                // Partial payment never produces change from this total check;
+                // cash change is recorded on the individual tender rows.
+                changeAmount: paymentReceived.gt(totalAmount)
+                    ? paymentReceived.minus(totalAmount)
+                    : new Decimal(0),
             }
         }
 
@@ -1883,6 +2070,7 @@ export class SalesOrderService {
             subtotal,
             discountAmount,
             shippingAmount,
+            taxAmount: new Decimal(0),
             totalAmount,
             paymentReceived: null,
             changeAmount: null,
@@ -1934,7 +2122,7 @@ export class SalesOrderService {
             where: { id },
             include: {
                 ...this.includes,
-                payments: { orderBy: { createdAt: 'desc' } },
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         if (!row) throw new NotFoundException('Sales order not found')

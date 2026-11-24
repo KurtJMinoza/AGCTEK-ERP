@@ -187,6 +187,7 @@ const ProductVariantsSubRow = ({
                     <thead className="text-xs uppercase tracking-wide text-gray-500">
                         <tr>
                             <th className="py-2 pr-3">Variant</th>
+                            <th className="py-2 pr-3">Barcode</th>
                             <th className="py-2 pr-3">Material</th>
                             <th className="py-2 pr-3 text-right">Price</th>
                             <th className="py-2 pr-3 text-right">On hand</th>
@@ -219,6 +220,13 @@ const ProductVariantsSubRow = ({
                                         <span className="ml-2 text-xs text-gray-500">
                                             {variant.sku}
                                         </span>
+                                    </td>
+                                    <td className="py-2 pr-3 font-mono text-xs text-gray-700">
+                                        {variant.barcode || (
+                                            <span className="text-gray-400">
+                                                —
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="py-2 pr-3">
                                         {materialId ? (

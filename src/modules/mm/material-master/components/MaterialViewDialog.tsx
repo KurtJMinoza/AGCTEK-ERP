@@ -136,6 +136,39 @@ const MaterialViewDialog = ({ isOpen, material, onClose, onEdit }: MaterialViewD
                     <Metric label="Warehouse" value={material.defaultWarehouse?.name ?? '—'} />
                 </div>
             </ViewSection>
+
+            <ViewSection title="Tax information" icon={<HiOutlineShieldCheck />}>
+                {material.tax?.configured ? (
+                    <>
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                            <Metric label="Tax classification" value={material.tax.classificationLabel ?? '—'} />
+                            <Metric label="Tax code (FICO)" value={material.tax.taxCode ? `${material.tax.taxCode} — ${material.tax.taxCodeName ?? ''}` : '—'} />
+                            <Metric label="Tax rate" value={material.tax.taxRate == null ? 'No active rate' : `${material.tax.taxRate}%`} />
+                            <Metric label="Price tax treatment" value={material.tax.priceTaxTreatmentLabel ?? '—'} />
+                            <Metric label="Tax status" value={material.tax.status ?? '—'} />
+                            <Metric label="Effective status" value={material.tax.effectiveStatus} />
+                            <Metric label="Effective from" value={material.tax.effectiveFrom ?? '—'} />
+                            <Metric label="Effective to" value={material.tax.effectiveTo ?? '—'} />
+                        </div>
+                        {material.tax.description ? (
+                            <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                                {material.tax.description}
+                            </p>
+                        ) : null}
+                        {material.tax.warnings.length > 0 ? (
+                            <ul className="mt-3 space-y-1 text-xs text-amber-600 dark:text-amber-400">
+                                {material.tax.warnings.map((warning) => (
+                                    <li key={warning}>{warning}</li>
+                                ))}
+                            </ul>
+                        ) : null}
+                    </>
+                ) : (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                        Tax Classification Not Configured
+                    </div>
+                )}
+            </ViewSection>
         </FormDialog>
     )
 }

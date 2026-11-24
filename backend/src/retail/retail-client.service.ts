@@ -222,7 +222,10 @@ private async createCustomerFromShopAccount(client: {
                     creditLimit: new Decimal(0),
                     availableCredit: new Decimal(0),
                     status: 'ACTIVE',
-                    customerType: 'RETAIL',
+                    customerAccountType: 'NON_CREDIT',
+                    customerCategory: 'RETAIL',
+                    paymentTerms: 'IMMEDIATE',
+                    creditStatus: 'NOT_APPLICABLE',
                     retailClientId: client.id,
                 },
             })
@@ -628,7 +631,10 @@ private async createCustomerFromShopAccount(client: {
                         creditLimit: new Decimal(0),
                         availableCredit: new Decimal(0),
                         status: 'ACTIVE',
-                        customerType: 'RETAIL',
+                        customerAccountType: 'NON_CREDIT',
+                    customerCategory: 'RETAIL',
+                    paymentTerms: 'IMMEDIATE',
+                    creditStatus: 'NOT_APPLICABLE',
                         retailClientId: client.id,
                     },
                 })

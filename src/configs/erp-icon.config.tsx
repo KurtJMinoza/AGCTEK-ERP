@@ -9,8 +9,11 @@ import {
     PiClipboardTextDuotone,
     PiCreditCardDuotone,
     PiCubeDuotone,
+    PiEnvelopeSimpleDuotone,
     PiFactoryDuotone,
+    PiFilePdfDuotone,
     PiFileTextDuotone,
+    PiFolderOpenDuotone,
     PiGearDuotone,
     PiGitBranchDuotone,
     PiHouseLineDuotone,
@@ -59,6 +62,9 @@ const erpIcon: ErpIcons = {
     calendar: <PiCalendarDuotone />,
     crm: <PiAddressBookDuotone />,
     storefront: <PiStorefrontDuotone />,
+    folder: <PiFolderOpenDuotone />,
+    mail: <PiEnvelopeSimpleDuotone />,
+    filePdf: <PiFilePdfDuotone />,
 }
 
 export default erpIcon

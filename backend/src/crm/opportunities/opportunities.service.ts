@@ -69,10 +69,11 @@ export function serializeOpportunity<T extends { amount: Decimal | null }>(row: 
 }
 
 /** Stage fields written when an opportunity closes as won. */
-export function wonUpdateData(userId: string) {
+export function wonUpdateData(userId: string, now = new Date()) {
     return {
         stage: 'CLOSED_WON',
-        closedAt: new Date(),
+        stageEnteredAt: now,
+        closedAt: now,
         probability: stageMeta('CLOSED_WON').defaultProbability,
         updatedBy: userId,
     } satisfies Prisma.CrmOpportunityUncheckedUpdateManyInput
@@ -291,6 +292,7 @@ export class CrmOpportunitiesService {
                     amount: dto.amount === undefined ? null : new Decimal(dto.amount),
                     currency: dto.currency ?? 'PHP',
                     stage,
+                    stageEnteredAt: new Date(),
                     probability: dto.probability ?? stageMeta(stage).defaultProbability,
                     expectedCloseDate: dto.expectedCloseDate ?? null,
                     assignedTo: dto.assignedTo,
@@ -398,9 +400,11 @@ export class CrmOpportunitiesService {
                 )
             }
             const meta = stageMeta(targetStage)
+            const enteredAt = new Date()
             data.stage = targetStage
+            data.stageEnteredAt = enteredAt
             if (meta.isLost) {
-                data.closedAt = new Date()
+                data.closedAt = enteredAt
                 data.probability = meta.defaultProbability
             } else {
                 // Reopening keeps amount, dates, customer, activities and any sdSalesOrderId (SD-owned).

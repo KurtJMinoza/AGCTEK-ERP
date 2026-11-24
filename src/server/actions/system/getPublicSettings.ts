@@ -11,6 +11,7 @@ export type PublicSettings = {
     feature_scm_enabled: boolean
     feature_crm_enabled: boolean
     feature_hcm_enabled: boolean
+    feature_wpd_enabled: boolean
 }
 
 /** Used only when the backend is unreachable, so an outage doesn't lock everyone out of the UI. */
@@ -24,6 +25,7 @@ const FALLBACK: PublicSettings = {
     feature_scm_enabled: true,
     feature_crm_enabled: true,
     feature_hcm_enabled: true,
+    feature_wpd_enabled: true,
 }
 
 /** Non-sensitive system flags from GET /system-settings/public, fetched once per request. */

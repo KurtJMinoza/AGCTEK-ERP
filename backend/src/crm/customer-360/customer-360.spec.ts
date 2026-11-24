@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common'
+﻿import { NotFoundException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
@@ -31,7 +31,34 @@ function mockPrisma(opts: { customer?: boolean; withChildren?: boolean } = {}) {
             update: jest.fn(),
         },
         crmProfile: {
-            findUnique: jest.fn().mockResolvedValue(withChildren ? { id: 'prof-1', tier: 'GOLD' } : null),
+            findUnique: jest.fn().mockResolvedValue(
+                withChildren
+                    ? {
+                          id: 'prof-1',
+                          tier: 'GOLD',
+                          ratingStars: 4,
+                          ratedAt: new Date('2026-11-01T00:00:00Z'),
+                          ratedBy: 'user-1',
+                      }
+                    : null,
+            ),
+        },
+        crmCustomerRatingEvent: {
+            findMany: jest.fn().mockResolvedValue(
+                withChildren
+                    ? [
+                          {
+                              id: 'rate-1',
+                              customerId: 'cust-1',
+                              stars: 4,
+                              comment: 'Solid',
+                              previousStars: null,
+                              ratedBy: 'user-1',
+                              ratedAt: new Date('2026-11-01T00:00:00Z'),
+                          },
+                      ]
+                    : [],
+            ),
         },
         crmOpportunity: {
             findMany: jest.fn().mockResolvedValue(
@@ -80,6 +107,7 @@ const allOk = {
     orders: { status: 'ok' },
     shipments: { status: 'ok' },
     invoices: { status: 'not_connected', message: expect.any(String) },
+    ratings: { status: 'ok' },
 }
 
 describe('CrmCustomer360Service', () => {
@@ -96,7 +124,14 @@ describe('CrmCustomer360Service', () => {
         await expect(service.get('cust-1')).resolves.toEqual({
             customer,
             profile: null,
-            summary: { openOpportunities: 0, wonOpportunities: 0, openTickets: 0, salesOrders: 0 },
+            rating: null,
+            ratingHistory: [],
+            summary: {
+                openOpportunities: 0,
+                wonOpportunities: 0,
+                openTickets: 0,
+                salesOrders: 0,
+            },
             opportunities: [],
             tickets: [],
             loyalty: {
@@ -135,9 +170,22 @@ describe('CrmCustomer360Service', () => {
                 opportunity: { id: 'opp-1', name: 'Big deal' },
             }),
         ])
+        expect(result.rating).toEqual({
+            stars: 4,
+            ratedAt: new Date('2026-11-01T00:00:00Z'),
+            ratedBy: 'user-1',
+        })
+        expect(result.ratingHistory).toEqual([
+            expect.objectContaining({ id: 'rate-1', stars: 4, comment: 'Solid' }),
+        ])
         expect(result.shipments).toEqual([shipment])
         expect(result.opportunities[0].amount).toBe('2500.00')
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: 1, salesOrders: 1 })
+        expect(result.summary).toEqual({
+            openOpportunities: 1,
+            wonOpportunities: 1,
+            openTickets: 1,
+            salesOrders: 1,
+        })
         expect(result.sections).toEqual(allOk)
     })
 
@@ -199,7 +247,12 @@ describe('CrmCustomer360Service', () => {
         expect(result.profile).toBeNull()
         expect(result.tickets).toEqual([])
         expect(result.loyalty).toBeNull()
-        expect(result.summary).toEqual({ openOpportunities: 1, wonOpportunities: 1, openTickets: null, salesOrders: 1 })
+        expect(result.summary).toEqual({
+            openOpportunities: 1,
+            wonOpportunities: 1,
+            openTickets: null,
+            salesOrders: 1,
+        })
         expect(result.sections).toMatchObject({
             profile: { status: 'unavailable' },
             tickets: { status: 'unavailable' },

@@ -1,3 +1,4 @@
+/// <reference path="../../node_modules/@types/jest/index.d.ts" />
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { RetailClientService } from './retail-client.service'
