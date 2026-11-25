@@ -519,7 +519,27 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         [
             'account-determination',
             'Account Determination',
-            'Transaction keys, profiles, and MM account mappings.',
+            'Transaction keys, determination rules, simulation, and MM account mappings.',
+        ],
+        [
+            'account-determination-approval',
+            'Account Determination Approval',
+            'Approve or reject submitted determination rules (maker-checker).',
+        ],
+        [
+            'account-determination-activation',
+            'Account Determination Activation',
+            'Activate or deactivate approved determination rules.',
+        ],
+        [
+            'account-determination-migration',
+            'Account Determination Migration',
+            'Controlled migration of legacy MM mappings to centralized rules.',
+        ],
+        [
+            'accounting-events',
+            'Accounting Events',
+            'Monitor and retry automatic accounting events (MM, SD, PP bridge).',
         ],
         [
             'journal-entries',

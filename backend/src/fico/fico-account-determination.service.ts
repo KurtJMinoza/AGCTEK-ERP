@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common'
+import { FicoAccountingDeterminationException } from './fico-accounting-determination.exception'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import type {
@@ -10,6 +11,7 @@ import { FicoAccountResolutionService } from './fico-account-resolution.service'
 import type { FicoMmResolutionMode } from './fico-mm-resolution-mode.constants'
 import {
     ficoLegacyTransactionKeyCodes,
+    ficoMmEventReversesPostingDirection,
     ficoMmTransactionTypeForKey,
     ficoResolveMmTransactionKey,
 } from './fico-mm-inventory-determination.policy'
@@ -118,7 +120,7 @@ export class FicoAccountDeterminationService {
             !settings.accountDeterminationProfile ||
             settings.accountDeterminationProfile.status !== 'ACTIVE'
         ) {
-            throw new BadRequestException(
+            throw new FicoAccountingDeterminationException(
                 'Automatic accounting is blocked because no active account determination profile is assigned.',
             )
         }
@@ -198,7 +200,7 @@ export class FicoAccountDeterminationService {
             }
         } else if (mode === 'CENTRAL_ONLY') {
             if (!central?.length) {
-                throw new BadRequestException(
+                throw new FicoAccountingDeterminationException(
                     `No active centralized account determination rule matches MM ${transactionKey}. Legacy fallback is disabled (CENTRAL_ONLY).`,
                 )
             }
@@ -215,7 +217,7 @@ export class FicoAccountDeterminationService {
                 )
             } else {
                 if (!legacy?.length) {
-                    throw new BadRequestException(
+                    throw new FicoAccountingDeterminationException(
                         `No centralized or legacy account determination for ${transactionKey}.`,
                     )
                 }
@@ -232,6 +234,15 @@ export class FicoAccountDeterminationService {
             throw new BadRequestException(
                 `No account determination configuration matches MM ${transactionKey}.`,
             )
+        }
+
+        if (ficoMmEventReversesPostingDirection(payload)) {
+            chosen = chosen.map((line) => ({
+                ...line,
+                debitAmount: line.creditAmount,
+                creditAmount: line.debitAmount,
+                description: `Reversal · ${line.description}`,
+            }))
         }
 
         await this.validateResolvedAccounts(
@@ -463,7 +474,7 @@ export class FicoAccountDeterminationService {
         try {
             return ficoResolveMmTransactionKey(payload)
         } catch {
-            throw new BadRequestException(
+            throw new FicoAccountingDeterminationException(
                 `No automatic account-determination transaction key is defined for ${payload.eventType}.`,
             )
         }

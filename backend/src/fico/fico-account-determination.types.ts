@@ -25,12 +25,22 @@ export type AccountDeterminationDimensions = {
 
     taxCodeId?: string
     paymentMethodId?: string
+    paymentMethodCode?: string
     bankAccountId?: string
+    paymentProviderCode?: string
+    currencyCode?: string
+    branchId?: string
 
     assetClassId?: string
+    assetClassCode?: string
     depreciationAreaId?: string
+    depreciationAreaCode?: string
+    documentTypeCode?: string
 
     productionOrderTypeId?: string
+    productionOrderTypeCode?: string
+    costElementCategoryCode?: string
+    controllingAreaCode?: string
 
     /** Legacy flat names used by today’s rule table */
     materialTypeCode?: string
@@ -114,12 +124,23 @@ export function flattenDeterminationDimensions(
     dimensions: AccountDeterminationDimensions,
 ): Pick<
     AccountResolutionRequest,
-  | 'valuationClassId'
-  | 'materialTypeCode'
-  | 'movementType'
-  | 'customerAccountGroup'
-  | 'salesOrganization'
-  | 'distributionChannel'
+    | 'valuationClassId'
+    | 'materialTypeCode'
+    | 'movementType'
+    | 'customerAccountGroup'
+    | 'salesOrganization'
+    | 'distributionChannel'
+    | 'paymentMethodCode'
+    | 'bankAccountId'
+    | 'paymentProviderCode'
+    | 'currencyCode'
+    | 'branchId'
+    | 'assetClassCode'
+    | 'depreciationAreaCode'
+    | 'documentTypeCode'
+    | 'productionOrderTypeCode'
+    | 'costElementCategoryCode'
+    | 'controllingAreaCode'
 > {
     return {
         valuationClassId:
@@ -139,6 +160,24 @@ export function flattenDeterminationDimensions(
             dimensions.distributionChannel ??
             dimensions.distributionChannelId ??
             null,
+        paymentMethodCode: dimensions.paymentMethodCode ?? null,
+        bankAccountId: dimensions.bankAccountId ?? null,
+        paymentProviderCode: dimensions.paymentProviderCode ?? null,
+        currencyCode: dimensions.currencyCode ?? null,
+        branchId: dimensions.branchId ?? null,
+        assetClassCode:
+            dimensions.assetClassCode ?? dimensions.assetClassId ?? null,
+        depreciationAreaCode:
+            dimensions.depreciationAreaCode ??
+            dimensions.depreciationAreaId ??
+            null,
+        documentTypeCode: dimensions.documentTypeCode ?? null,
+        productionOrderTypeCode:
+            dimensions.productionOrderTypeCode ??
+            dimensions.productionOrderTypeId ??
+            null,
+        costElementCategoryCode: dimensions.costElementCategoryCode ?? null,
+        controllingAreaCode: dimensions.controllingAreaCode ?? null,
     }
 }
 

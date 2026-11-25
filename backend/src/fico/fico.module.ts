@@ -12,6 +12,9 @@ import { FicoAccountDeterminationService } from './fico-account-determination.se
 import { FicoAccountResolutionService } from './fico-account-resolution.service'
 import { FicoAccountMappingService } from './fico-account-mapping.service'
 import { FicoTransactionKeyService } from './fico-transaction-key.service'
+import { FicoAccountDeterminationSimulationService } from './fico-account-determination-simulation.service'
+import { FicoAccountDeterminationExceptionService } from './fico-account-determination-exception.service'
+import { FicoDeterminationSodPolicy } from './fico-determination-sod.policy'
 import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
@@ -27,6 +30,7 @@ import { FicoGeneralLedgerService } from './fico-general-ledger.service'
 import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoJournalIntegrityService } from './fico-journal-integrity.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoApReconciliationGuardService } from './fico-ap-reconciliation-guard.service'
 import { FicoNumberRangeController } from './fico-number-range.controller'
 import { FicoNumberRangeService } from './fico-number-range.service'
 import { FicoOverviewService } from './fico-overview.service'
@@ -41,6 +45,8 @@ import { FicoReconciliationService } from './fico-reconciliation.service'
 import { FicoTaxCodeController } from './fico-tax-code.controller'
 import { FicoTaxCalculationService } from './fico-tax-calculation.service'
 import { FicoTaxCodeService } from './fico-tax-code.service'
+import { FicoAccountsPayableController } from './fico-accounts-payable.controller'
+import { FicoAccountsPayableService } from './fico-accounts-payable.service'
 import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
 
@@ -52,6 +58,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoNumberRangeController,
         FicoTaxCodeController,
         FicoDocumentTypeController,
+        FicoAccountsPayableController,
     ],
     providers: [
         FicoFinancialPeriodService,
@@ -59,6 +66,8 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoDocumentNumberingService,
         FicoFinancialPostingEngine,
         FicoJournalService,
+        FicoApReconciliationGuardService,
+        FicoAccountsPayableService,
         FicoGeneralLedgerService,
         FicoJournalIntegrityService,
         FicoAccountDeterminationService,
@@ -66,6 +75,9 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoAccountDeterminationValidationService,
         FicoMmMappingMigrationService,
         FicoAccountResolutionService,
+        FicoAccountDeterminationSimulationService,
+        FicoAccountDeterminationExceptionService,
+        FicoDeterminationSodPolicy,
         FicoAccountMappingService,
         FicoTransactionKeyService,
         FicoAccountingEventsService,
@@ -120,6 +132,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoTaxCalculationService,
         FicoTaxCodeService,
         FicoDocumentTypeService,
+        FicoAccountsPayableService,
         FicoSdAccountingBridgeService,
         FINANCIAL_PERIOD_PORT,
     ],

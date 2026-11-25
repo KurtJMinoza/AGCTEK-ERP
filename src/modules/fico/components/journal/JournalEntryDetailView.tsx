@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, type ReactNode } from 'react'
+import Link from 'next/link'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -288,6 +289,25 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                                     secondary={source.secondary}
                                     mono={Boolean(source.secondary && source.secondary.length <= 16)}
                                 />
+                            }
+                        />
+                        <MetaItem
+                            label="Supplier"
+                            value={
+                                entry.supplier ? (
+                                    <Link
+                                        href={`/modules/mm/supplier-management/supplier-master/${entry.supplier.id}`}
+                                        className="text-primary hover:underline"
+                                    >
+                                        <FicoTwoLineCell
+                                            primary={entry.supplier.supplierCode}
+                                            secondary={entry.supplier.supplierName}
+                                            mono
+                                        />
+                                    </Link>
+                                ) : (
+                                    '—'
+                                )
                             }
                         />
                         <MetaItem

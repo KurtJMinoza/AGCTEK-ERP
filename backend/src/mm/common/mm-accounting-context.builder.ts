@@ -24,6 +24,14 @@ type RawLine = {
 
 const DEFAULT_CURRENCY = 'USD'
 
+/** Events that carry operational/audit detail but do not independently post a GL document. */
+const NON_POSTING_ACCOUNTING_EVENTS = new Set([
+    'InventoryValuationUpdated',
+    'InventoryValuationReversed',
+    'InventoryTransferred',
+    'InventoryTransactionReversed',
+])
+
 const EFFECTS_BY_EVENT: Record<string, MmAccountingEffectHint[]> = {
     GoodsReceiptPosted: [
         MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
@@ -134,6 +142,7 @@ export class MmAccountingContextBuilder {
             db,
             envelope.companyId,
             rawLines,
+            payload.currencyCode,
         )
         const accountingEffects = this.resolveEffects(
             envelope.eventType,
@@ -161,6 +170,7 @@ export class MmAccountingContextBuilder {
             lines,
             financiallyRelevant:
                 payload.financiallyRelevant !== false &&
+                !NON_POSTING_ACCOUNTING_EVENTS.has(envelope.eventType) &&
                 accountingEffects.length > 0,
             sourceEventId: envelope.eventId,
             correlationId: envelope.correlationId,
@@ -322,7 +332,11 @@ export class MmAccountingContextBuilder {
         db: TransactionClient | PrismaService,
         companyId: string,
         lines: RawLine[],
+        preferredCurrency?: unknown,
     ): Promise<string> {
+        if (typeof preferredCurrency === 'string' && preferredCurrency.trim()) {
+            return preferredCurrency.trim().toUpperCase()
+        }
         if (lines.length) {
             const material = await db.mmMaterial.findFirst({
                 where: { id: lines[0].materialId },
@@ -330,6 +344,11 @@ export class MmAccountingContextBuilder {
             })
             if (material?.currency?.code) return material.currency.code
         }
+        const settings = await db.ficoCompanyAccountingSettings.findFirst({
+            where: { companyId },
+            select: { baseCurrency: true },
+        })
+        if (settings?.baseCurrency) return settings.baseCurrency
         return DEFAULT_CURRENCY
     }
 }

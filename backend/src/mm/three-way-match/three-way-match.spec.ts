@@ -158,7 +158,10 @@ describe('MM-13 Three-Way Match', () => {
                             }
                             return { created: true, id: 'ae-1', payload: input }
                         }),
-                        toDispatchPayload: jest.fn((r: any) => r),
+                        toDispatchPayload: jest.fn((r: any) => ({
+                            ...(r.payload ?? {}),
+                            mmAccountingEventId: r.id,
+                        })),
                     },
                 },
             ],
@@ -189,14 +192,33 @@ describe('MM-13 Three-Way Match', () => {
                 data: { invoicedQuantity: { increment: expect.anything() } },
             }),
         )
+        expect(mockPrisma.mmAccountingEvent.create).not.toHaveBeenCalled()
+        expect(result).toBeDefined()
+    })
+
+    it('emits the AP accounting event only when an eligible matched invoice is approved', async () => {
+        jest.spyOn(invoices, 'findOne').mockResolvedValue(
+            makeInvoice({
+                status: 'MATCHED',
+                paymentEligible: true,
+                currency: { code: 'PHP' },
+            }) as any,
+        )
+
+        await match.approve('inv-1', { approvedBy: 'approver-1' })
+
         expect(mockPrisma.mmAccountingEvent.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({
                     eventType: 'SupplierInvoiceMatched',
+                    documentId: 'inv-1',
                 }),
             }),
         )
-        expect(result).toBeDefined()
+        expect(mockEvents.emit).toHaveBeenCalledWith(
+            'accounting.entry.requested',
+            expect.objectContaining({ eventType: 'SupplierInvoiceMatched' }),
+        )
     })
 
     it('PO 100 / GR 98 / Inv 100 → BLOCKED + QUANTITY exception', async () => {

@@ -1,10 +1,11 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import Input from '@/components/ui/Input'
+import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import { FormItem } from '@/components/ui/Form'
 import {
@@ -16,11 +17,14 @@ import {
     HiOutlineOfficeBuilding,
     HiOutlineShieldCheck,
 } from 'react-icons/hi'
+import { useSupplierOptions } from '@/modules/mm/shared/useEntityOptions'
 import JournalLineEditor, {
     type JournalEditorLine,
 } from './JournalLineEditor'
 import type { FicoGlAccount, FicoJournalSimulateResult } from '../../types'
 import { sumLineTotals } from './journalUi'
+
+type SupplierOption = { value: string; label: string }
 
 function formatAmount(currency: string, amount: string) {
     const n = Number(amount)
@@ -58,6 +62,8 @@ type Props = {
     documentDate: string
     currencyCode: string
     description: string
+    supplierId: string
+    companyId?: string
     periodLabel: string | null
     periodStatus: string | null
     companyCode?: string
@@ -68,6 +74,7 @@ type Props = {
     onPostingDate: (v: string) => void
     onDocumentDate: (v: string) => void
     onDescription: (v: string) => void
+    onSupplierId: (v: string) => void
     onLinesChange: (lines: JournalEditorLine[]) => void
 }
 
@@ -76,6 +83,8 @@ export default function JournalEntryFormPanel({
     documentDate,
     currencyCode,
     description,
+    supplierId,
+    companyId,
     periodLabel,
     periodStatus,
     companyCode,
@@ -86,11 +95,26 @@ export default function JournalEntryFormPanel({
     onPostingDate,
     onDocumentDate,
     onDescription,
+    onSupplierId,
     onLinesChange,
 }: Props) {
     const totals = sumLineTotals(lines)
     const periodOpen =
         periodStatus === 'OPEN' || periodStatus === 'RESTRICTED'
+    const { options: supplierOptions, loading: suppliersLoading } =
+        useSupplierOptions({ enabled: Boolean(companyId), limit: 200 })
+    const companySupplierOptions = useMemo<SupplierOption[]>(
+        () =>
+            supplierOptions
+                .filter((o) => {
+                    const meta = o.meta as { companyId?: string } | undefined
+                    return !companyId || meta?.companyId === companyId
+                })
+                .map((o) => ({ value: o.value, label: o.label })),
+        [supplierOptions, companyId],
+    )
+    const selectedSupplier =
+        companySupplierOptions.find((o) => o.value === supplierId) ?? null
 
     return (
         <>
@@ -170,6 +194,22 @@ export default function JournalEntryFormPanel({
                                     periodLabel
                                         ? `${periodLabel} · ${periodStatus ?? '—'}`
                                         : 'Resolve posting date…'
+                                }
+                            />
+                        </FormItem>
+                        <FormItem
+                            label="Supplier (optional)"
+                            className="sm:col-span-2"
+                        >
+                            <Select<SupplierOption>
+                                size="sm"
+                                isClearable
+                                isLoading={suppliersLoading}
+                                placeholder="Link an MM supplier partner"
+                                options={companySupplierOptions}
+                                value={selectedSupplier}
+                                onChange={(opt) =>
+                                    onSupplierId(opt?.value ?? '')
                                 }
                             />
                         </FormItem>

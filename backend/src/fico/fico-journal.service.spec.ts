@@ -54,11 +54,24 @@ describe('FicoJournalService', () => {
             {
                 resolveMmPosting: jest.fn().mockResolvedValue([
                     {
-                        debitAccountId: 'inventory',
-                        creditAccountId: 'grir',
-                        amount: new Decimal(25),
+                        glAccountId: 'inventory',
+                        debitAmount: new Decimal(25),
+                        creditAmount: new Decimal(0),
+                        description: 'Inventory receipt',
+                        materialId: 'material-1',
+                        transactionKey: 'INVENTORY',
+                        resolutionSource: 'CENTRAL_RULE',
+                        accountDeterminationRuleId: 'rule-1',
+                    },
+                    {
+                        glAccountId: 'grir',
+                        debitAmount: new Decimal(0),
+                        creditAmount: new Decimal(25),
+                        description: 'GR/IR clearing',
                         materialId: 'material-1',
                         transactionKey: 'GR_IR',
+                        resolutionSource: 'CENTRAL_RULE',
+                        accountDeterminationRuleId: 'rule-2',
                     },
                 ]),
             } as never,
@@ -85,5 +98,25 @@ describe('FicoJournalService', () => {
             duplicate: false,
             journalEntryId: 'journal-1',
         })
+
+        // Every resolved rule line must reach the posting engine, not just the first pair.
+        const postedRequest =
+            postingEngine.persistJournalInTransaction.mock.calls[0][1]
+        expect(postedRequest.lines).toEqual([
+            expect.objectContaining({
+                glAccountId: 'inventory',
+                debit: new Decimal(25),
+                credit: new Decimal(0),
+            }),
+            expect.objectContaining({
+                glAccountId: 'grir',
+                debit: new Decimal(0),
+                credit: new Decimal(25),
+            }),
+        ])
+        expect(postedRequest.metadata.determinationRuleIds).toEqual([
+            'rule-1',
+            'rule-2',
+        ])
     })
 })

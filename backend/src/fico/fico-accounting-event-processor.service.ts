@@ -3,17 +3,30 @@ import {
     ConflictException,
     Injectable,
     Logger,
+    Optional,
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoAccountsPayableService } from './fico-accounts-payable.service'
 import {
     FICO_ACCOUNTING_ERROR_CODES,
     FICO_ACCOUNTING_MAX_ATTEMPTS,
     FICO_ACCOUNTING_PROCESSING_STALE_MS,
     type FicoAccountingEventStatus,
 } from './fico-accounting-event.constants'
+import {
+    FicoAccountingDeterminationException,
+    isAccountingDeterminationError,
+} from './fico-accounting-determination.exception'
+
+const NON_POSTING_MM_EVENTS = new Set([
+    'InventoryValuationUpdated',
+    'InventoryValuationReversed',
+    'InventoryTransferred',
+    'InventoryTransactionReversed',
+])
 
 function classifyError(err: unknown): {
     code: string
@@ -25,6 +38,13 @@ function classifyError(err: unknown): {
             code: FICO_ACCOUNTING_ERROR_CODES.CONFLICT,
             message: err.message,
             retryable: false,
+        }
+    }
+    if (isAccountingDeterminationError(err)) {
+        return {
+            code: FICO_ACCOUNTING_ERROR_CODES.DETERMINATION,
+            message: err.message,
+            retryable: true,
         }
     }
     if (err instanceof BadRequestException) {
@@ -42,7 +62,7 @@ function classifyError(err: unknown): {
                   ? FICO_ACCOUNTING_ERROR_CODES.DETERMINATION
                   : FICO_ACCOUNTING_ERROR_CODES.VALIDATION,
             message,
-            retryable: period,
+            retryable: determination || period,
         }
     }
     const message =
@@ -61,6 +81,8 @@ export class FicoAccountingEventProcessorService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly journal: FicoJournalService,
+        @Optional()
+        private readonly accountsPayable?: FicoAccountsPayableService,
     ) {}
 
     async processDispatch(payload: MmAccountingDispatchPayload): Promise<void> {
@@ -75,7 +97,10 @@ export class FicoAccountingEventProcessorService {
             }
         }
 
-        if (payload.financiallyRelevant === false) {
+        if (
+            payload.financiallyRelevant === false ||
+            NON_POSTING_MM_EVENTS.has(payload.eventType)
+        ) {
             await this.markSkipped(
                 eventId,
                 payload.idempotencyKey,
@@ -88,8 +113,12 @@ export class FicoAccountingEventProcessorService {
             if (eventId) {
                 await this.assertPayloadCompatible(eventId, payload)
             }
-            const result = await this.journal.createFromAccountingEvent(payload)
+            const result = this.accountsPayable?.supportsAccountingPayload(payload)
+                ? await this.accountsPayable.postMatchedSupplierInvoice(payload)
+                : await this.journal.createFromAccountingEvent(payload)
             if (result.duplicate) {
+                await this.linkExistingJournal(eventId, payload.idempotencyKey)
+            } else if (eventId && result.journalEntryId) {
                 await this.linkExistingJournal(eventId, payload.idempotencyKey)
             }
         } catch (err) {

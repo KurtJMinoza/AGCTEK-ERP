@@ -121,6 +121,20 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                 ),
             },
             {
+                header: 'Supplier',
+                id: 'supplier',
+                cell: ({ row }) =>
+                    row.original.supplier ? (
+                        <FicoTwoLineCell
+                            primary={row.original.supplier.supplierCode}
+                            secondary={row.original.supplier.supplierName}
+                            mono
+                        />
+                    ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                    ),
+            },
+            {
                 header: 'Posting',
                 id: 'posting',
                 cell: ({ row }) => (

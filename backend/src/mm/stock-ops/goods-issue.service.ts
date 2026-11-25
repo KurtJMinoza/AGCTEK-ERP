@@ -471,7 +471,7 @@ export class GoodsIssueService {
 
         await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
 
-        void this.domainEvents.goodsIssueReversed({
+        await this.domainEvents.goodsIssueReversed({
             companyId: doc.companyId,
             goodsIssueId: doc.id,
             plantId: doc.warehouse?.plantId ?? null,

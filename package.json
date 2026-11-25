@@ -15,7 +15,10 @@
     "pm2:start": "npx pm2 start ecosystem.config.cjs",
     "pm2:restart": "npx pm2 restart ecosystem.config.cjs",
     "pm2:stop": "npx pm2 stop ecosystem.config.cjs",
-    "pm2:logs": "npx pm2 logs"
+    "pm2:logs": "npx pm2 logs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.16",
@@ -86,6 +89,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/postcss": "^4.0.0",
     "@tailwindcss/typography": "^0.5.15",
     "@types/d3-fetch": "^3.0.7",

@@ -5,6 +5,7 @@ import {
     NotFoundException,
     Optional,
 } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
@@ -34,6 +35,7 @@ import type {
     FinancialPostingResult,
 } from './fico-financial-posting.types'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
+import { FicoApReconciliationGuardService } from './fico-ap-reconciliation-guard.service'
 import {
     FICO_JOURNAL_APPROVAL_AUDIT_ACTIONS,
     FICO_JOURNAL_APPROVAL_STATUSES,
@@ -72,6 +74,12 @@ export type ManualJournalEntry = {
     }[]
 }
 
+export type JournalSupplierSummary = {
+    id: string
+    supplierCode: string
+    supplierName: string
+}
+
 export type JournalEntryListItem = {
     id: string
     documentNumber: string | null
@@ -86,6 +94,8 @@ export type JournalEntryListItem = {
     description: string | null
     sourceModule: string | null
     sourceDocumentId: string | null
+    supplierId: string | null
+    supplier: JournalSupplierSummary | null
     createdBy: string | null
     postedBy: string | null
     postedAt: Date | null
@@ -115,6 +125,8 @@ export type JournalEntryDetail = {
     approvalStatus: string
     description: string | null
     documentType: string
+    supplierId: string | null
+    supplier: JournalSupplierSummary | null
     postedAt: Date | null
     postedBy: string | null
     postedByName?: string | null
@@ -145,12 +157,31 @@ export type JournalEntryDetail = {
     }[]
 }
 
+const JOURNAL_SUPPLIER_SELECT = {
+    id: true,
+    supplierCode: true,
+    supplierName: true,
+} as const
+
 export type JournalReversalResult = {
     originalId: string
     originalStatus: string
     reversalId: string
     reversalDocumentNumber: string | null
     reversalPostedAt: Date | null
+}
+
+type JournalReversalOptions = {
+    operationalSourceReversal?: boolean
+    /** Required when AP reverses its source document and restores subledger state atomically. */
+    apSubledgerReversal?: boolean
+    afterReverse?: (
+        tx: Prisma.TransactionClient,
+        input: {
+            original: { id: string; documentNumber: string | null }
+            reversal: { id: string; documentNumber: string | null; postedAt: Date | null }
+        },
+    ) => Promise<void>
 }
 
 @Injectable()
@@ -166,7 +197,35 @@ export class FicoJournalService {
         private readonly accountDetermination?: FicoAccountDeterminationService,
         @Optional()
         private readonly sdPosting?: FicoSdPostingService,
+        @Optional()
+        private readonly apReconciliationGuard?: FicoApReconciliationGuardService,
     ) {}
+
+    /**
+     * Validates optional supplier partner for company-scoped journals.
+     * Returns normalized id or null when cleared/omitted.
+     */
+    private async assertSupplierForCompany(
+        companyId: string,
+        supplierId: string | null | undefined,
+    ): Promise<string | null> {
+        if (supplierId == null) return null
+        const trimmed = supplierId.trim()
+        if (!trimmed) return null
+        const supplier = await this.prisma.mmSupplier.findFirst({
+            where: { id: trimmed, deletedAt: null },
+            select: { id: true, companyId: true, status: true },
+        })
+        if (!supplier) {
+            throw new BadRequestException('Supplier not found.')
+        }
+        if (supplier.companyId !== companyId) {
+            throw new BadRequestException(
+                'Supplier belongs to a different company than this journal.',
+            )
+        }
+        return supplier.id
+    }
 
     async createFromAccountingEvent(
         payload: MmAccountingDispatchPayload,
@@ -265,15 +324,6 @@ export class FicoJournalService {
                     journalEntryId: existing?.id,
                 }
             }
-            if (payload.mmAccountingEventId) {
-                await this.prisma.mmAccountingEvent.update({
-                    where: { id: payload.mmAccountingEventId },
-                    data: {
-                        status: 'FAILED',
-                        lastError: this.errorMessage(err).slice(0, 2000),
-                    },
-                })
-            }
             throw err
         }
     }
@@ -294,6 +344,11 @@ export class FicoJournalService {
                 created: false,
             }
         }
+
+        await this.apReconciliationGuard?.assertPostingAllowed({
+            glAccountIds: request.lines.map((line) => line.glAccountId),
+            subledgerPosting: request.subledgerPosting,
+        })
 
         await this.validation.validate({
             companyId: request.companyId,
@@ -362,6 +417,8 @@ export class FicoJournalService {
                 fiscalPeriod,
                 documentNumber,
             )
+
+            await request.afterPersist?.(tx, created)
 
             await tx.ficoAccountingAuditLog.create({
                 data: {
@@ -438,6 +495,10 @@ export class FicoJournalService {
                     ? payload.sourceTransactionId
                     : null,
             mmAccountingEventId: payload.mmAccountingEventId ?? null,
+            supplierId:
+                typeof payload.supplierId === 'string' && payload.supplierId.trim()
+                    ? payload.supplierId.trim()
+                    : null,
             idempotencyKey,
             description: `Automatic ${payload.eventType} posting`,
             lines: flatLines,
@@ -501,6 +562,10 @@ export class FicoJournalService {
                     ? payload.sourceTransactionId
                     : null,
             mmAccountingEventId: payload.mmAccountingEventId ?? null,
+            supplierId:
+                typeof payload.supplierId === 'string' && payload.supplierId.trim()
+                    ? payload.supplierId.trim()
+                    : null,
             idempotencyKey,
             description: `Automatic ${payload.eventType} posting`,
             lines: flatLines.map((line) => ({
@@ -597,6 +662,10 @@ export class FicoJournalService {
         const currencyCode =
             (dto.currencyCode ?? 'PHP').toUpperCase().trim()
 
+        await this.apReconciliationGuard?.assertPostingAllowed({
+            glAccountIds: dto.lines.map((line) => line.glAccountId),
+        })
+
         // Validate every account is active, postable, and assigned to the company.
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique(
             {
@@ -650,6 +719,10 @@ export class FicoJournalService {
 
         const requiresApproval = false
         const canPostImmediately = false
+        const supplierId = await this.assertSupplierForCompany(
+            dto.companyId,
+            dto.supplierId,
+        )
 
         const idempotencyKey = `MANUAL:${dto.companyId}:${postingDate.toISOString().slice(0, 10)}:${Date.now()}`
 
@@ -704,6 +777,7 @@ export class FicoJournalService {
                     documentType: 'JOURNAL',
                     documentNumber,
                     description: dto.description ?? null,
+                    supplierId,
                     postedAt: canPostImmediately ? now : null,
                     postedBy: canPostImmediately ? user.id ?? null : null,
                     preparedBy: isDraft ? user.id ?? null : null,
@@ -810,6 +884,10 @@ export class FicoJournalService {
         const lines = dto.lines ?? []
         validateJournalLinesForSubmission(lines)
 
+        await this.apReconciliationGuard?.assertPostingAllowed({
+            glAccountIds: lines.map((line) => line.glAccountId),
+        })
+
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique(
             {
                 where: { companyId: dto.companyId },
@@ -842,6 +920,13 @@ export class FicoJournalService {
             (sum, line) => sum + (Number(line.debitAmount) || 0),
             0,
         )
+        const supplierId =
+            dto.supplierId === undefined
+                ? journal.supplierId
+                : await this.assertSupplierForCompany(
+                      dto.companyId,
+                      dto.supplierId,
+                  )
 
         const updated = await this.prisma.$transaction(async (tx) => {
             await tx.ficoJournalEntryLine.deleteMany({
@@ -854,6 +939,7 @@ export class FicoJournalService {
                     documentDate: postingDate,
                     description: dto.description ?? journal.description,
                     currencyCode,
+                    supplierId,
                     totalAmount: new Decimal(totalDebit),
                     approvalStatus: invalidatesApproval
                         ? 'DRAFT'
@@ -1361,6 +1447,7 @@ export class FicoJournalService {
         const journal = await this.prisma.ficoJournalEntry.findUnique({
             where: { id },
             include: {
+                supplier: { select: JOURNAL_SUPPLIER_SELECT },
                 lines: {
                     orderBy: { lineNumber: 'asc' },
                     include: {
@@ -1567,6 +1654,8 @@ export class FicoJournalService {
                     description: true,
                     sourceModule: true,
                     sourceDocumentId: true,
+                    supplierId: true,
+                    supplier: { select: JOURNAL_SUPPLIER_SELECT },
                     createdBy: true,
                     postedBy: true,
                     postedAt: true,
@@ -1616,7 +1705,7 @@ export class FicoJournalService {
         id: string,
         dto: ReverseJournalEntryDto,
         user: { id?: string; name?: string | null },
-        options?: { operationalSourceReversal?: boolean },
+        options?: JournalReversalOptions,
     ): Promise<JournalReversalResult> {
         const original = await this.prisma.ficoJournalEntry.findUnique({
             where: { id },
@@ -1663,6 +1752,12 @@ export class FicoJournalService {
         if (original.status !== 'POSTED') {
             throw new BadRequestException(
                 `Only posted journal entries can be reversed. This entry has status ${original.status}.`,
+            )
+        }
+
+        if (original.sourceModule?.toUpperCase() === 'AP' && !options?.apSubledgerReversal) {
+            throw new BadRequestException(
+                'Accounts Payable journals must be reversed through the AP subledger so open items and payment clearings remain reconciled.',
             )
         }
 
@@ -1735,6 +1830,7 @@ export class FicoJournalService {
                     sourceModule: original.sourceModule,
                     sourceDocumentType: original.sourceDocumentType,
                     sourceDocumentId: original.sourceDocumentId,
+                    supplierId: original.supplierId,
                     description: `Reversal of ${original.documentNumber ?? original.id} — ${dto.reason.trim()}`,
                     reversalOfId: original.id,
                     createdBy: user.id ?? null,
@@ -1767,6 +1863,8 @@ export class FicoJournalService {
                 where: { id: original.id },
                 data: { status: 'REVERSED' },
             })
+
+            await options?.afterReverse?.(tx, { original, reversal })
 
             await tx.ficoAccountingAuditLog.create({
                 data: {
@@ -1887,6 +1985,17 @@ export class FicoJournalService {
     private documentType(eventType: string) {
         if (eventType === 'GoodsReceiptPosted') return 'MM_GR'
         if (eventType === 'GoodsIssuePosted') return 'MM_GI'
+        if (
+            [
+                'GoodsReceiptReversed',
+                'GoodsIssueReversed',
+                'SupplierReturnPosted',
+                'SupplierReturnReversed',
+                'DisposalReversed',
+            ].includes(eventType)
+        ) {
+            return 'MM_REVERSAL'
+        }
         return 'MM_ADJUSTMENT'
     }
 

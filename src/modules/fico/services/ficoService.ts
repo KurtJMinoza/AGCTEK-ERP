@@ -57,6 +57,7 @@ type UpdateJournalEntryBody = {
     postingDate?: string
     description?: string
     currencyCode?: string
+    supplierId?: string | null
     lines?: Array<{
         glAccountId: string
         debitAmount?: number
@@ -1025,6 +1026,7 @@ export const ficoJournalService = {
         postingDate: string
         description?: string
         currencyCode?: string
+        supplierId?: string | null
         lines: Array<{
             glAccountId: string
             debitAmount?: number

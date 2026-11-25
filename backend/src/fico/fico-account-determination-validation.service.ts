@@ -10,6 +10,11 @@ import {
     ficoRuleLineSignature,
 } from './fico-account-determination-policy'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
+import {
+    FICO_DETERMINATION_DIMENSIONS,
+    type FicoDeterminationDimension,
+} from './fico-account-determination.constants'
+import { FICO_DETERMINATION_ID_DIMENSIONS } from './fico-determination-dimension.util'
 
 type RuleForValidation = {
     id: string
@@ -26,8 +31,20 @@ type RuleForValidation = {
     materialTypeCode: string | null
     movementType: string | null
     customerAccountGroup: string | null
+    supplierAccountGroup: string | null
     salesOrganization: string | null
     distributionChannel: string | null
+    paymentMethodCode: string | null
+    bankAccountId: string | null
+    paymentProviderCode: string | null
+    currencyCode: string | null
+    branchId: string | null
+    assetClassCode: string | null
+    depreciationAreaCode: string | null
+    documentTypeCode: string | null
+    productionOrderTypeCode: string | null
+    costElementCategoryCode: string | null
+    controllingAreaCode: string | null
     lines: Array<{
         lineNumber: number
         side: string
@@ -96,6 +113,21 @@ export class FicoAccountDeterminationValidationService {
                 chartOfAccountsId,
                 postingDate,
             )
+            if (rule.sourceModule === 'MM' && this.prisma?.ficoGlAccount?.findUnique) {
+                const gl = await this.prisma.ficoGlAccount.findUnique({
+                    where: { id: line.glAccountId },
+                    select: {
+                        accountCode: true,
+                        isReconciliationAccount: true,
+                        reconciliationType: true,
+                    },
+                })
+                if (gl?.isReconciliationAccount && gl.reconciliationType === 'AP') {
+                    throw new BadRequestException(
+                        `Account ${gl.accountCode} is an AP reconciliation control account and cannot be mapped to MM determination rule ${rule.determinationCode}.`,
+                    )
+                }
+            }
             if (keyEntry) {
                 ficoAssertAccountTypeForCategory(
                     keyEntry.accountingCategory,
@@ -172,23 +204,16 @@ export class FicoAccountDeterminationValidationService {
     }
 
     private dimensionSignature(input: {
-        valuationClassId: string | null
-        materialTypeCode: string | null
-        movementType: string | null
-        customerAccountGroup: string | null
-        salesOrganization: string | null
-        distributionChannel: string | null
         transactionKeyCode?: string | null
-    }) {
+    } & Record<FicoDeterminationDimension, string | null>) {
         const key = input.transactionKeyCode?.trim().toUpperCase() ?? ''
-        return [
-            key,
-            input.valuationClassId ?? '',
-            (input.materialTypeCode ?? '').toUpperCase(),
-            (input.movementType ?? '').toUpperCase(),
-            (input.customerAccountGroup ?? '').toUpperCase(),
-            (input.salesOrganization ?? '').toUpperCase(),
-            (input.distributionChannel ?? '').toUpperCase(),
-        ].join('|')
+        const parts = FICO_DETERMINATION_DIMENSIONS.map((dimension) => {
+            const value = input[dimension] ?? ''
+            if ((FICO_DETERMINATION_ID_DIMENSIONS as readonly string[]).includes(dimension)) {
+                return value
+            }
+            return value.toString().toUpperCase()
+        })
+        return [key, ...parts].join('|')
     }
 }

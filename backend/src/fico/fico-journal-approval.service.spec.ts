@@ -62,6 +62,7 @@ function setup(initialApprovalStatus: string = 'DRAFT') {
         prisma as never,
         { canPostToPeriod: jest.fn().mockResolvedValue({ allowed: true }) } as never,
         {
+            validate: jest.fn().mockResolvedValue({ ok: true }),
             assertAccountPostable: jest.fn().mockResolvedValue({
                 glAccountId: 'acct-1',
                 accountCode: '1000',

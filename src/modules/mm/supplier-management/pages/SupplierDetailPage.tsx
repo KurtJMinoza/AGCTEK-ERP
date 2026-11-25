@@ -6,12 +6,13 @@ import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
-import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
+import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import FormDialog from '@/components/shared/FormDialog'
 import Button from '@/components/ui/Button'
 import Tabs from '@/components/ui/Tabs'
+import Tag from '@/components/ui/Tag'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Spinner from '@/components/ui/Spinner'
@@ -35,14 +36,37 @@ import {
     HiOutlineCheckCircle,
     HiOutlineBan,
     HiOutlineClipboardCheck,
+    HiOutlineLibrary,
+    HiOutlineOfficeBuilding,
+    HiOutlineMail,
+    HiOutlineLocationMarker,
+    HiOutlineCash,
+    HiOutlineCollection,
 } from 'react-icons/hi'
 import SupplierDocumentsPanel from '../components/SupplierDocumentsPanel'
+import {
+    SupplierComingSoonPanel,
+    SupplierDetailSummaryStrip,
+    SupplierSectionCard,
+    SupplierTabPanel,
+    SupplierTabToolbar,
+    SupplierWorkbenchShell,
+} from '../components/SupplierDetailChrome'
+import {
+    SmCodeNameCell,
+    SmPlainCell,
+    SmSupplierLinkCodeCell,
+    smTableRowEnterClass,
+} from '../components/SupplierTableCells'
 import { supplierService } from '../services/supplierService'
 import { supplierMaterialService } from '../services/supplierMaterialService'
 import { supplierPricingService, type SupplierPrice } from '../services/supplierPricingService'
 import { useMaterialOptions } from '@/modules/mm/shared/useEntityOptions'
 import { supplierBankService } from '../services/supplierBankService'
 import { supplierPerformanceService } from '../../supplier-performance/services/supplierPerformanceService'
+import { ficoJournalService } from '@/modules/fico/services/ficoService'
+import type { FicoJournalEntryListItem } from '@/modules/fico/types'
+import usePermissions from '@/utils/hooks/usePermissions'
 import type {
     Supplier,
     SupplierMaterial,
@@ -70,6 +94,8 @@ const SupplierDetailPage = () => {
     const params = useParams()
     const router = useRouter()
     const id = params?.id as string
+    const { can } = usePermissions()
+    const canReadJournals = can('fico.journal-entries', 'read')
 
     const [supplier, setSupplier] = useState<Supplier | null>(null)
     const [loading, setLoading] = useState(true)
@@ -120,13 +146,13 @@ const SupplierDetailPage = () => {
     useEffect(() => { fetchSupplier() }, [fetchSupplier])
 
     useEffect(() => {
-        if (tab === 'materials') fetchMaterials()
-        if (tab === 'audit') fetchAudits()
-    }, [tab, fetchMaterials, fetchAudits])
+        fetchMaterials()
+        fetchBankAccounts()
+    }, [fetchMaterials, fetchBankAccounts])
 
     useEffect(() => {
-        fetchBankAccounts()
-    }, [fetchBankAccounts])
+        if (tab === 'audit') fetchAudits()
+    }, [tab, fetchAudits])
 
     const handleLifecycle = useCallback(async (action: string) => {
         try {
@@ -215,98 +241,326 @@ const SupplierDetailPage = () => {
             <Breadcrumb items={breadcrumbItems} />
             <PageHeader
                 title={
-                    <div className="flex items-center gap-3">
-                        <span>{supplier.supplierCode} — {supplier.supplierName}</span>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="font-mono text-primary">
+                            {supplier.supplierCode}
+                        </span>
+                        <span className="text-gray-300 dark:text-gray-600">—</span>
+                        <span>{supplier.supplierName}</span>
                         <StatusBadge tone={STATUS_TONE[supplier.status] ?? 'default'}>
                             {supplier.status.replace(/_/g, ' ')}
                         </StatusBadge>
+                        {supplier.supplierType ? (
+                            <Tag className="border-0 bg-gray-100 text-xs font-semibold dark:bg-gray-800">
+                                {supplier.supplierType.replace(/_/g, ' ')}
+                            </Tag>
+                        ) : null}
                     </div>
+                }
+                description={
+                    supplier.legalName
+                        ? `Legal entity · ${supplier.legalName}`
+                        : 'Supplier master profile, commercial links, and FICO partner journals'
                 }
                 actions={lifecycleActions}
             />
 
-            <AdaptiveCard className="mt-4">
-                <Tabs value={tab} onChange={(v) => setTab(v)}>
-                    <Tabs.TabList className="!overflow-x-auto">
-                        <Tabs.TabNav value="overview" icon={<HiOutlineTemplate />}>Overview</Tabs.TabNav>
-                        <Tabs.TabNav value="materials" icon={<HiOutlineCube />}>Materials</Tabs.TabNav>
-                        <Tabs.TabNav value="pricing" icon={<HiOutlineCurrencyDollar />}>Pricing</Tabs.TabNav>
-                        <Tabs.TabNav value="purchase-orders" icon={<HiOutlineShoppingCart />}>Purchase Orders</Tabs.TabNav>
-                        <Tabs.TabNav value="receipts" icon={<HiOutlineClipboardList />}>Receipts</Tabs.TabNav>
-                        <Tabs.TabNav value="returns" icon={<HiOutlineReceiptRefund />}>Returns</Tabs.TabNav>
-                        <Tabs.TabNav value="quality" icon={<HiOutlineShieldCheck />}>Quality</Tabs.TabNav>
-                        <Tabs.TabNav value="performance" icon={<HiOutlineChartBar />}>Performance</Tabs.TabNav>
-                        <Tabs.TabNav value="documents" icon={<HiOutlineDocumentText />}>Documents</Tabs.TabNav>
-                        <Tabs.TabNav value="audit" icon={<HiOutlineClock />}>Audit</Tabs.TabNav>
-                    </Tabs.TabList>
+            <SupplierDetailSummaryStrip>
+                <StatCard
+                    className="animate-mm-row-in motion-reduce:animate-none"
+                    label="Currency"
+                    value={supplier.currency?.code ?? '—'}
+                    icon={<HiOutlineCash />}
+                    tone="info"
+                />
+                <StatCard
+                    className="animate-mm-row-in motion-reduce:animate-none [animation-delay:40ms]"
+                    label="Lead time"
+                    value={
+                        supplier.leadTimeDays != null
+                            ? `${supplier.leadTimeDays} days`
+                            : '—'
+                    }
+                    icon={<HiOutlineClock />}
+                />
+                <StatCard
+                    className="animate-mm-row-in motion-reduce:animate-none [animation-delay:80ms]"
+                    label="Bank accounts"
+                    value={bankAccounts.length}
+                    icon={<HiOutlineLibrary />}
+                    tone={bankAccounts.length ? 'success' : 'default'}
+                />
+                <StatCard
+                    className="animate-mm-row-in motion-reduce:animate-none [animation-delay:120ms]"
+                    label="Linked materials"
+                    value={materials.length || '—'}
+                    icon={<HiOutlineCollection />}
+                    tone="info"
+                />
+            </SupplierDetailSummaryStrip>
 
-                    <div className="p-5">
-                        <TabPanel active={tab === 'overview'}>
-                            <OverviewTab supplier={supplier} bankAccounts={bankAccounts} onBankRefresh={fetchBankAccounts} />
-                        </TabPanel>
-                        <TabPanel active={tab === 'materials'}>
-                            <MaterialsTab materials={materials} loading={materialsLoading} onRefresh={fetchMaterials} supplierId={id} />
-                        </TabPanel>
-                        <TabPanel active={tab === 'pricing'}>
-                            <PricingTab supplierId={supplier.id} />
-                        </TabPanel>
-                        <TabPanel active={tab === 'audit'}>
-                            <AuditTab audits={audits} />
-                        </TabPanel>
-                        <TabPanel active={tab === 'purchase-orders'}><PlaceholderTab name="Purchase Orders" /></TabPanel>
-                        <TabPanel active={tab === 'receipts'}><PlaceholderTab name="Receipts" /></TabPanel>
-                        <TabPanel active={tab === 'returns'}><PlaceholderTab name="Returns" /></TabPanel>
-                        <TabPanel active={tab === 'quality'}><PlaceholderTab name="Quality" /></TabPanel>
-                        <TabPanel active={tab === 'performance'}>
-                            <PerformanceTab
-                                supplierId={id}
-                                companyId={supplier.companyId}
-                            />
-                        </TabPanel>
-                        <TabPanel active={tab === 'documents'}>
-                            <SupplierDocumentsPanel
-                                supplierId={supplier.id}
-                                compact
-                            />
-                        </TabPanel>
-                    </div>
-                </Tabs>
-            </AdaptiveCard>
+            <SupplierWorkbenchShell
+                tabList={
+                    <Tabs value={tab} onChange={(v) => setTab(v)} variant="pill">
+                        <Tabs.TabList className="!gap-1 !overflow-x-auto !border-0 pb-2">
+                            <Tabs.TabNav value="overview" icon={<HiOutlineTemplate />}>
+                                Overview
+                            </Tabs.TabNav>
+                            <Tabs.TabNav value="materials" icon={<HiOutlineCube />}>
+                                Materials
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="pricing"
+                                icon={<HiOutlineCurrencyDollar />}
+                            >
+                                Pricing
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="purchase-orders"
+                                icon={<HiOutlineShoppingCart />}
+                            >
+                                Purchase Orders
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="receipts"
+                                icon={<HiOutlineClipboardList />}
+                            >
+                                Receipts
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="returns"
+                                icon={<HiOutlineReceiptRefund />}
+                            >
+                                Returns
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="quality"
+                                icon={<HiOutlineShieldCheck />}
+                            >
+                                Quality
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="performance"
+                                icon={<HiOutlineChartBar />}
+                            >
+                                Performance
+                            </Tabs.TabNav>
+                            <Tabs.TabNav
+                                value="documents"
+                                icon={<HiOutlineDocumentText />}
+                            >
+                                Documents
+                            </Tabs.TabNav>
+                            {canReadJournals ? (
+                                <Tabs.TabNav
+                                    value="journals"
+                                    icon={<HiOutlineLibrary />}
+                                >
+                                    Journals
+                                </Tabs.TabNav>
+                            ) : null}
+                            <Tabs.TabNav value="audit" icon={<HiOutlineClock />}>
+                                Audit
+                            </Tabs.TabNav>
+                        </Tabs.TabList>
+                    </Tabs>
+                }
+            >
+                <SupplierTabPanel active={tab === 'overview'} panelKey="overview">
+                    <OverviewTab
+                        supplier={supplier}
+                        bankAccounts={bankAccounts}
+                        onBankRefresh={fetchBankAccounts}
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'materials'} panelKey="materials">
+                    <MaterialsTab
+                        materials={materials}
+                        loading={materialsLoading}
+                        onRefresh={fetchMaterials}
+                        supplierId={id}
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'pricing'} panelKey="pricing">
+                    <PricingTab supplierId={supplier.id} />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'audit'} panelKey="audit">
+                    <AuditTab audits={audits} />
+                </SupplierTabPanel>
+                <SupplierTabPanel
+                    active={tab === 'purchase-orders'}
+                    panelKey="purchase-orders"
+                >
+                    <SupplierComingSoonPanel
+                        name="Purchase Orders"
+                        icon={<HiOutlineShoppingCart className="text-2xl" />}
+                        blurb="PO history for this supplier will appear here — open, confirmed, and closed orders with drill-through to procurement."
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'receipts'} panelKey="receipts">
+                    <SupplierComingSoonPanel
+                        name="Goods Receipts"
+                        icon={<HiOutlineClipboardList className="text-2xl" />}
+                        blurb="Inbound receipts linked to this supplier will surface GR documents, quantities, and posting status."
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'returns'} panelKey="returns">
+                    <SupplierComingSoonPanel
+                        name="Supplier Returns"
+                        icon={<HiOutlineReceiptRefund className="text-2xl" />}
+                        blurb="Return-to-vendor documents and disposition status for this partner will be listed in this workspace."
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'quality'} panelKey="quality">
+                    <SupplierComingSoonPanel
+                        name="Quality"
+                        icon={<HiOutlineShieldCheck className="text-2xl" />}
+                        blurb="Inspection lots, usage decisions, and acceptance rates for this supplier will land here."
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel
+                    active={tab === 'performance'}
+                    panelKey="performance"
+                >
+                    <PerformanceTab
+                        supplierId={id}
+                        companyId={supplier.companyId}
+                    />
+                </SupplierTabPanel>
+                <SupplierTabPanel active={tab === 'documents'} panelKey="documents">
+                    <SupplierDocumentsPanel
+                        supplierId={supplier.id}
+                        compact
+                    />
+                </SupplierTabPanel>
+                {canReadJournals ? (
+                    <SupplierTabPanel
+                        active={tab === 'journals'}
+                        panelKey="journals"
+                    >
+                        <JournalsTab
+                            supplierId={supplier.id}
+                            companyId={supplier.companyId}
+                            active={tab === 'journals'}
+                        />
+                    </SupplierTabPanel>
+                ) : null}
+            </SupplierWorkbenchShell>
         </PageContainer>
     )
 }
 
-const TabPanel = ({ active, children }: { active: boolean; children: React.ReactNode }) =>
-    active ? <>{children}</> : null
-
 // ─── Overview Tab ────────────────────────────────────────────────────
 
-const InfoItem = ({ label, value }: { label: string; value?: string | number | null }) => (
-    <div>
-        <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
-        <dd className="mt-0.5 text-sm font-medium text-gray-900 dark:text-gray-100">{value || '—'}</dd>
+const InfoItem = ({
+    label,
+    value,
+}: {
+    label: string
+    value?: string | number | null
+}) => (
+    <div className="rounded-lg bg-white/70 px-3 py-2 dark:bg-gray-900/40">
+        <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+            {label}
+        </dt>
+        <dd className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
+            {value || '—'}
+        </dd>
     </div>
 )
 
-const OverviewTab = ({ supplier, bankAccounts, onBankRefresh }: { supplier: Supplier; bankAccounts: SupplierBankAccount[]; onBankRefresh: () => void }) => {
+const OverviewTab = ({
+    supplier,
+    bankAccounts,
+}: {
+    supplier: Supplier
+    bankAccounts: SupplierBankAccount[]
+    onBankRefresh: () => void
+}) => {
     const [revealedId, setRevealedId] = useState<string | null>(null)
-    const [revealedData, setRevealedData] = useState<SupplierBankAccount | null>(null)
+    const [revealedData, setRevealedData] = useState<SupplierBankAccount | null>(
+        null,
+    )
 
-    const handleReveal = useCallback(async (acctId: string) => {
-        try {
-            const full = await supplierBankService.reveal(supplier.id, acctId, 'ui-user')
-            setRevealedId(acctId)
-            setRevealedData(full)
-        } catch {
-            // ignore
-        }
-    }, [supplier.id])
+    const handleReveal = useCallback(
+        async (acctId: string) => {
+            try {
+                const full = await supplierBankService.reveal(
+                    supplier.id,
+                    acctId,
+                    'ui-user',
+                )
+                setRevealedId(acctId)
+                setRevealedData(full)
+            } catch {
+                // ignore
+            }
+        },
+        [supplier.id],
+    )
+
+    const bankColumns = useMemo<ColumnDef<SupplierBankAccount>[]>(
+        () => [
+            {
+                header: 'Bank',
+                cell: ({ row }) => (
+                    <SmPlainCell>{row.original.bankName}</SmPlainCell>
+                ),
+            },
+            {
+                header: 'Account name',
+                cell: ({ row }) => (
+                    <SmPlainCell>{row.original.accountName}</SmPlainCell>
+                ),
+            },
+            {
+                header: 'Account number',
+                cell: ({ row }) => (
+                    <span className="font-mono text-xs tabular-nums">
+                        {revealedId === row.original.id && revealedData
+                            ? revealedData.accountNumber
+                            : row.original.accountNumber}
+                    </span>
+                ),
+            },
+            {
+                header: 'Primary',
+                cell: ({ row }) => (
+                    <StatusBadge
+                        tone={row.original.isPrimary ? 'success' : 'default'}
+                    >
+                        {row.original.isPrimary ? 'Primary' : 'Secondary'}
+                    </StatusBadge>
+                ),
+            },
+            {
+                header: '',
+                id: 'reveal',
+                cell: ({ row }) =>
+                    revealedId === row.original.id ? null : (
+                        <Button
+                            size="xs"
+                            variant="plain"
+                            icon={<HiOutlineEye />}
+                            onClick={() => handleReveal(row.original.id)}
+                        >
+                            Reveal
+                        </Button>
+                    ),
+            },
+        ],
+        [handleReveal, revealedData, revealedId],
+    )
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Identity</h5>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+            <SupplierSectionCard
+                title="Identity"
+                description="Master codes and classification"
+                icon={<HiOutlineOfficeBuilding className="text-lg" />}
+                delayMs={0}
+            >
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <InfoItem label="Supplier Code" value={supplier.supplierCode} />
                     <InfoItem label="Supplier Name" value={supplier.supplierName} />
                     <InfoItem label="Legal Name" value={supplier.legalName} />
@@ -314,93 +568,106 @@ const OverviewTab = ({ supplier, bankAccounts, onBankRefresh }: { supplier: Supp
                     <InfoItem label="Tax ID" value={supplier.taxId} />
                     <InfoItem label="Category" value={supplier.category?.name} />
                 </dl>
-            </div>
+            </SupplierSectionCard>
 
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Contact</h5>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
-                    <InfoItem label="Primary Contact" value={supplier.primaryContact} />
+            <SupplierSectionCard
+                title="Contact"
+                description="People and channels"
+                icon={<HiOutlineMail className="text-lg" />}
+                delayMs={40}
+            >
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <InfoItem
+                        label="Primary Contact"
+                        value={supplier.primaryContact}
+                    />
                     <InfoItem label="Email" value={supplier.email} />
                     <InfoItem label="Phone" value={supplier.phone} />
                     <InfoItem label="Website" value={supplier.website} />
                 </dl>
-            </div>
+            </SupplierSectionCard>
 
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Address</h5>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
-                    <InfoItem label="Billing Address" value={supplier.billingAddress} />
-                    <InfoItem label="Shipping Address" value={supplier.shippingAddress} />
+            <SupplierSectionCard
+                title="Address"
+                description="Billing and shipping footprint"
+                icon={<HiOutlineLocationMarker className="text-lg" />}
+                delayMs={80}
+            >
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <InfoItem
+                        label="Billing Address"
+                        value={supplier.billingAddress}
+                    />
+                    <InfoItem
+                        label="Shipping Address"
+                        value={supplier.shippingAddress}
+                    />
                     <InfoItem label="Country" value={supplier.country} />
                     <InfoItem label="Region" value={supplier.region} />
                 </dl>
-            </div>
+            </SupplierSectionCard>
 
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Purchasing</h5>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+            <SupplierSectionCard
+                title="Purchasing & tax"
+                description="Commercial defaults"
+                icon={<HiOutlineCash className="text-lg" />}
+                delayMs={120}
+            >
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <InfoItem label="Currency" value={supplier.currency?.code} />
-                    <InfoItem label="Payment Terms" value={supplier.paymentTerms?.name} />
-                    <InfoItem label="Delivery Terms" value={supplier.deliveryTerms} />
-                    <InfoItem label="Default Warehouse" value={supplier.defaultWarehouse?.name} />
-                    <InfoItem label="Lead Time (days)" value={supplier.leadTimeDays} />
-                </dl>
-            </div>
-
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Tax</h5>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                    <InfoItem
+                        label="Payment Terms"
+                        value={supplier.paymentTerms?.name}
+                    />
+                    <InfoItem
+                        label="Delivery Terms"
+                        value={supplier.deliveryTerms}
+                    />
+                    <InfoItem
+                        label="Default Warehouse"
+                        value={supplier.defaultWarehouse?.name}
+                    />
+                    <InfoItem
+                        label="Lead Time (days)"
+                        value={supplier.leadTimeDays}
+                    />
                     <InfoItem label="Tax Code" value={supplier.taxCode} />
                     <InfoItem label="Tax Status" value={supplier.taxStatus} />
                 </dl>
-            </div>
+            </SupplierSectionCard>
 
-            {supplier.status === 'BLOCKED' && supplier.blockReason && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-500/30 dark:bg-red-500/10">
-                    <h5 className="text-sm font-semibold text-red-700 dark:text-red-300">Block Reason</h5>
-                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{supplier.blockReason}</p>
+            {supplier.status === 'BLOCKED' && supplier.blockReason ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 lg:col-span-2 dark:border-red-500/30 dark:bg-red-500/10">
+                    <h5 className="text-sm font-semibold text-red-700 dark:text-red-300">
+                        Block reason
+                    </h5>
+                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                        {supplier.blockReason}
+                    </p>
                 </div>
-            )}
+            ) : null}
 
-            <div>
-                <h5 className="mb-3 text-sm font-semibold uppercase text-gray-400">Bank Accounts</h5>
+            <SupplierSectionCard
+                title="Bank accounts"
+                description="Settlement accounts on file"
+                icon={<HiOutlineLibrary className="text-lg" />}
+                className="lg:col-span-2"
+                delayMs={160}
+            >
                 {bankAccounts.length === 0 ? (
-                    <p className="text-sm text-gray-500">No bank accounts on file.</p>
+                    <p className="text-sm text-gray-500">
+                        No bank accounts on file.
+                    </p>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-600">
-                                    <th className="pb-2 pr-4">Bank</th>
-                                    <th className="pb-2 pr-4">Account Name</th>
-                                    <th className="pb-2 pr-4">Account Number</th>
-                                    <th className="pb-2 pr-4">Primary</th>
-                                    <th className="pb-2" />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {bankAccounts.map((acct) => (
-                                    <tr key={acct.id} className="border-b border-gray-100 dark:border-gray-700">
-                                        <td className="py-2 pr-4 font-medium">{acct.bankName}</td>
-                                        <td className="py-2 pr-4">{acct.accountName}</td>
-                                        <td className="py-2 pr-4 font-mono text-xs">
-                                            {revealedId === acct.id && revealedData ? revealedData.accountNumber : acct.accountNumber}
-                                        </td>
-                                        <td className="py-2 pr-4">{acct.isPrimary ? 'Yes' : 'No'}</td>
-                                        <td className="py-2">
-                                            {revealedId !== acct.id && (
-                                                <Button size="xs" variant="plain" icon={<HiOutlineEye />} onClick={() => handleReveal(acct.id)}>
-                                                    Reveal
-                                                </Button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <DataTable
+                        columns={bankColumns}
+                        data={bankAccounts}
+                        compact
+                        fit
+                        rowClassName={(_, index) => smTableRowEnterClass(index)}
+                    />
                 )}
-            </div>
+            </SupplierSectionCard>
         </div>
     )
 }
@@ -413,34 +680,59 @@ const materialColumns: ColumnDef<SupplierMaterial>[] = [
         accessorKey: 'materialId',
         cell: ({ row }) => {
             const m = row.original.material
-            return m ? <span className="text-sm font-medium">{m.materialCode} — {m.materialName}</span> : <span>—</span>
+            return m ? (
+                <SmCodeNameCell code={m.materialCode} name={m.materialName} />
+            ) : (
+                <span className="text-sm text-gray-400">—</span>
+            )
         },
     },
     {
-        header: 'Supplier Code',
+        header: 'Supplier code',
         accessorKey: 'supplierMaterialCode',
-        cell: ({ row }) => <span className="text-sm">{row.original.supplierMaterialCode || '—'}</span>,
+        cell: ({ row }) => (
+            <SmSupplierLinkCodeCell code={row.original.supplierMaterialCode} />
+        ),
     },
     {
-        header: 'Unit Price',
+        header: 'Unit price',
         accessorKey: 'unitPrice',
-        cell: ({ row }) => <span className="text-sm font-semibold">{Number(row.original.unitPrice).toFixed(2)}</span>,
+        cell: ({ row }) => (
+            <span className="text-sm font-semibold tabular-nums">
+                {Number(row.original.unitPrice).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                })}
+            </span>
+        ),
     },
     {
         header: 'MOQ',
         accessorKey: 'minimumOrderQuantity',
-        cell: ({ row }) => <span className="text-sm">{row.original.minimumOrderQuantity ?? '—'}</span>,
+        cell: ({ row }) => (
+            <SmPlainCell mono>
+                {row.original.minimumOrderQuantity ?? ''}
+            </SmPlainCell>
+        ),
     },
     {
-        header: 'Lead Time',
+        header: 'Lead time',
         accessorKey: 'leadTimeDays',
-        cell: ({ row }) => <span className="text-sm">{row.original.leadTimeDays ? `${row.original.leadTimeDays}d` : '—'}</span>,
+        cell: ({ row }) => (
+            <SmPlainCell>
+                {row.original.leadTimeDays
+                    ? `${row.original.leadTimeDays}d`
+                    : ''}
+            </SmPlainCell>
+        ),
     },
     {
         header: 'Preferred',
         accessorKey: 'preferredSupplier',
         cell: ({ row }) => (
-            <StatusBadge tone={row.original.preferredSupplier ? 'success' : 'default'}>
+            <StatusBadge
+                tone={row.original.preferredSupplier ? 'success' : 'default'}
+            >
                 {row.original.preferredSupplier ? 'Yes' : 'No'}
             </StatusBadge>
         ),
@@ -449,7 +741,9 @@ const materialColumns: ColumnDef<SupplierMaterial>[] = [
         header: 'Status',
         accessorKey: 'status',
         cell: ({ row }) => (
-            <StatusBadge tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}>
+            <StatusBadge
+                tone={row.original.status === 'ACTIVE' ? 'success' : 'warning'}
+            >
                 {row.original.status}
             </StatusBadge>
         ),
@@ -540,17 +834,30 @@ const MaterialsTab = ({
 
     return (
         <div>
-            <div className="mb-4 flex items-center justify-between">
-                <h5 className="text-sm font-semibold">Supplier Materials</h5>
-                <Button size="sm" icon={<HiOutlinePlus />} variant="solid" onClick={() => {
-                    setEditId(null)
-                    setLookupHint('')
-                    setForm({ materialId: '', unitPrice: '', leadTimeDays: '', minimumOrderQuantity: '' })
-                    setAddOpen(true)
-                }}>
-                    Add Material
-                </Button>
-            </div>
+            <SupplierTabToolbar
+                title="Supplier materials"
+                description="Materials linked to this partner with commercial pricing and lead times."
+                actions={
+                    <Button
+                        size="sm"
+                        icon={<HiOutlinePlus />}
+                        variant="solid"
+                        onClick={() => {
+                            setEditId(null)
+                            setLookupHint('')
+                            setForm({
+                                materialId: '',
+                                unitPrice: '',
+                                leadTimeDays: '',
+                                minimumOrderQuantity: '',
+                            })
+                            setAddOpen(true)
+                        }}
+                    >
+                        Add material
+                    </Button>
+                }
+            />
             <DataTable<SupplierMaterial>
                 columns={materialColumns}
                 data={materials}
@@ -558,6 +865,7 @@ const MaterialsTab = ({
                 fit
                 loading={loading}
                 noData={!loading && materials.length === 0}
+                rowClassName={(_, index) => smTableRowEnterClass(index)}
             />
 
             <FormDialog
@@ -676,73 +984,111 @@ const PricingTab = ({ supplierId }: { supplierId: string }) => {
         }
     }, [supplierId, form, load])
 
-    const columns = useMemo<ColumnDef<SupplierPrice>[]>(() => [
-        {
-            header: 'Material',
-            id: 'mat',
-            cell: ({ row }) => {
-                const m = row.original.material
-                return m
-                    ? <span className="text-sm font-medium">{m.materialCode} — {m.materialName}</span>
-                    : <span className="text-sm">{row.original.materialId}</span>
+    const columns = useMemo<ColumnDef<SupplierPrice>[]>(
+        () => [
+            {
+                header: 'Material',
+                id: 'mat',
+                cell: ({ row }) => {
+                    const m = row.original.material
+                    return m ? (
+                        <SmCodeNameCell
+                            code={m.materialCode}
+                            name={m.materialName}
+                        />
+                    ) : (
+                        <SmPlainCell mono>{row.original.materialId}</SmPlainCell>
+                    )
+                },
             },
-        },
-        {
-            header: 'Unit Price',
-            accessorKey: 'unitPrice',
-            cell: ({ row }) => (
-                <span className="text-sm font-semibold">
-                    {Number(row.original.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-            ),
-        },
-        {
-            header: 'Currency',
-            id: 'cur',
-            cell: ({ row }) => <span className="text-sm">{row.original.currency?.code ?? '—'}</span>,
-        },
-        {
-            header: 'Min Qty',
-            accessorKey: 'minimumQuantity',
-            cell: ({ row }) => <span className="text-sm">{Number(row.original.minimumQuantity).toLocaleString()}</span>,
-        },
-        {
-            header: 'Effective From',
-            accessorKey: 'effectiveFrom',
-            cell: ({ row }) => <span className="text-sm">{new Date(row.original.effectiveFrom).toLocaleDateString()}</span>,
-        },
-        {
-            header: 'Effective To',
-            accessorKey: 'effectiveTo',
-            cell: ({ row }) => (
-                <span className="text-sm">
-                    {row.original.effectiveTo ? new Date(row.original.effectiveTo).toLocaleDateString() : 'Open'}
-                </span>
-            ),
-        },
-    ], [])
+            {
+                header: 'Unit price',
+                accessorKey: 'unitPrice',
+                cell: ({ row }) => (
+                    <span className="text-sm font-semibold tabular-nums">
+                        {Number(row.original.unitPrice).toLocaleString(
+                            undefined,
+                            { minimumFractionDigits: 2 },
+                        )}
+                    </span>
+                ),
+            },
+            {
+                header: 'Currency',
+                id: 'cur',
+                cell: ({ row }) => (
+                    <SmPlainCell>
+                        {row.original.currency?.code ?? ''}
+                    </SmPlainCell>
+                ),
+            },
+            {
+                header: 'Min qty',
+                accessorKey: 'minimumQuantity',
+                cell: ({ row }) => (
+                    <span className="text-sm tabular-nums">
+                        {Number(row.original.minimumQuantity).toLocaleString()}
+                    </span>
+                ),
+            },
+            {
+                header: 'Effective from',
+                accessorKey: 'effectiveFrom',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-xs tabular-nums text-gray-700 dark:text-gray-300">
+                        {new Date(
+                            row.original.effectiveFrom,
+                        ).toLocaleDateString()}
+                    </span>
+                ),
+            },
+            {
+                header: 'Effective to',
+                accessorKey: 'effectiveTo',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-xs tabular-nums text-gray-700 dark:text-gray-300">
+                        {row.original.effectiveTo
+                            ? new Date(
+                                  row.original.effectiveTo,
+                              ).toLocaleDateString()
+                            : 'Open'}
+                    </span>
+                ),
+            },
+        ],
+        [],
+    )
 
     return (
         <div>
-            <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                    <h5 className="text-sm font-semibold">Effective-dated Prices</h5>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                        Manage full pricing catalog on{' '}
-                        <Link href="/modules/mm/supplier-management/supplier-pricing" className="text-primary hover:underline">
+            <SupplierTabToolbar
+                title="Effective-dated prices"
+                description={
+                    <>
+                        Manage the full pricing catalog on{' '}
+                        <Link
+                            href="/modules/mm/supplier-management/supplier-pricing"
+                            className="font-medium text-primary hover:underline"
+                        >
                             Supplier Pricing
                         </Link>
-                    </p>
-                </div>
-                <Button
-                    size="sm"
-                    icon={<HiOutlinePlus />}
-                    variant="solid"
-                    onClick={() => { resetForm(); setAddOpen(true) }}
-                >
-                    Add Price
-                </Button>
-            </div>
+                        .
+                    </>
+                }
+                actions={
+                    <Button
+                        size="sm"
+                        icon={<HiOutlinePlus />}
+                        variant="solid"
+                        onClick={() => {
+                            resetForm()
+                            setAddOpen(true)
+                        }}
+                    >
+                        Add price
+                    </Button>
+                }
+            />
             <DataTable<SupplierPrice>
                 columns={columns}
                 data={items}
@@ -750,6 +1096,7 @@ const PricingTab = ({ supplierId }: { supplierId: string }) => {
                 fit
                 loading={loading}
                 noData={!loading && items.length === 0}
+                rowClassName={(_, index) => smTableRowEnterClass(index)}
             />
 
             <FormDialog
@@ -832,13 +1179,20 @@ const auditColumns: ColumnDef<SupplierAudit>[] = [
 ]
 
 const AuditTab = ({ audits }: { audits: SupplierAudit[] }) => (
-    <DataTable<SupplierAudit>
-        columns={auditColumns}
-        data={audits}
-        compact
-        fit
-        noData={audits.length === 0}
-    />
+    <div>
+        <SupplierTabToolbar
+            title="Audit trail"
+            description="Lifecycle and field-level changes recorded for this supplier master."
+        />
+        <DataTable<SupplierAudit>
+            columns={auditColumns}
+            data={audits}
+            compact
+            fit
+            noData={audits.length === 0}
+            rowClassName={(_, index) => smTableRowEnterClass(index)}
+        />
+    </div>
 )
 
 // ─── Performance Tab ─────────────────────────────────────────────────
@@ -876,8 +1230,14 @@ const PerformanceTab = ({
 
     if (loading) {
         return (
-            <div className="flex h-40 items-center justify-center">
-                <Spinner />
+            <div>
+                <SupplierTabToolbar
+                    title="Performance"
+                    description="Delivery, quality, and commercial scorecards for this supplier."
+                />
+                <div className="flex h-40 items-center justify-center">
+                    <Spinner />
+                </div>
             </div>
         )
     }
@@ -916,17 +1276,29 @@ const PerformanceTab = ({
         empty: string,
     ) =>
         rows.length ? (
-            <DataTable columns={columns} data={rows} compact />
+            <DataTable
+                columns={columns}
+                data={rows}
+                compact
+                fit
+                rowClassName={(_, index) => smTableRowEnterClass(index)}
+            />
         ) : (
-            <p className="text-sm text-gray-500 py-2">{empty}</p>
+            <p className="py-2 text-sm text-gray-500">{empty}</p>
         )
 
     return (
         <div className="space-y-6">
-            <p className="text-xs text-gray-500">{detail.note}</p>
+            <SupplierTabToolbar
+                title="Performance"
+                description={
+                    detail.note ||
+                    'Delivery, quality, and commercial scorecards for this supplier.'
+                }
+            />
 
             {evalRow ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {[
                         { label: 'Overall', value: Number(evalRow.overallScore).toFixed(1) },
                         { label: 'Delivery', value: Number(evalRow.deliveryScore).toFixed(1) },
@@ -945,13 +1317,18 @@ const PerformanceTab = ({
                             label: 'On-time',
                             value: `${(Number(evalRow.onTimePct) * 100).toFixed(1)}%`,
                         },
-                    ].map((c) => (
+                    ].map((c, index) => (
                         <div
                             key={c.label}
-                            className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+                            className="rounded-xl border border-gray-100 bg-gray-50/80 p-3 transition-shadow hover:shadow-sm animate-mm-row-in motion-reduce:animate-none dark:border-gray-800 dark:bg-gray-800/30"
+                            style={{ animationDelay: `${index * 35}ms` }}
                         >
-                            <div className="text-xs text-gray-500">{c.label}</div>
-                            <div className="text-lg font-semibold">{c.value}</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                {c.label}
+                            </div>
+                            <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                                {c.value}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -1128,13 +1505,193 @@ const PerformanceTab = ({
     )
 }
 
-// ─── Placeholder Tab ─────────────────────────────────────────────────
+// ─── Journals Tab (FICO partner reference) ────────────────────────────
 
-const PlaceholderTab = ({ name }: { name: string }) => (
-    <div className="flex h-48 flex-col items-center justify-center gap-2 text-gray-400">
-        <HiOutlineDocumentText className="text-4xl" />
-        <p className="text-sm font-medium">{name} — Coming soon</p>
-    </div>
-)
+function JournalsTab({
+    supplierId,
+    companyId,
+    active,
+}: {
+    supplierId: string
+    companyId: string
+    active: boolean
+}) {
+    const [items, setItems] = useState<FicoJournalEntryListItem[]>([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (!active || !companyId || !supplierId) return
+        let cancelled = false
+        setLoading(true)
+        setError(null)
+        ficoJournalService
+            .list({
+                companyId,
+                supplierId,
+                page: 1,
+                pageSize: 50,
+                sortBy: 'postingDate',
+                sortDir: 'desc',
+            })
+            .then((res) => {
+                if (!cancelled) setItems(res.items ?? [])
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setItems([])
+                    setError('Unable to load FICO journals for this supplier.')
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [active, companyId, supplierId])
+
+    const formatMoney = (currency: string, amount: string | number) =>
+        `${currency} ${Number(amount).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`
+
+    const columns = useMemo<ColumnDef<FicoJournalEntryListItem>[]>(
+        () => [
+            {
+                header: 'Document',
+                cell: ({ row }) => (
+                    <Link
+                        href={`/modules/fico/journal-entries/${row.original.id}`}
+                        className="font-mono text-sm font-semibold text-primary hover:underline"
+                    >
+                        {row.original.documentNumber ?? 'Draft'}
+                    </Link>
+                ),
+            },
+            {
+                header: 'Posting date',
+                cell: ({ row }) =>
+                    String(row.original.postingDate).slice(0, 10),
+            },
+            {
+                header: 'Status',
+                cell: ({ row }) => (
+                    <StatusBadge
+                        tone={
+                            row.original.status === 'POSTED'
+                                ? 'success'
+                                : row.original.status === 'REVERSED'
+                                  ? 'info'
+                                  : 'default'
+                        }
+                    >
+                        {row.original.status.replace(/_/g, ' ')}
+                    </StatusBadge>
+                ),
+            },
+            {
+                header: 'Source',
+                cell: ({ row }) =>
+                    row.original.sourceModule
+                        ? row.original.sourceModule
+                        : 'Manual',
+            },
+            {
+                header: 'Debit',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-sm tabular-nums">
+                        {formatMoney(
+                            row.original.currencyCode,
+                            row.original.totalAmount,
+                        )}
+                    </span>
+                ),
+            },
+            {
+                header: 'Credit',
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-sm tabular-nums">
+                        {formatMoney(
+                            row.original.currencyCode,
+                            row.original.totalAmount,
+                        )}
+                    </span>
+                ),
+            },
+            {
+                header: 'Posted by',
+                cell: ({ row }) => {
+                    if (
+                        row.original.status !== 'POSTED' &&
+                        row.original.status !== 'REVERSED'
+                    ) {
+                        return '—'
+                    }
+                    return row.original.postedByName ?? 'System'
+                },
+            },
+            {
+                header: 'Description',
+                cell: ({ row }) => row.original.description ?? '—',
+            },
+        ],
+        [],
+    )
+
+    const toolbar = (
+        <SupplierTabToolbar
+            title="FICO journals"
+            description="Journals with this supplier as the partner reference. Open a document number to view the entry."
+        />
+    )
+
+    if (loading) {
+        return (
+            <div>
+                {toolbar}
+                <div className="flex h-40 items-center justify-center">
+                    <Spinner />
+                </div>
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <div>
+                {toolbar}
+                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            </div>
+        )
+    }
+
+    if (!items.length) {
+        return (
+            <div>
+                {toolbar}
+                <p className="text-sm text-gray-500">
+                    No FICO journals linked to this supplier yet. Manual journals
+                    can select the supplier on create; automatic MM postings will
+                    appear here once they carry the partner reference.
+                </p>
+            </div>
+        )
+    }
+
+    return (
+        <div>
+            {toolbar}
+            <DataTable
+                columns={columns}
+                data={items}
+                compact
+                fit
+                rowClassName={(_, index) => smTableRowEnterClass(index)}
+            />
+        </div>
+    )
+}
 
 export default SupplierDetailPage

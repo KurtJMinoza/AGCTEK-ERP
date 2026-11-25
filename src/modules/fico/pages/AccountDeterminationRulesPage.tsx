@@ -39,10 +39,26 @@ import type {
     FicoDeterminationReference,
     FicoDeterminationRule,
     FicoDeterminationSummary,
+    FicoDeterminationWorkbenchOverview,
+    TransactionKeyCatalogRow,
 } from '../accountDeterminationTypes'
+import {
+    DeterminationExceptionsPanel,
+    DeterminationModuleCoveragePanel,
+    DeterminationTransactionKeysPanel,
+} from '../components/account-determination/DeterminationWorkbenchPanels'
+import DeterminationSimulationWorkbench from '../components/account-determination/DeterminationSimulationWorkbench'
+import DeterminationGlAccountPicker from '../components/account-determination/DeterminationGlAccountPicker'
 import type { FicoCompany, FicoGlAccount } from '../types'
 
-type TabKey = 'overview' | FicoDeterminationModule | 'history'
+type TabKey =
+    | 'overview'
+    | 'rules'
+    | 'transaction-keys'
+    | 'module-coverage'
+    | 'simulation'
+    | 'history'
+    | 'exceptions'
 
 /** Fallback module list until the reference endpoint answers. */
 const FALLBACK_MODULES: FicoDeterminationModule[] = ['MM', 'SD', 'PP']
@@ -51,10 +67,11 @@ const MODULE_LABEL: Record<FicoDeterminationModule, string> = {
     MM: 'Materials Management',
     SD: 'Sales & Distribution',
     PP: 'Production Planning',
-}
-
-function isModuleTab(tab: TabKey): tab is FicoDeterminationModule {
-    return tab !== 'overview' && tab !== 'history'
+    TREASURY: 'Bank & Treasury',
+    AP: 'Accounts Payable',
+    AR: 'Accounts Receivable',
+    AA: 'Asset Accounting',
+    CO: 'Controlling',
 }
 
 type LineForm = {
@@ -69,6 +86,7 @@ type RuleForm = {
     description: string
     sourceModule: FicoDeterminationModule
     transactionType: string
+    transactionKeyCode: string
     priority: string
     effectiveFrom: string
     effectiveTo: string
@@ -88,6 +106,7 @@ const emptyForm: RuleForm = {
     description: '',
     sourceModule: 'MM',
     transactionType: '',
+    transactionKeyCode: '',
     priority: '100',
     effectiveFrom: '',
     effectiveTo: '',
@@ -132,14 +151,22 @@ function dimensionsOf(rule: FicoDeterminationRule) {
     return parts.length ? parts.join(' · ') : 'No dimensions (catch-all)'
 }
 
-export default function AccountDeterminationRulesPage() {
+export default function AccountDeterminationRulesPage({
+    workbench = false,
+}: {
+    workbench?: boolean
+}) {
     const [companies, setCompanies] = useState<FicoCompany[]>([])
     const [companyId, setCompanyId] = useState('')
-    const [tab, setTab] = useState<TabKey>('overview')
+    const [tab, setTab] = useState<TabKey>(workbench ? 'overview' : 'rules')
     const [statusFilter, setStatusFilter] = useState('')
     const [search, setSearch] = useState('')
+    const [searchTerm, setSearchTerm] = useState('')
     const [rules, setRules] = useState<FicoDeterminationRule[]>([])
     const [summary, setSummary] = useState<FicoDeterminationSummary | null>(null)
+    const [workbenchOverview, setWorkbenchOverview] =
+        useState<FicoDeterminationWorkbenchOverview | null>(null)
+    const [transactionKeys, setTransactionKeys] = useState<TransactionKeyCatalogRow[]>([])
     const [reference, setReference] = useState<FicoDeterminationReference | null>(null)
     const [accounts, setAccounts] = useState<FicoGlAccount[]>([])
     const [historyRows, setHistoryRows] = useState<FicoDeterminationHistoryEntry[]>([])
@@ -156,6 +183,11 @@ export default function AccountDeterminationRulesPage() {
     )
     const [reason, setReason] = useState('')
     const [deleting, setDeleting] = useState<FicoDeterminationRule | null>(null)
+    const [draftValidation, setDraftValidation] = useState<{
+        ok: boolean
+        errors: string[]
+        warnings: string[]
+    } | null>(null)
 
     useEffect(() => {
         ficoSettingsService
@@ -167,28 +199,59 @@ export default function AccountDeterminationRulesPage() {
             .catch((error) => notifyError(error, 'Unable to load companies.'))
     }, [])
 
+    /** Debounced so typing in the search box does not refetch on every keystroke. */
+    useEffect(() => {
+        const timer = setTimeout(() => setSearchTerm(search.trim()), 350)
+        return () => clearTimeout(timer)
+    }, [search])
+
+    /** Reference data and the key catalogue are company-scoped and cached. */
+    useEffect(() => {
+        if (!companyId) return
+        let cancelled = false
+        void (async () => {
+            try {
+                const [referenceData, accountRows, catalog] = await Promise.all([
+                    ficoAccountDeterminationRuleService.reference(companyId),
+                    ficoGlAccountService.list({ companyId, status: 'ACTIVE' }),
+                    ficoAccountDeterminationRuleService.transactionKeyCatalog(),
+                ])
+                if (cancelled) return
+                setReference(referenceData)
+                setAccounts(accountRows)
+                setTransactionKeys(catalog)
+            } catch (error) {
+                if (!cancelled) notifyError(error, 'Unable to load determination reference data.')
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [companyId])
+
     const load = useCallback(async () => {
         if (!companyId) return
+        // Transaction keys, coverage, simulation and exceptions own their own
+        // fetches; switching to those tabs must not refetch the rules list.
+        if (tab !== 'overview' && tab !== 'rules' && tab !== 'history') return
         setLoading(true)
         try {
-            const [list, summaryData, referenceData, accountRows] = await Promise.all([
+            const [list, summaryData] = await Promise.all([
                 ficoAccountDeterminationRuleService.list({
                     companyId,
-                    ...(isModuleTab(tab) ? { sourceModule: tab } : {}),
                     ...(statusFilter ? { status: statusFilter } : {}),
-                    ...(search ? { search } : {}),
+                    ...(searchTerm ? { search: searchTerm } : {}),
                     pageSize: 100,
                 }),
-                ficoAccountDeterminationRuleService.summary(companyId),
-                reference ? Promise.resolve(reference) : ficoAccountDeterminationRuleService.reference(companyId),
-                accounts.length
-                    ? Promise.resolve(accounts)
-                    : ficoGlAccountService.list({ companyId, status: 'ACTIVE' }),
+                workbench
+                    ? ficoAccountDeterminationRuleService.workbenchOverview(companyId)
+                    : ficoAccountDeterminationRuleService.summary(companyId),
             ])
             setRules(list.items)
-            setSummary(summaryData)
-            setReference(referenceData)
-            setAccounts(accountRows)
+            setSummary(summaryData as FicoDeterminationSummary)
+            if (workbench) {
+                setWorkbenchOverview(summaryData as FicoDeterminationWorkbenchOverview)
+            }
             if (tab === 'history') {
                 const history = await ficoAccountDeterminationRuleService.configurationHistory({
                     companyId,
@@ -201,7 +264,7 @@ export default function AccountDeterminationRulesPage() {
         } finally {
             setLoading(false)
         }
-    }, [companyId, tab, statusFilter, search, reference, accounts])
+    }, [companyId, tab, statusFilter, searchTerm, workbench])
 
     useEffect(() => {
         void load()
@@ -257,7 +320,7 @@ export default function AccountDeterminationRulesPage() {
         setEditing(null)
         setForm({
             ...emptyForm,
-            sourceModule: isModuleTab(tab) ? tab : 'MM',
+            sourceModule: 'MM',
             lines: [
                 { side: 'DEBIT', glAccountId: '', description: '' },
                 { side: 'CREDIT', glAccountId: '', description: '' },
@@ -274,6 +337,7 @@ export default function AccountDeterminationRulesPage() {
             description: rule.description ?? '',
             sourceModule: rule.sourceModule,
             transactionType: rule.transactionType,
+            transactionKeyCode: rule.transactionKeyCode ?? '',
             priority: String(rule.priority),
             effectiveFrom: rule.effectiveFrom ? rule.effectiveFrom.slice(0, 10) : '',
             effectiveTo: rule.effectiveTo ? rule.effectiveTo.slice(0, 10) : '',
@@ -293,6 +357,75 @@ export default function AccountDeterminationRulesPage() {
         setDialog('edit')
     }
 
+    const buildDraftPayload = (): Record<string, unknown> => ({
+        name: form.name,
+        description: form.description,
+        transactionKeyCode: form.transactionKeyCode || null,
+        priority: Number(form.priority) || 100,
+        effectiveFrom: form.effectiveFrom || null,
+        effectiveTo: form.effectiveTo || null,
+        valuationClassId: form.valuationClassId || null,
+        materialTypeCode: form.materialTypeCode || null,
+        movementType: form.movementType || null,
+        customerAccountGroup: form.customerAccountGroup || null,
+        salesOrganization: form.salesOrganization || null,
+        distributionChannel: form.distributionChannel || null,
+        changeReason: form.changeReason || null,
+        companyId,
+        sourceModule: form.sourceModule,
+        transactionType: form.transactionType,
+        determinationCode: form.determinationCode,
+        lines: form.lines.map<FicoDeterminationLineInput>((line) => ({
+            side: line.side,
+            glAccountId: line.glAccountId,
+            description: line.description || undefined,
+        })),
+    })
+
+    const validateDraftForm = async () => {
+        if (!companyId) return
+        try {
+            const result = await ficoAccountDeterminationRuleService.validateDraft(
+                buildDraftPayload(),
+            )
+            setDraftValidation(result)
+        } catch (error) {
+            notifyError(error, 'Validation failed.')
+        }
+    }
+
+    const simulateDraftForm = async () => {
+        if (!companyId || !form.transactionKeyCode) {
+            notifyError(new Error('Set a transaction key to simulate.'), 'Simulation')
+            return
+        }
+        try {
+            const data = await ficoAccountDeterminationRuleService.simulate({
+                mode: 'SINGLE_KEY',
+                companyId,
+                sourceModule: form.sourceModule,
+                transactionKey: form.transactionKeyCode,
+                transactionType: form.transactionType,
+                postingDate: form.effectiveFrom || new Date().toISOString().slice(0, 10),
+                dimensions: {
+                    valuationClassId: form.valuationClassId || undefined,
+                    materialTypeCode: form.materialTypeCode || undefined,
+                    movementType: form.movementType || undefined,
+                    customerAccountGroup: form.customerAccountGroup || undefined,
+                    salesOrganization: form.salesOrganization || undefined,
+                    distributionChannel: form.distributionChannel || undefined,
+                },
+            })
+            setDraftValidation({
+                ok: !data.configurationErrors.length && !!data.selectedRule,
+                errors: data.configurationErrors,
+                warnings: data.validationWarnings,
+            })
+        } catch (error) {
+            notifyError(error, 'Simulation failed.')
+        }
+    }
+
     const save = async () => {
         if (!companyId) return
         if (form.lines.length < 2) {
@@ -306,6 +439,7 @@ export default function AccountDeterminationRulesPage() {
         const payload: Record<string, unknown> = {
             name: form.name,
             description: form.description,
+            transactionKeyCode: form.transactionKeyCode || null,
             priority: Number(form.priority) || 100,
             effectiveFrom: form.effectiveFrom || null,
             effectiveTo: form.effectiveTo || null,
@@ -333,6 +467,7 @@ export default function AccountDeterminationRulesPage() {
                     companyId,
                     sourceModule: form.sourceModule,
                     transactionType: form.transactionType,
+                    transactionKeyCode: form.transactionKeyCode || null,
                     determinationCode: form.determinationCode,
                 })
                 notifySuccess('Determination created as a draft.')
@@ -567,6 +702,75 @@ export default function AccountDeterminationRulesPage() {
                                     <span>Deactivate</span>
                                 </Dropdown.Item>
                             ) : null}
+                            <Dropdown.Item
+                                eventKey="validate"
+                                onClick={async () => {
+                                    try {
+                                        const result =
+                                            await ficoAccountDeterminationRuleService.validateRule(
+                                                rule.id,
+                                            )
+                                        if (result.ok) {
+                                            notifySuccess(
+                                                `${rule.determinationCode} passed validation.`,
+                                            )
+                                        } else {
+                                            notifyError(
+                                                new Error(result.errors.join(' ')),
+                                                `${rule.determinationCode} failed validation.`,
+                                            )
+                                        }
+                                    } catch (error) {
+                                        notifyError(error, 'Unable to validate rule.')
+                                    }
+                                }}
+                            >
+                                <HiOutlineCheckCircle className="text-base" />
+                                <span>Validate rule</span>
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                                eventKey="duplicate"
+                                onClick={async () => {
+                                    try {
+                                        await ficoAccountDeterminationRuleService.duplicateRule(
+                                            rule.id,
+                                        )
+                                        notifySuccess('Rule duplicated as draft.')
+                                        await load()
+                                    } catch (error) {
+                                        notifyError(error, 'Unable to duplicate rule.')
+                                    }
+                                }}
+                            >
+                                <HiOutlinePlus className="text-base" />
+                                <span>Duplicate as draft</span>
+                            </Dropdown.Item>
+                            {['ACTIVE', 'APPROVED', 'INACTIVE'].includes(rule.status) ? (
+                                <Dropdown.Item
+                                    eventKey="new-version"
+                                    onClick={async () => {
+                                        try {
+                                            const result =
+                                                await ficoAccountDeterminationRuleService.newVersion(
+                                                    rule.id,
+                                                    {},
+                                                )
+                                            notifySuccess(
+                                                `Replacement draft ${result.successor.determinationCode} created.`,
+                                            )
+                                            await load()
+                                        } catch (error) {
+                                            notifyError(
+                                                error,
+                                                'Unable to create a replacement version.',
+                                            )
+                                        }
+                                    }}
+                                >
+                                    <HiOutlineRefresh className="text-base" />
+                                    <span>Create replacement version</span>
+                                </Dropdown.Item>
+                            ) : null}
                             {rule.status === 'DRAFT' ? (
                                 <Dropdown.Item eventKey="delete" onClick={() => setDeleting(rule)}>
                                     <HiOutlineTrash className="text-base text-red-500" />
@@ -623,41 +827,60 @@ export default function AccountDeterminationRulesPage() {
         [],
     )
 
-    const displayRules = isModuleTab(tab)
-        ? rules.filter((rule) => rule.sourceModule === tab)
-        : rules
+    const displayRules = rules
 
     return (
         <>
-            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                    label="Determinations"
-                    value={summary ? summary.total : '—'}
-                    icon={<HiOutlineClipboardList />}
-                    loading={loading}
-                />
-                <StatCard
-                    label="Active"
-                    value={summary ? summary.active : '—'}
-                    icon={<HiOutlineCheckCircle />}
-                    tone="success"
-                    loading={loading}
-                />
-                <StatCard
-                    label="Pending approval"
-                    value={summary ? summary.pendingApproval : '—'}
-                    icon={<HiOutlineExclamation />}
-                    tone="warning"
-                    loading={loading}
-                />
-                <StatCard
-                    label="Drafts"
-                    value={summary ? summary.drafts : '—'}
-                    icon={<HiOutlinePencil />}
-                    tone="info"
-                    loading={loading}
-                />
-            </div>
+            {tab === 'overview' || !workbench ? (
+                <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                    <StatCard
+                        label="Total rules"
+                        value={summary ? summary.total : '—'}
+                        icon={<HiOutlineClipboardList />}
+                        loading={loading}
+                    />
+                    <StatCard
+                        label="Active"
+                        value={summary ? summary.active : '—'}
+                        icon={<HiOutlineCheckCircle />}
+                        tone="success"
+                        loading={loading}
+                    />
+                    <StatCard
+                        label="Drafts"
+                        value={summary ? summary.drafts : '—'}
+                        icon={<HiOutlinePencil />}
+                        tone="info"
+                        loading={loading}
+                    />
+                    <StatCard
+                        label="Pending approval"
+                        value={summary ? summary.pendingApproval : '—'}
+                        icon={<HiOutlineExclamation />}
+                        tone="warning"
+                        loading={loading}
+                    />
+                    {workbench && workbenchOverview ? (
+                        <>
+                            <StatCard
+                                label="Scheduled"
+                                value={workbenchOverview.scheduledRules}
+                                loading={loading}
+                            />
+                            <StatCard
+                                label="Posting exceptions"
+                                value={workbenchOverview.pendingAccountingEvents}
+                                tone={
+                                    workbenchOverview.pendingAccountingEvents > 0
+                                        ? 'warning'
+                                        : 'default'
+                                }
+                                loading={loading}
+                            />
+                        </>
+                    ) : null}
+                </div>
+            ) : null}
 
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end dark:border-gray-700 dark:bg-gray-800/40">
@@ -720,17 +943,71 @@ export default function AccountDeterminationRulesPage() {
                 <Tabs value={tab} onChange={(value) => setTab(value as TabKey)}>
                     <Tabs.TabList className="flex flex-wrap gap-1">
                         <Tabs.TabNav value="overview">Overview</Tabs.TabNav>
-                        {modules.map((entry) => (
-                            <Tabs.TabNav key={entry.code} value={entry.code}>
-                                {entry.code} mappings
-                                <span className="ml-1.5 text-xs text-gray-400">
-                                    {summary?.byModule[entry.code] ?? 0}
-                                </span>
-                            </Tabs.TabNav>
-                        ))}
-                        <Tabs.TabNav value="history">Configuration history</Tabs.TabNav>
+                        <Tabs.TabNav value="rules">
+                            Determination rules
+                            <span className="ml-1.5 text-xs text-gray-400">{rules.length}</span>
+                        </Tabs.TabNav>
+                        {workbench ? (
+                            <>
+                                <Tabs.TabNav value="transaction-keys">Transaction keys</Tabs.TabNav>
+                                <Tabs.TabNav value="module-coverage">Module coverage</Tabs.TabNav>
+                                <Tabs.TabNav value="simulation">Simulation</Tabs.TabNav>
+                                <Tabs.TabNav value="exceptions">Exceptions</Tabs.TabNav>
+                            </>
+                        ) : null}
+                        <Tabs.TabNav value="history">Rule history</Tabs.TabNav>
                     </Tabs.TabList>
                 </Tabs>
+
+                {tab === 'overview' && workbench && workbenchOverview ? (
+                    <div className="mt-4 rounded-xl border border-gray-100 p-4 text-sm dark:border-gray-700">
+                        <ul className="grid gap-2 md:grid-cols-2">
+                            <li>
+                                Missing determination profile:{' '}
+                                <strong>
+                                    {workbenchOverview.missingAccountDeterminationProfile
+                                        ? 'Yes'
+                                        : 'No'}
+                                </strong>
+                            </li>
+                            <li>
+                                Invalid G/L on rules:{' '}
+                                <strong>{workbenchOverview.invalidGlReferencesInRules}</strong>
+                            </li>
+                            <li>
+                                Failed resolution events:{' '}
+                                <strong>
+                                    {workbenchOverview.failedAccountResolutionEvents}
+                                </strong>
+                            </li>
+                            <li>
+                                Live keys without active rule:{' '}
+                                <strong>
+                                    {workbenchOverview.missingLiveTransactionKeyRules}
+                                </strong>
+                            </li>
+                        </ul>
+                    </div>
+                ) : null}
+
+                {tab === 'transaction-keys' ? (
+                    <DeterminationTransactionKeysPanel
+                        catalog={transactionKeys}
+                        loading={loading}
+                    />
+                ) : null}
+
+                {tab === 'module-coverage' && companyId ? (
+                    <DeterminationModuleCoveragePanel companyId={companyId} />
+                ) : null}
+
+                {tab === 'simulation' ? (
+                    <DeterminationSimulationWorkbench companyId={companyId} modules={modules} />
+                ) : null}
+
+                {tab === 'exceptions' && companyId ? (
+                    <DeterminationExceptionsPanel companyId={companyId} />
+                ) : null}
 
                 {tab === 'history' ? (
                     <div className="mt-4 space-y-2">
@@ -765,7 +1042,7 @@ export default function AccountDeterminationRulesPage() {
                             </p>
                         )}
                     </div>
-                ) : (
+                ) : tab === 'rules' ? (
                     <>
                         <div className="mb-3 mt-4 flex flex-wrap items-end gap-3">
                             <FormItem label="Status" className="mb-0 w-48">
@@ -809,20 +1086,90 @@ export default function AccountDeterminationRulesPage() {
                             instanceId="fico-account-determination-rules"
                         />
                     </>
-                )}
+                ) : null}
             </AdaptiveCard>
 
             <FormDialog
                 isOpen={dialog !== null}
-                onClose={() => setDialog(null)}
+                onClose={() => {
+                    setDialog(null)
+                    setDraftValidation(null)
+                }}
                 size="xl"
                 icon={<HiOutlineClipboardList />}
                 title={dialog === 'edit' ? 'Edit determination' : 'New determination'}
                 description="Multiple debit and credit lines are supported. Only draft determinations can be edited."
-                onSubmit={save}
-                confirmText={dialog === 'edit' ? 'Save changes' : 'Create draft'}
-                confirmLoading={saving}
+                footer={
+                    <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] text-gray-500">
+                            {draftValidation ? (
+                                draftValidation.ok ? (
+                                    <span className="text-emerald-700">Validation passed</span>
+                                ) : (
+                                    <span className="text-red-600">
+                                        {draftValidation.errors[0] ?? 'Validation failed'}
+                                    </span>
+                                )
+                            ) : (
+                                'Section 05 — validate or simulate before submit'
+                            )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                onClick={() => {
+                                    setDialog(null)
+                                    setDraftValidation(null)
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                loading={saving}
+                                onClick={() => void validateDraftForm()}
+                            >
+                                Validate rule
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="plain"
+                                onClick={() => void simulateDraftForm()}
+                            >
+                                Simulate rule
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                loading={saving}
+                                onClick={() => void save()}
+                            >
+                                {dialog === 'edit' ? 'Save draft' : 'Save draft'}
+                            </Button>
+                            {editing?.status === 'DRAFT' ? (
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    onClick={() => {
+                                        void save().then(() => {
+                                            if (editing) {
+                                                setAction({ kind: 'submit', rule: editing })
+                                            }
+                                        })
+                                    }}
+                                >
+                                    Submit for approval
+                                </Button>
+                            ) : null}
+                        </div>
+                    </div>
+                }
             >
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Section 01 — General information
+                </p>
                 <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
                     <FormItem label="Determination code" asterisk>
                         <Input
@@ -887,6 +1234,18 @@ export default function AccountDeterminationRulesPage() {
                             }
                         />
                     </FormItem>
+                    <FormItem label="Transaction key">
+                        <Input
+                            placeholder="GI_COGS · PAYMENT_CLEARING"
+                            value={form.transactionKeyCode}
+                            onChange={(event) =>
+                                setForm((current) => ({
+                                    ...current,
+                                    transactionKeyCode: event.target.value.toUpperCase(),
+                                }))
+                            }
+                        />
+                    </FormItem>
                     <FormItem label="Priority">
                         <Input
                             type="number"
@@ -931,6 +1290,15 @@ export default function AccountDeterminationRulesPage() {
                             }
                         />
                     </FormItem>
+                </div>
+                <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Section 02 — Determination conditions
+                </p>
+                <p className="mb-3 text-[11px] text-gray-500">
+                    Leave a condition blank to use a wildcard. Only fields relevant to the source
+                    module should be constrained.
+                </p>
+                <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
                     {form.sourceModule !== 'SD' ? (
                         <>
                             <FormItem label="Valuation class">
@@ -1101,10 +1469,21 @@ export default function AccountDeterminationRulesPage() {
                     </FormItem>
                 </div>
 
+                <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Section 04 — Priority and validity
+                </p>
+                <p className="mb-3 text-[11px] text-gray-500">
+                    Lower priority numbers win when specificity ties. More matching dimensions
+                    outrank wildcards. Effective dates scope the rule. Active rules cannot be
+                    edited — duplicate as draft to replace.
+                </p>
+                <p className="mb-2 mt-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Section 03 — G/L account assignment
+                </p>
                 <div className="mt-2 rounded-xl border border-gray-100 p-3 dark:border-gray-700">
                     <div className="mb-2 flex items-center justify-between">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                            Posting lines
+                            Debit / credit lines
                         </p>
                         <div className="flex gap-2">
                             <Button
@@ -1175,25 +1554,16 @@ export default function AccountDeterminationRulesPage() {
                                         }))
                                     }
                                 />
-                                <Select
-                                    placeholder="Select account"
-                                    options={accountOptions}
-                                    value={
-                                        accountOptions.find(
-                                            (option) => option.value === line.glAccountId,
-                                        ) ?? null
-                                    }
-                                    onChange={(option) =>
+                                <DeterminationGlAccountPicker
+                                    companyId={companyId}
+                                    transactionKeyCode={form.transactionKeyCode || undefined}
+                                    value={line.glAccountId}
+                                    onChange={(glAccountId) =>
                                         setForm((current) => ({
                                             ...current,
                                             lines: current.lines.map((row, rowIndex) =>
                                                 rowIndex === index
-                                                    ? {
-                                                          ...row,
-                                                          glAccountId:
-                                                              (option as { value: string } | null)
-                                                                  ?.value ?? '',
-                                                      }
+                                                    ? { ...row, glAccountId }
                                                     : row,
                                             ),
                                         }))

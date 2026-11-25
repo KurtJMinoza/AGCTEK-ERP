@@ -34,6 +34,27 @@ export class WarehouseTransferOrderService {
     ) {}
 
     async create(dto: CreateWarehouseTransferOrderDto) {
+        const [sourceWarehouse, destinationWarehouse] = await Promise.all([
+            this.prisma.warehouse.findUnique({
+                where: { id: dto.sourceWarehouseId },
+                select: { companyId: true },
+            }),
+            this.prisma.warehouse.findUnique({
+                where: { id: dto.destinationWarehouseId },
+                select: { companyId: true },
+            }),
+        ])
+        if (!sourceWarehouse?.companyId || !destinationWarehouse?.companyId) {
+            throw new BadRequestException('Source and destination warehouses must have a company.')
+        }
+        if (
+            sourceWarehouse.companyId !== dto.companyId ||
+            destinationWarehouse.companyId !== dto.companyId
+        ) {
+            throw new BadRequestException(
+                'This warehouse transfer order supports only intra-company transfers. Use the intercompany transfer accounting flow for different legal entities.',
+            )
+        }
         const sto = await this.sto.create({
             companyId: dto.companyId,
             transferType:

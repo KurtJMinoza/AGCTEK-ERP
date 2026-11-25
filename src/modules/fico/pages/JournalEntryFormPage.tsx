@@ -77,6 +77,7 @@ const JournalEntryFormPage = () => {
         () => new Date().toISOString().slice(0, 10),
     )
     const [description, setDescription] = useState('')
+    const [supplierId, setSupplierId] = useState('')
     const [currencyCode, setCurrencyCode] = useState('PHP')
     const [lines, setLines] = useState<JournalEditorLine[]>([
         {
@@ -182,6 +183,7 @@ const JournalEntryFormPage = () => {
                     (entry.documentDate ?? entry.postingDate).slice(0, 10),
                 )
                 setDescription(entry.description ?? '')
+                setSupplierId(entry.supplierId ?? '')
                 setCurrencyCode(entry.currencyCode)
                 setLines(
                     toEditorLines(entry.lines).length
@@ -208,9 +210,10 @@ const JournalEntryFormPage = () => {
             postingDate,
             description: description || undefined,
             currencyCode,
+            supplierId: supplierId || null,
             lines: parsedLines,
         }
-    }, [lines, companyId, postingDate, description, currencyCode])
+    }, [lines, companyId, postingDate, description, currencyCode, supplierId])
 
     const saveDraft = async () => {
         if (!companyId) return
@@ -366,6 +369,8 @@ const JournalEntryFormPage = () => {
                     documentDate={documentDate}
                     currencyCode={currencyCode}
                     description={description}
+                    supplierId={supplierId}
+                    companyId={companyId}
                     periodLabel={periodLabel}
                     periodStatus={periodStatus}
                     companyCode={companyCode}
@@ -376,6 +381,7 @@ const JournalEntryFormPage = () => {
                     onPostingDate={setPostingDate}
                     onDocumentDate={setDocumentDate}
                     onDescription={setDescription}
+                    onSupplierId={setSupplierId}
                     onLinesChange={setLines}
                 />
             ) : (

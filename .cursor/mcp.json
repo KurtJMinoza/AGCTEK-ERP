@@ -8,6 +8,14 @@
         "ide",
         "--project-from-cwd"
       ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--caps=testing,network,storage,devtools,vision"
+      ]
     }
   }
 }

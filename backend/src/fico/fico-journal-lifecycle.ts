@@ -92,6 +92,14 @@ export function resolveReversalDocumentType(originalDocumentType: string | null)
         case 'MM_GI':
         case 'MM_ADJUSTMENT':
             return { documentType: 'MM_REVERSAL', numberingKey: 'MM_REVERSAL' }
+        case 'SUPPLIER_INVOICE':
+        case 'AP_PAYMENT':
+        case 'AP_CLEARING':
+        case 'AP_CREDIT_MEMO':
+        case 'AP_DEBIT_ADJUSTMENT':
+        case 'AP_ADVANCE':
+        case 'AP_OPENING_BALANCE':
+            return { documentType: 'AP_REVERSAL', numberingKey: 'AP_REVERSAL' }
         default:
             return { documentType: 'JOURNAL', numberingKey: 'JOURNAL_REVERSAL' }
     }

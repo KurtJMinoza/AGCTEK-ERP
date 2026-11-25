@@ -75,6 +75,11 @@ export class FicoReconciliationQueryDto {
     @IsString()
     currencyCode?: string
 
+    /** Optional MM supplier partner; omit to leave unchanged, empty string to clear. */
+    @IsOptional()
+    @IsString()
+    supplierId?: string | null
+
     @IsOptional()
     @IsArray()
     @ValidateNested({ each: true })
@@ -110,6 +115,11 @@ export class CreateJournalEntryDto {
     @IsOptional()
     @IsString()
     currencyCode?: string
+
+    /** Optional MM supplier partner reference (same company). */
+    @IsOptional()
+    @IsString()
+    supplierId?: string
 
     @IsOptional()
     @IsBoolean()
@@ -223,6 +233,10 @@ export class JournalEntryListQueryDto {
     @IsOptional()
     @IsString()
     sourceDocumentId?: string
+
+    @IsOptional()
+    @IsString()
+    supplierId?: string
 
     @IsOptional()
     @IsString()

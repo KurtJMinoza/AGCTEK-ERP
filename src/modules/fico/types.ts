@@ -14,6 +14,12 @@ export type FicoJournalLine = {
     }
 }
 
+export type FicoJournalSupplierSummary = {
+    id: string
+    supplierCode: string
+    supplierName: string
+}
+
 export type FicoJournalEntryListItem = {
     id: string
     documentNumber: string | null
@@ -28,6 +34,8 @@ export type FicoJournalEntryListItem = {
     description: string | null
     sourceModule?: string | null
     sourceDocumentId?: string | null
+    supplierId?: string | null
+    supplier?: FicoJournalSupplierSummary | null
     createdBy?: string | null
     postedBy?: string | null
     postedByName?: string | null
@@ -50,6 +58,8 @@ export type FicoJournalEntryDetail = FicoJournalEntryListItem & {
     approvalStatus: string
     sourceModule?: string | null
     sourceDocumentId?: string | null
+    supplierId?: string | null
+    supplier?: FicoJournalSupplierSummary | null
     reversalOfId?: string | null
     lines: FicoJournalLine[]
 }
@@ -62,6 +72,7 @@ export type FicoJournalListQuery = {
     documentNumber?: string
     sourceModule?: string
     sourceDocumentId?: string
+    supplierId?: string
     glAccountId?: string
     currencyCode?: string
     createdBy?: string

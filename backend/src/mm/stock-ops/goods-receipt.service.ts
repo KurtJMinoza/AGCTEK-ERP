@@ -352,6 +352,7 @@ export class GoodsReceiptService {
             documentType: 'GOODS_RECEIPT',
             documentId: doc.id,
             companyId: doc.companyId,
+            supplierId: doc.supplierId ?? undefined,
             postingDate: doc.postingDate.toISOString(),
             warehouseId: doc.warehouseId,
             receiptPurpose: doc.receiptPurpose,
@@ -367,7 +368,7 @@ export class GoodsReceiptService {
             })),
         }
         this.events.emit('goods-receipt.posted', { goodsReceiptId: doc.id })
-        void this.domainEvents.goodsReceiptPosted({
+        await this.domainEvents.goodsReceiptPosted({
             companyId: doc.companyId,
             goodsReceiptId: doc.id,
             payload,
@@ -532,7 +533,7 @@ export class GoodsReceiptService {
 
         await this.periodGuard.assertCanPost(doc.companyId, doc.postingDate)
 
-        void this.domainEvents.goodsReceiptReversed({
+        await this.domainEvents.goodsReceiptReversed({
             companyId: doc.companyId,
             goodsReceiptId: doc.id,
             plantId: doc.warehouse?.plantId ?? null,
@@ -541,6 +542,7 @@ export class GoodsReceiptService {
                 documentType: 'GOODS_RECEIPT',
                 documentId: doc.id,
                 companyId: doc.companyId,
+                supplierId: doc.supplierId ?? undefined,
                 postingDate: doc.postingDate.toISOString(),
                 warehouseId: doc.warehouseId,
                 lines: doc.lines.map((l) => ({

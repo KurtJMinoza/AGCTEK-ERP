@@ -91,14 +91,20 @@ function setup(options: {
     const determinationValidation = {
         assertSafeToActivate: jest.fn().mockResolvedValue(undefined),
     }
+    const sod = {
+        isEnabled: jest.fn().mockResolvedValue(true),
+        assertCanApprove: jest.fn().mockResolvedValue(undefined),
+        assertCanActivate: jest.fn().mockResolvedValue(undefined),
+    }
     const service = new FicoAccountDeterminationRulesService(
         prisma as never,
         access as never,
         audit as never,
         validation as never,
         determinationValidation as never,
+        sod as never,
     )
-    return { service, prisma, access, audit, validation, determinationValidation }
+    return { service, prisma, access, audit, validation, determinationValidation, sod }
 }
 
 const createInput = {

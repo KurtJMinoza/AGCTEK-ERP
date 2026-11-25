@@ -1064,7 +1064,7 @@ export class FicoPhase1Controller {
     // ---------------------------------------------------------------------
 
     @Get('accounting-events')
-    @RequirePermission('fico.journal-entries', 'read')
+    @RequirePermission(['fico.accounting-events', 'fico.journal-entries'], 'read')
     listAccountingEvents(
         @Query() query: FicoAccountingEventQueryDto,
         @CurrentUser() user: AuthRequestUser,
@@ -1073,7 +1073,7 @@ export class FicoPhase1Controller {
     }
 
     @Get('accounting-events/:id')
-    @RequirePermission('fico.journal-entries', 'read')
+    @RequirePermission(['fico.accounting-events', 'fico.journal-entries'], 'read')
     getAccountingEvent(
         @Param('id') id: string,
         @CurrentUser() user: AuthRequestUser,
@@ -1082,7 +1082,7 @@ export class FicoPhase1Controller {
     }
 
     @Post('accounting-events/:id/retry')
-    @RequirePermission('fico.journal-entries', 'update')
+    @RequirePermission(['fico.accounting-events', 'fico.journal-entries'], 'update')
     retryAccountingEvent(
         @Param('id') id: string,
         @CurrentUser() user: AuthRequestUser,

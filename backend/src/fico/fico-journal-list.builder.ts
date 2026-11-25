@@ -28,6 +28,7 @@ export function buildJournalListWhere(
     }
     if (query.sourceModule) where.sourceModule = query.sourceModule
     if (query.sourceDocumentId) where.sourceDocumentId = query.sourceDocumentId
+    if (query.supplierId) where.supplierId = query.supplierId
     if (query.currencyCode) where.currencyCode = query.currencyCode
     if (query.createdBy) where.createdBy = query.createdBy
     if (query.postedBy) where.postedBy = query.postedBy
@@ -66,34 +67,31 @@ export function buildJournalListWhere(
     const manualOnlyScope: Prisma.FicoJournalEntryWhereInput = {
         OR: [{ sourceModule: null }, { sourceModule: '' }],
     }
-    const workbenchManualTabs = new Set([
-        'all',
+    // Approval-lifecycle tabs are manual-only. "all", "posted", and "reversed"
+    // must include automatic (MM/SD) journals — do not force manualOnlyScope there.
+    const approvalLifecycleTabs = new Set([
         'my-drafts',
-        'posted',
-        'reversed',
         'pending-approval',
         'ready-to-post',
         'manual',
     ])
-    if ((!tab || workbenchManualTabs.has(tab)) && tab !== 'automatic') {
+    if (tab && approvalLifecycleTabs.has(tab)) {
         where.AND = [
             ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
             manualOnlyScope,
         ]
     }
 
-    if (tab === 'manual') {
-        where.AND = [
-            ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-            { requiresApproval: true },
-        ]
-    } else if (tab === 'automatic') {
+    // Manual = no sourceModule. Do not also require requiresApproval: true —
+    // posted Finance journals may have approval already completed / not required.
+    if (tab === 'automatic') {
+        // Inverse of manualOnlyScope: MM/SD/system postings always set sourceModule.
         where.AND = [
             ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
             {
-                OR: [
-                    { approvalStatus: 'NOT_REQUIRED' },
+                AND: [
                     { sourceModule: { not: null } },
+                    { NOT: { sourceModule: '' } },
                 ],
             },
         ]

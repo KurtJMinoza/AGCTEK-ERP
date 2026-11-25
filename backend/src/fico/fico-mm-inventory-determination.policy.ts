@@ -18,13 +18,17 @@ export const FICO_MM_EVENT_TRANSACTION_KEYS: ReadonlyArray<{
     resolve: (payload: MmAccountingDispatchPayload) => string | null
 }> = [
     {
-        eventTypes: ['GoodsReceiptPosted'],
+        eventTypes: ['GoodsReceiptPosted', 'GoodsReceiptReversed', 'SupplierReturnPosted', 'SupplierReturnReversed'],
         resolve: () => 'GR_IR',
     },
     {
-        eventTypes: ['GoodsIssuePosted'],
+        eventTypes: ['GoodsIssuePosted', 'GoodsIssueReversed'],
         resolve: (payload) =>
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
+    },
+    {
+        eventTypes: ['DisposalReversed'],
+        resolve: () => 'INVENTORY_LOSS',
     },
     {
         eventTypes: ['*'],
@@ -129,13 +133,20 @@ export function ficoLegacyTransactionKeyCodes(canonicalKey: string): string[] {
 export function ficoResolveMmTransactionKey(
     payload: MmAccountingDispatchPayload,
 ): string {
-    if (payload.eventType === 'GoodsReceiptPosted') {
+    if (
+        ['GoodsReceiptPosted', 'GoodsReceiptReversed', 'SupplierReturnPosted', 'SupplierReturnReversed'].includes(
+            payload.eventType,
+        )
+    ) {
         return ficoCanonicalMmTransactionKey('GR_IR')
     }
-    if (payload.eventType === 'GoodsIssuePosted') {
+    if (['GoodsIssuePosted', 'GoodsIssueReversed'].includes(payload.eventType)) {
         return ficoCanonicalMmTransactionKey(
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
         )
+    }
+    if (payload.eventType === 'DisposalReversed') {
+        return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')
     }
     const effects = new Set(payload.accountingEffects)
     if (effects.has('INVENTORY_LOSS')) return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')
@@ -150,6 +161,18 @@ export function ficoResolveMmTransactionKey(
         )
     }
     throw new Error(`No MM transaction key for ${payload.eventType}`)
+}
+
+/** Whether the event reverses the normal debit/credit direction of its key. */
+export function ficoMmEventReversesPostingDirection(
+    payload: MmAccountingDispatchPayload,
+) {
+    return [
+        'GoodsReceiptReversed',
+        'SupplierReturnPosted',
+        'GoodsIssueReversed',
+        'DisposalReversed',
+    ].includes(payload.eventType)
 }
 
 export function ficoMmTransactionTypeForKey(transactionKey: string): string {
