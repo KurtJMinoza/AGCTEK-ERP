@@ -20,6 +20,7 @@ import {
 } from './fico-account-determination.constants'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import { FicoAccountDeterminationValidationService } from './fico-account-determination-validation.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
 
 export type DeterminationLineInput = {
@@ -110,6 +111,7 @@ export class FicoAccountDeterminationRulesService {
         private readonly access: FicoCompanyAccessService,
         private readonly audit: FicoAuditService,
         private readonly postingValidation: FicoPostingValidationService,
+        private readonly determinationValidation: FicoAccountDeterminationValidationService,
     ) {}
 
     async list(query: DeterminationQuery, user: AuthRequestUser) {
@@ -487,6 +489,9 @@ export class FicoAccountDeterminationRulesService {
         }
         this.assertPostableLines(existing)
         await this.assertNoActiveClone(existing)
+        await this.determinationValidation.assertSafeToActivate(
+            existing as never,
+        )
 
         const updated = await this.prisma.ficoAccountDeterminationRule.update({
             where: { id },
@@ -636,6 +641,7 @@ export class FicoAccountDeterminationRulesService {
         customerAccountGroup: string | null
         salesOrganization: string | null
         distributionChannel: string | null
+        transactionKeyCode?: string | null
     }) {
         const active = await this.prisma.ficoAccountDeterminationRule.findMany({
             where: {
@@ -653,6 +659,7 @@ export class FicoAccountDeterminationRulesService {
                 customerAccountGroup: true,
                 salesOrganization: true,
                 distributionChannel: true,
+                transactionKeyCode: true,
             },
         })
         const signature = this.dimensionSignature(rule)
@@ -673,12 +680,15 @@ export class FicoAccountDeterminationRulesService {
         customerAccountGroup: string | null
         salesOrganization: string | null
         distributionChannel: string | null
+        transactionKeyCode?: string | null
     }) {
-        return FICO_DETERMINATION_DIMENSIONS.map((dimension: FicoDeterminationDimension) =>
+        const key = (input.transactionKeyCode ?? '').trim().toUpperCase()
+        const body = FICO_DETERMINATION_DIMENSIONS.map((dimension: FicoDeterminationDimension) =>
             dimension === 'valuationClassId'
                 ? (input[dimension] ?? '')
                 : (normalise(input[dimension]) ?? ''),
         ).join('|')
+        return `${key}|${body}`
     }
 
     private assertModuleAndType(sourceModule: string, transactionType: string) {

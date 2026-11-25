@@ -14,6 +14,25 @@ import {
     type FicoDeterminationDimension,
     type FicoDeterminationSourceModule,
 } from './fico-account-determination.constants'
+import type {
+    AccountDeterminationBatchFailure,
+    AccountDeterminationBatchRequest,
+    AccountDeterminationBatchResult,
+    AccountDeterminationRequest,
+    AccountDeterminationResult,
+} from './fico-account-determination.types'
+import {
+    flattenDeterminationDimensions,
+    matchedDimensionsToRecord,
+} from './fico-account-determination.types'
+import {
+    ficoAssertAccountTypeForCategory,
+    ficoAssertSourceModuleSupportsKey,
+    ficoCatalogEntryForKey,
+    ficoPreferredSideForCategory,
+    ficoResolveTransactionTypeForKey,
+    ficoRuleLineSignature,
+} from './fico-account-determination-policy'
 
 /**
  * Input needed to resolve accounts for one transaction. MM/SD/PP supply the
@@ -59,7 +78,9 @@ export type AccountResolutionResult = {
         effectiveFrom: string | null
         effectiveTo: string | null
         matchedDimensions: FicoDeterminationDimension[]
+        matchedTransactionKey: boolean
         specificity: number
+        ruleVersion: number
     }
     lines: ResolvedAccountLine[]
     debitLines: ResolvedAccountLine[]
@@ -73,7 +94,8 @@ type CandidateRule = {
     priority: number
     effectiveFrom: Date | null
     effectiveTo: Date | null
-    createdAt: Date
+    updatedAt: Date
+    transactionKeyCode: string | null
     valuationClassId: string | null
     materialTypeCode: string | null
     movementType: string | null
@@ -123,9 +145,8 @@ function dayStart(value: Date) {
  *  - every dimension a rule constrains must be supplied by the caller and match
  *    (a rule with a null dimension is a wildcard);
  *  - the most specific rule (most matched dimensions) wins, then the lowest
- *    priority number, then the latest effective-from, then the newest rule;
- *  - two rules that tie on all of those are a configuration conflict and the
- *    resolver refuses to guess;
+ *    priority number, then the latest effective-from;
+ *  - equal rank is a configuration conflict (creation time is never used);
  *  - every resolved account must be postable for the company on that date.
  */
 @Injectable()
@@ -134,6 +155,159 @@ export class FicoAccountResolutionService {
         private readonly prisma: PrismaService,
         private readonly postingValidation: FicoPostingValidationService,
     ) {}
+
+    /**
+     * Phase 04.05 — catalogue-keyed resolution with explicit dimensions.
+     * Derives transaction type and chart of accounts from trusted configuration.
+     */
+    async resolveDetermination(
+        request: AccountDeterminationRequest,
+    ): Promise<AccountDeterminationResult> {
+        const transactionKey = normalise(request.transactionKey)
+        if (!transactionKey) {
+            throw new BadRequestException('A transaction key is required.')
+        }
+        const catalogEntry = ficoCatalogEntryForKey(transactionKey)
+        if (!catalogEntry) {
+            throw new BadRequestException(
+                `${request.transactionKey} is not a recognised transaction key.`,
+            )
+        }
+        const sourceModule = normalise(request.sourceModule)
+        if (!sourceModule) {
+            throw new BadRequestException('A source module is required.')
+        }
+        ficoAssertSourceModuleSupportsKey(catalogEntry, sourceModule)
+
+        const flat = flattenDeterminationDimensions(request.dimensions)
+        if (catalogEntry.requiresValuationClass && !flat.valuationClassId) {
+            throw new BadRequestException(
+                `Transaction key ${transactionKey} requires valuationClassId.`,
+            )
+        }
+
+        const transactionType = ficoResolveTransactionTypeForKey(
+            transactionKey,
+            sourceModule,
+            request.transactionType,
+        )
+
+        const resolution = await this.resolve({
+            companyId: request.companyId,
+            sourceModule,
+            transactionType,
+            postingDate: request.postingDate,
+            currencyCode: request.currencyCode,
+            transactionKeyCode: transactionKey,
+            ...flat,
+        })
+
+        const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
+            where: { companyId: request.companyId },
+            select: { chartOfAccountsId: true, updatedAt: true },
+        })
+
+        const side = ficoPreferredSideForCategory(catalogEntry.accountingCategory)
+        const preferredLine =
+            (side === 'DEBIT'
+                ? resolution.debitLines[0]
+                : resolution.creditLines[0]) ?? resolution.lines[0]
+        if (!preferredLine) {
+            throw new BadRequestException(
+                `No G/L account line resolved for ${transactionKey}.`,
+            )
+        }
+
+        return {
+            glAccountId: preferredLine.glAccountId,
+            glAccountCode: preferredLine.accountCode,
+            glAccountName: preferredLine.accountName,
+            transactionKey,
+            ruleId: resolution.rule.id,
+            ruleVersion: resolution.rule.ruleVersion,
+            resolutionScope: `${sourceModule}:${transactionType}`,
+            matchedDimensions: matchedDimensionsToRecord(resolution.rule, {
+                transactionKeyCode: transactionKey,
+                ...flat,
+            }),
+            configurationRevision: settings?.updatedAt.toISOString(),
+            resolution,
+        }
+    }
+
+    async resolveDeterminationBatch(
+        request: AccountDeterminationBatchRequest,
+    ): Promise<AccountDeterminationBatchResult | AccountDeterminationBatchFailure> {
+        const results: AccountDeterminationResult[] = []
+        const failures: AccountDeterminationBatchFailure['failures'] = []
+
+        for (const item of request.items) {
+            try {
+                const row = await this.resolveDetermination({
+                    companyId: request.companyId,
+                    sourceModule: request.sourceModule,
+                    postingDate: request.postingDate,
+                    currencyCode: request.currencyCode,
+                    transactionKey: item.transactionKey,
+                    transactionType: item.transactionType,
+                    dimensions: request.dimensions,
+                })
+                if (item.preferredSide) {
+                    const lines =
+                        item.preferredSide === 'DEBIT'
+                            ? row.resolution.debitLines
+                            : row.resolution.creditLines
+                    const pick = lines[0]
+                    if (pick) {
+                        row.glAccountId = pick.glAccountId
+                        row.glAccountCode = pick.accountCode
+                        row.glAccountName = pick.accountName
+                    }
+                }
+                results.push(row)
+            } catch (error) {
+                const message =
+                    error instanceof Error ? error.message : 'Resolution failed.'
+                failures.push({
+                    transactionKey: item.transactionKey,
+                    message,
+                })
+            }
+        }
+
+        const postingDate =
+            typeof request.postingDate === 'string'
+                ? request.postingDate.slice(0, 10)
+                : dayStart(request.postingDate).toISOString().slice(0, 10)
+
+        if (failures.length) {
+            return {
+                ok: false,
+                companyId: request.companyId,
+                postingDate,
+                failures,
+            }
+        }
+
+        const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
+            where: { companyId: request.companyId },
+            select: { chartOfAccountsId: true, updatedAt: true },
+        })
+        if (!settings?.chartOfAccountsId) {
+            throw new BadRequestException(
+                'Company accounting configuration is missing.',
+            )
+        }
+
+        return {
+            companyId: request.companyId,
+            chartOfAccountsId: settings.chartOfAccountsId,
+            postingDate,
+            configurationRevision:
+                settings.updatedAt?.toISOString() ?? new Date().toISOString(),
+            items: results,
+        }
+    }
 
     async resolve(
         request: AccountResolutionRequest,
@@ -235,6 +409,7 @@ export class FicoAccountResolutionService {
                 { OR: [{ transactionKeyCode: null }, { transactionKeyCode: key }] },
             ]
         }
+        const catalogEntry = key ? ficoCatalogEntryForKey(key) : undefined
 
         const candidates = (await this.prisma.ficoAccountDeterminationRule.findMany({
             where,
@@ -248,9 +423,14 @@ export class FicoAccountResolutionService {
 
         const scored = candidates
             .map((rule) => {
-                const matchedDimensions = this.matchedDimensions(rule, request)
-                return matchedDimensions
-                    ? { rule, matchedDimensions, specificity: matchedDimensions.length }
+                const matched = this.matchedDimensions(rule, request)
+                return matched
+                    ? {
+                          rule,
+                          matchedDimensions: matched.dimensions,
+                          matchedTransactionKey: matched.matchedTransactionKey,
+                          specificity: matched.specificity,
+                      }
                     : null
             })
             .filter(
@@ -259,6 +439,7 @@ export class FicoAccountResolutionService {
                 ): entry is {
                     rule: CandidateRule
                     matchedDimensions: FicoDeterminationDimension[]
+                    matchedTransactionKey: boolean
                     specificity: number
                 } => entry !== null,
             )
@@ -267,8 +448,7 @@ export class FicoAccountResolutionService {
                     right.specificity - left.specificity ||
                     left.rule.priority - right.rule.priority ||
                     this.effectiveFromRank(right.rule) -
-                        this.effectiveFromRank(left.rule) ||
-                    right.rule.createdAt.getTime() - left.rule.createdAt.getTime(),
+                        this.effectiveFromRank(left.rule),
             )
 
         if (!scored.length) {
@@ -286,8 +466,12 @@ export class FicoAccountResolutionService {
             this.effectiveFromRank(rival.rule) ===
                 this.effectiveFromRank(winner.rule)
         ) {
+            const winnerSig = ficoRuleLineSignature(winner.rule.lines)
+            const rivalSig = ficoRuleLineSignature(rival.rule.lines)
             throw new ConflictException(
-                `Conflicting account determination rules match ${transactionType}: ${winner.rule.determinationCode} and ${rival.rule.determinationCode}. Narrow their dimensions or change their priorities.`,
+                rivalSig !== winnerSig
+                    ? `Ambiguous account determination for ${transactionType}: rules ${winner.rule.determinationCode} and ${rival.rule.determinationCode} tie on precedence but resolve to different G/L accounts.`
+                    : `Conflicting account determination rules match ${transactionType}: ${winner.rule.determinationCode} and ${rival.rule.determinationCode}. Narrow their dimensions or change their priorities.`,
             )
         }
 
@@ -321,6 +505,13 @@ export class FicoAccountResolutionService {
                 settings.chartOfAccountsId,
                 postingDate,
             )
+            if (catalogEntry) {
+                ficoAssertAccountTypeForCategory(
+                    catalogEntry.accountingCategory,
+                    account.accountType,
+                    account.accountCode,
+                )
+            }
             resolved.push({
                 lineNumber: line.lineNumber,
                 side: line.side === 'DEBIT' ? 'DEBIT' : 'CREDIT',
@@ -343,6 +534,7 @@ export class FicoAccountResolutionService {
                 determinationCode: winner.rule.determinationCode,
                 name: winner.rule.name,
                 priority: winner.rule.priority,
+                ruleVersion: winner.rule.updatedAt.getTime(),
                 effectiveFrom: winner.rule.effectiveFrom
                     ? winner.rule.effectiveFrom.toISOString().slice(0, 10)
                     : null,
@@ -350,6 +542,7 @@ export class FicoAccountResolutionService {
                     ? winner.rule.effectiveTo.toISOString().slice(0, 10)
                     : null,
                 matchedDimensions: winner.matchedDimensions,
+                matchedTransactionKey: winner.matchedTransactionKey,
                 specificity: winner.specificity,
             },
             lines: resolved,
@@ -365,8 +558,20 @@ export class FicoAccountResolutionService {
     private matchedDimensions(
         rule: CandidateRule,
         request: AccountResolutionRequest,
-    ): FicoDeterminationDimension[] | null {
+    ): {
+        dimensions: FicoDeterminationDimension[]
+        matchedTransactionKey: boolean
+        specificity: number
+    } | null {
         const dimensions = new Set<FicoDeterminationDimension>()
+        const requestKey = normalise(request.transactionKeyCode)
+
+        let matchedTransactionKey = false
+        if (rule.transactionKeyCode) {
+            const ruleKey = normalise(rule.transactionKeyCode)
+            if (!requestKey || ruleKey !== requestKey) return null
+            matchedTransactionKey = true
+        }
 
         for (const dimension of FICO_DETERMINATION_DIMENSIONS) {
             const configured = rule[dimension]
@@ -381,7 +586,12 @@ export class FicoAccountResolutionService {
             dimensions.add(dimension)
         }
 
-        return [...dimensions]
+        const specificity = dimensions.size + (matchedTransactionKey ? 1 : 0)
+        return {
+            dimensions: [...dimensions],
+            specificity,
+            matchedTransactionKey,
+        }
     }
 
     private effectiveFromRank(rule: CandidateRule) {

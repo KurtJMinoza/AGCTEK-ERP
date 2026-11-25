@@ -239,6 +239,100 @@ export class FicoDeterminationReasonDto {
     changeReason?: string
 }
 
+export class AccountDeterminationDimensionsDto {
+    @IsOptional()
+    @IsString()
+    valuationClassId?: string
+
+    @IsOptional()
+    @IsString()
+    materialTypeCode?: string
+
+    @IsOptional()
+    @IsString()
+    movementType?: string
+
+    @IsOptional()
+    @IsString()
+    customerAccountGroup?: string
+
+    @IsOptional()
+    @IsString()
+    salesOrganization?: string
+
+    @IsOptional()
+    @IsString()
+    distributionChannel?: string
+}
+
+export class FicoAccountDeterminationDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsString()
+    @IsNotEmpty()
+    transactionKey!: string
+
+    @IsIn(FICO_DETERMINATION_SOURCE_MODULES)
+    sourceModule!: string
+
+    @IsDateString()
+    postingDate!: string
+
+    @IsOptional()
+    @IsString()
+    currencyCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    transactionType?: string
+
+    @ValidateNested()
+    @Type(() => AccountDeterminationDimensionsDto)
+    dimensions!: AccountDeterminationDimensionsDto
+}
+
+export class FicoAccountDeterminationBatchItemDto {
+    @IsString()
+    @IsNotEmpty()
+    transactionKey!: string
+
+    @IsOptional()
+    @IsString()
+    transactionType?: string
+
+    @IsOptional()
+    @IsIn(['DEBIT', 'CREDIT'])
+    preferredSide?: 'DEBIT' | 'CREDIT'
+}
+
+export class FicoAccountDeterminationBatchDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsIn(FICO_DETERMINATION_SOURCE_MODULES)
+    sourceModule!: string
+
+    @IsDateString()
+    postingDate!: string
+
+    @IsOptional()
+    @IsString()
+    currencyCode?: string | null
+
+    @ValidateNested()
+    @Type(() => AccountDeterminationDimensionsDto)
+    dimensions!: AccountDeterminationDimensionsDto
+
+    @IsArray()
+    @ArrayMinSize(1)
+    @ValidateNested({ each: true })
+    @Type(() => FicoAccountDeterminationBatchItemDto)
+    items!: FicoAccountDeterminationBatchItemDto[]
+}
+
 export class FicoAccountResolutionDto {
     @IsString()
     @IsNotEmpty()

@@ -11,6 +11,7 @@ import {
 import { CurrentUser, type AuthRequestUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
+import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
 import {
     CreateExtPlatformTransactionDto,
     CreateSalesSourceDto,
@@ -27,6 +28,7 @@ import {
 export class ExtPlatformTransactionController {
     constructor(
         private readonly service: ExtPlatformTransactionService,
+        private readonly finance: SdExtPlatformFinanceService,
     ) {}
 
     // ── Sales Sources ────────────────────────────────────────────
@@ -87,10 +89,22 @@ export class ExtPlatformTransactionController {
         return this.service.findById(id)
     }
 
+    @Get('transactions/:id/accounting')
+    @RequirePermission(['sd.ext-platform-sales', 'fico.journal-entries'], 'read')
+    accountingSnapshot(
+        @Param('id') id: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.finance.getAccountingForTransaction(id, companyId)
+    }
+
     @Post('transactions')
     @RequirePermission('sd.ext-platform-sales', 'create')
-    create(@Body() dto: CreateExtPlatformTransactionDto) {
-        return this.service.create(dto)
+    create(
+        @Body() dto: CreateExtPlatformTransactionDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.service.create(dto, user?.id)
     }
 
     @Patch('transactions/:id')
@@ -109,7 +123,7 @@ export class ExtPlatformTransactionController {
         @Body() dto: UpdateExtPlatformTransactionStatusDto,
         @CurrentUser() user: AuthRequestUser,
     ) {
-        return this.service.updateStatus(id, dto, user?.userName ?? user?.id)
+        return this.service.updateStatus(id, dto, user?.id ?? user?.userName)
     }
 
     /** Voids a confirmed / approved sale with a required reason; an approved company-owned sale returns its stock. */
@@ -120,7 +134,7 @@ export class ExtPlatformTransactionController {
         @Body() dto: VoidExtPlatformTransactionDto,
         @CurrentUser() user: AuthRequestUser,
     ) {
-        return this.service.voidTransaction(id, dto, user?.userName ?? user?.id)
+        return this.service.voidTransaction(id, dto, user?.id ?? user?.userName)
     }
 
     @Delete('transactions/:id')

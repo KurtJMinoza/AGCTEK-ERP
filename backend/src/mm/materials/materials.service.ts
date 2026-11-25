@@ -17,6 +17,7 @@ import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
 import { MaterialTaxService } from './material-tax.service'
 import { hasMaterialTaxFields } from './material-tax'
+import { DEFAULT_MATERIAL_VALUATION_METHOD } from '../valuation/valuation.constants'
 
 const TAX_FIELD_KEYS = [
     'taxClassification',
@@ -681,6 +682,11 @@ export class MaterialsService {
             onHandQty: new Decimal(0),
             reservedQty: new Decimal(0),
             storageBinId: undefined,
+            valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+            standardCost:
+                dto.standardCost != null
+                    ? new Decimal(dto.standardCost)
+                    : new Decimal(0),
         }
 
         const deletedMaterial = deletedByCode ?? deletedBySku
@@ -940,6 +946,7 @@ export class MaterialsService {
             where: { id },
             data: {
                 ...this.mapUpdateDto(dto),
+                valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
                 ...(clearTax
                     ? CLEARED_TAX_FIELDS
                     : hasMaterialTaxFields(dto as Record<string, unknown>)
@@ -988,23 +995,22 @@ export class MaterialsService {
             void targetReserved
         }
 
-        if (dto.currencyId !== undefined || dto.standardCost !== undefined) {
-            const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput = {}
+        {
+            const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput =
+                {
+                    valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+                    standardCost: new Decimal(updated.standardCost ?? 0),
+                }
             if (dto.currencyId !== undefined) {
                 valuationPatch.currencyId =
                     dto.currencyId && dto.currencyId.trim() !== ''
                         ? dto.currencyId
                         : null
             }
-            if (dto.standardCost !== undefined) {
-                valuationPatch.standardCost = new Decimal(dto.standardCost)
-            }
-            if (Object.keys(valuationPatch).length > 0) {
-                await this.prisma.mmMaterialValuation.updateMany({
-                    where: { materialId: id },
-                    data: valuationPatch,
-                })
-            }
+            await this.prisma.mmMaterialValuation.updateMany({
+                where: { materialId: id },
+                data: valuationPatch,
+            })
         }
 
         const changes = this.diffChanges(existing, updated)

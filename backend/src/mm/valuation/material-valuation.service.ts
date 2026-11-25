@@ -15,6 +15,8 @@ import {
 } from './dto/valuation.dto'
 import { ValuationEngineService } from './valuation-engine.service'
 
+import { DEFAULT_MATERIAL_VALUATION_METHOD } from './valuation.constants'
+
 const SUPPORTED = new Set(['STANDARD_COST', 'MOVING_AVERAGE', 'FIFO'])
 
 @Injectable()
@@ -203,28 +205,34 @@ export class MaterialValuationService {
                 },
             },
         })
+        const material = await db.mmMaterial.findUnique({
+            where: { id: materialId },
+        })
+        if (!material) throw new BadRequestException('Material not found')
+
+        const masterStandard = new Decimal(material.standardCost ?? 0)
+
         if (existing) {
             if (!SUPPORTED.has(existing.valuationMethod)) {
                 throw new BadRequestException(
                     `Unsupported valuation method: ${existing.valuationMethod}. Use STANDARD_COST, MOVING_AVERAGE, or FIFO.`,
                 )
             }
+            const standardDrift = !new Decimal(existing.standardCost).eq(masterStandard)
+            const methodDrift =
+                existing.valuationMethod !== DEFAULT_MATERIAL_VALUATION_METHOD
+            if (methodDrift || standardDrift) {
+                return db.mmMaterialValuation.update({
+                    where: { id: existing.id },
+                    data: {
+                        valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+                        standardCost: masterStandard,
+                        currencyId:
+                            existing.currencyId ?? material.currencyId ?? null,
+                    },
+                })
+            }
             return existing
-        }
-
-        const material = await db.mmMaterial.findUnique({
-            where: { id: materialId },
-        })
-        if (!material) throw new BadRequestException('Material not found')
-
-        let method = material.valuationMethod || 'MOVING_AVERAGE'
-        if (method === 'LIFO') {
-            throw new BadRequestException(
-                'LIFO is not supported for inventory valuation. Use STANDARD_COST, MOVING_AVERAGE, or FIFO.',
-            )
-        }
-        if (!SUPPORTED.has(method)) {
-            method = 'MOVING_AVERAGE'
         }
 
         return db.mmMaterialValuation.create({
@@ -233,8 +241,8 @@ export class MaterialValuationService {
                 materialId,
                 warehouseId,
                 currencyId: material.currencyId ?? null,
-                valuationMethod: method,
-                standardCost: material.standardCost ?? 0,
+                valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+                standardCost: masterStandard,
                 movingAverageCost: 0,
                 effectiveDate: new Date(),
                 revision: 1,

@@ -415,24 +415,14 @@ export class FicoJournalService {
     }): Promise<CreateJournalResult> {
         const { payload, idempotencyKey, postingDate, resolvedLines } = input
         const currency = payload.currencyCode.trim().toUpperCase()
-        const flatLines = resolvedLines.flatMap((line) => [
-            {
-                glAccountId: line.debitAccountId,
-                debit: line.amount,
-                credit: new Decimal(0),
-                description: line.transactionKey,
-                materialId: line.materialId,
-                warehouseId: line.warehouseId ?? null,
-            },
-            {
-                glAccountId: line.creditAccountId,
-                debit: new Decimal(0),
-                credit: line.amount,
-                description: line.transactionKey,
-                materialId: line.materialId,
-                warehouseId: line.warehouseId ?? null,
-            },
-        ])
+        const flatLines = resolvedLines.map((line) => ({
+            glAccountId: line.glAccountId,
+            debit: line.debitAmount,
+            credit: line.creditAmount,
+            description: line.description,
+            materialId: line.materialId,
+            warehouseId: line.warehouseId ?? null,
+        }))
         const result = await this.postAutomaticJournal({
             companyId: payload.companyId,
             documentType: this.documentType(payload.eventType),
@@ -455,6 +445,18 @@ export class FicoJournalService {
                 eventType: payload.eventType,
                 accountingEffects: payload.accountingEffects,
                 correlationId: payload.correlationId ?? null,
+                resolutionSources: [
+                    ...new Set(
+                        resolvedLines.map((line) => line.resolutionSource),
+                    ),
+                ],
+                determinationRuleIds: [
+                    ...new Set(
+                        resolvedLines
+                            .map((line) => line.accountDeterminationRuleId)
+                            .filter(Boolean),
+                    ),
+                ],
             },
             sourcePostingKey: idempotencyKey,
             postImmediately: true,
@@ -507,10 +509,7 @@ export class FicoJournalService {
                 credit: line.credit,
                 description: line.description,
             })),
-            metadata: {
-                eventType: payload.eventType,
-                accountingEffects: payload.accountingEffects,
-            },
+            metadata: this.automaticJournalMetadata(payload),
             sourcePostingKey: idempotencyKey,
             postImmediately: true,
             postingSource: 'AUTOMATIC',
@@ -519,6 +518,23 @@ export class FicoJournalService {
             created: result.created,
             duplicate: result.duplicate,
             journalEntryId: result.journalEntryId,
+        }
+    }
+
+    private automaticJournalMetadata(
+        payload: MmAccountingDispatchPayload & {
+            cashierUserId?: string
+            orderNumber?: string
+            salesOrderId?: string
+        },
+    ) {
+        return {
+            eventType: payload.eventType,
+            accountingEffects: payload.accountingEffects,
+            correlationId: payload.correlationId ?? null,
+            salesOrderId: payload.salesOrderId ?? payload.documentId ?? null,
+            orderNumber: payload.orderNumber ?? null,
+            cashierUserId: payload.cashierUserId ?? null,
         }
     }
 
@@ -1491,6 +1507,14 @@ export class FicoJournalService {
         const approvalMap = Object.fromEntries(
             byApproval.map((r) => [r.approvalStatus, r._count._all]),
         )
+        const automatic = await this.prisma.ficoJournalEntry.count({
+            where: buildJournalListWhere({
+                companyId,
+                dateFrom: query.dateFrom,
+                dateTo: query.dateTo,
+                tab: 'automatic',
+            }),
+        })
         return {
             total,
             draft: statusMap.DRAFT ?? 0,
@@ -1505,6 +1529,7 @@ export class FicoJournalService {
                     approvalStatus: 'APPROVED',
                 },
             }),
+            automatic,
         }
     }
 

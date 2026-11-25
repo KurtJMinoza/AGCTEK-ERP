@@ -194,7 +194,7 @@ const blankValues: FormShape = {
     reorderQuantity: 0,
     leadTimeDays: 0,
     minimumOrderQuantity: 0,
-    valuationMethod: '',
+    valuationMethod: 'STANDARD_COST',
     standardCost: 0,
     valuationClassId: '',
     companyId: '',
@@ -262,7 +262,7 @@ function toFormValues(material?: Material | null): FormShape {
         reorderQuantity: Number(material.reorderQuantity),
         leadTimeDays: material.leadTimeDays,
         minimumOrderQuantity: Number(material.minimumOrderQuantity),
-        valuationMethod: material.valuationMethod ?? '',
+        valuationMethod: material.valuationMethod ?? 'STANDARD_COST',
         standardCost: Number(material.standardCost),
         valuationClassId: material.valuationClassId ?? '',
         companyId: material.companyId ?? '',
@@ -1054,7 +1054,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             reorderQuantity: values.reorderQuantity,
             leadTimeDays: values.leadTimeDays,
             minimumOrderQuantity: values.minimumOrderQuantity,
-            valuationMethod: values.valuationMethod || undefined,
+            valuationMethod: 'STANDARD_COST',
             standardCost: values.standardCost,
             valuationClassId: values.valuationClassId || undefined,
             companyId: values.companyId || undefined,
@@ -1901,9 +1901,13 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         <SectionHeader title="Valuation & organisation" />
                         <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                             <FormItem label="Valuation method">
-                                <Controller name="valuationMethod" control={control} render={({ field }) => (
-                                    <Select<SelectOption> {...selectPortal} isClearable placeholder="Select method" options={VALUATION_METHOD_OPTIONS} value={VALUATION_METHOD_OPTIONS.find((o) => o.value === field.value) ?? null} onChange={(opt) => field.onChange(opt?.value ?? '')} />
-                                )} />
+                                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200">
+                                    Standard cost
+                                </p>
+                                <p className="mt-1 text-[11px] text-gray-400">
+                                    All materials use standard cost for issues, COGS,
+                                    and FICO posting.
+                                </p>
                             </FormItem>
                             <FormItem label="Standard cost">
                                 <Controller name="standardCost" control={control} render={({ field }) => <NumericInput placeholder="0.00" thousandSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />

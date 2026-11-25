@@ -34,6 +34,16 @@ export class FicoSdAccountingBridgeService {
     ) {}
 
     async recordAndDispatch(input: RecordAndDispatchInput): Promise<void> {
+        let cashierUserId: string | null = null
+        let orderNumber: string | null = null
+        if (input.documentType === 'SALES_ORDER' && input.documentId) {
+            const order = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: input.documentId },
+                select: { cashierUserId: true, orderNumber: true },
+            })
+            cashierUserId = order?.cashierUserId ?? null
+            orderNumber = order?.orderNumber ?? null
+        }
         const enriched: MmAccountingDispatchPayload = {
             schemaVersion: 'v2',
             eventType: input.eventType,
@@ -50,6 +60,13 @@ export class FicoSdAccountingBridgeService {
             idempotencyKey: input.idempotencyKey,
             financialFingerprint: this.fingerprint(input),
             ...input.payload,
+            salesOrderId:
+                (input.payload.salesOrderId as string | undefined) ??
+                (input.documentType === 'SALES_ORDER' ? input.documentId : undefined),
+            orderNumber:
+                (input.payload.orderNumber as string | undefined) ?? orderNumber ?? undefined,
+            cashierUserId:
+                (input.payload.cashierUserId as string | undefined) ?? cashierUserId ?? undefined,
         }
 
         let eventId: string | undefined

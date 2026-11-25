@@ -11,6 +11,7 @@ const tiles = (
     { label: 'Pending approval', value: summary?.pendingApproval ?? 0 },
     { label: 'Ready to post', value: summary?.readyToPost ?? 0 },
     { label: 'Posted', value: summary?.posted ?? 0 },
+    { label: 'Automatic', value: summary?.automatic ?? 0 },
     { label: 'Reversed', value: summary?.reversed ?? 0 },
 ]
 

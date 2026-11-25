@@ -6,9 +6,12 @@ import { FicoSdAccountingBridgeService } from './fico-sd-accounting-bridge.servi
 import { FicoSdPostingService } from './fico-sd-posting.service'
 import { FicoAccountDeterminationController } from './fico-account-determination.controller'
 import { FicoAccountDeterminationRulesService } from './fico-account-determination-rules.service'
+import { FicoAccountDeterminationValidationService } from './fico-account-determination-validation.service'
+import { FicoMmMappingMigrationService } from './fico-mm-mapping-migration.service'
 import { FicoAccountDeterminationService } from './fico-account-determination.service'
 import { FicoAccountResolutionService } from './fico-account-resolution.service'
 import { FicoAccountMappingService } from './fico-account-mapping.service'
+import { FicoTransactionKeyService } from './fico-transaction-key.service'
 import { FicoAccountingEventsService } from './fico-accounting-events.service'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoChartOfAccountsService } from './fico-chart-of-accounts.service'
@@ -60,8 +63,11 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoJournalIntegrityService,
         FicoAccountDeterminationService,
         FicoAccountDeterminationRulesService,
+        FicoAccountDeterminationValidationService,
+        FicoMmMappingMigrationService,
         FicoAccountResolutionService,
         FicoAccountMappingService,
+        FicoTransactionKeyService,
         FicoAccountingEventsService,
         FicoAccountingConsumerService,
         FicoAccountingEventProcessorService,

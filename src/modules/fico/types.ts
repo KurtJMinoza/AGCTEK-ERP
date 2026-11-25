@@ -87,6 +87,7 @@ export type FicoJournalWorkbenchSummary = {
     cancelled: number
     pendingApproval: number
     readyToPost: number
+    automatic?: number
 }
 
 export type FicoJournalListResponse = {

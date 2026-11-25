@@ -71,6 +71,17 @@ export class FicoSdPostingService {
         return settings
     }
 
+    private transactionKeyForType(transactionType: string): string {
+        const map: Record<string, string> = {
+            SALES_REVENUE: 'SALES_REVENUE',
+            OUTPUT_TAX: 'OUTPUT_TAX',
+            ACCOUNTS_RECEIVABLE: 'CUSTOMER_RECON',
+            PAYMENT_CLEARING: 'PAYMENT_CLEARING',
+            CUSTOMER_PAYMENT: 'PAYMENT_CLEARING',
+        }
+        return map[transactionType] ?? transactionType
+    }
+
     private async resolveRuleAccount(
         companyId: string,
         postingDate: Date,
@@ -79,24 +90,30 @@ export class FicoSdPostingService {
         side: 'DEBIT' | 'CREDIT',
         fallbackAccountId: string | null,
     ): Promise<string> {
+        const transactionKey = this.transactionKeyForType(transactionType)
         try {
-            const resolved = await this.accountResolution.resolve({
+            const resolved = await this.accountResolution.resolveDetermination({
                 companyId,
                 sourceModule: 'SD',
-                transactionType,
                 postingDate,
                 currencyCode: currency,
+                transactionKey,
+                dimensions: {},
             })
             const lines =
-                side === 'DEBIT' ? resolved.debitLines : resolved.creditLines
+                side === 'DEBIT'
+                    ? resolved.resolution.debitLines
+                    : resolved.resolution.creditLines
             if (lines[0]?.glAccountId) return lines[0].glAccountId
-        } catch {
-            // fall through to company defaults
+            return resolved.glAccountId
+        } catch (error) {
+            if (fallbackAccountId) return fallbackAccountId
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : `No G/L account could be resolved for SD ${transactionType} (${side}).`
+            throw new BadRequestException(message)
         }
-        if (fallbackAccountId) return fallbackAccountId
-        throw new BadRequestException(
-            `No G/L account could be resolved for SD ${transactionType} (${side}).`,
-        )
     }
 
     private async resolvePaymentClearingAccount(

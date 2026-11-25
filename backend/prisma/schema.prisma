@@ -4148,6 +4148,10 @@ model FicoCompanyAccountingSettings {
   allowNegativePostings            Boolean                          @default(false)
   backdatedPostingAllowed          Boolean                          @default(true)
   maxBackdatedPostingDays          Int?
+  /// Phase 04.07 — MM cutover: see `fico-mm-resolution-mode.constants.ts`.
+  mmResolutionMode                 String                           @default("CENTRAL_WITH_LEGACY_FALLBACK")
+  /// When set, CENTRAL_WITH_TIMED_FALLBACK rejects legacy after this instant (UTC).
+  mmLegacyFallbackUntil              DateTime?
   closeChecklist                   Json?
   activatedAt                      DateTime?
   activatedBy                      String?
@@ -4351,16 +4355,22 @@ model FicoAccountDeterminationProfile {
 
 /// Phase 1 — transaction keys resolved to explicit G/L account pairs.
 model FicoTransactionKey {
-  id                     String                         @id @default(cuid())
-  code                   String                         @unique
-  name                   String
-  description            String                         @default("")
-  requiresValuationClass Boolean                        @default(false)
-  inventorySide          String                         @default("NONE")
-  sortOrder              Int                            @default(0)
-  status                 String                         @default("ACTIVE")
-  createdAt              DateTime                       @default(now())
-  updatedAt              DateTime                       @updatedAt
+  id                       String                         @id @default(cuid())
+  code                     String                         @unique
+  name                     String
+  description              String                         @default("")
+  owningModule             String                         @default("MM")
+  accountingCategory       String                         @default("GENERAL")
+  supportedSourceModules   Json                           @default("[]")
+  requiresValuationClass   Boolean                        @default(false)
+  inventorySide            String                         @default("NONE")
+  automaticPostingEligible Boolean                        @default(true)
+  systemDefined            Boolean                        @default(false)
+  integrationStatus        String                         @default("NOT_AVAILABLE")
+  sortOrder                Int                            @default(0)
+  status                   String                         @default("ACTIVE")
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
   mappings               FicoMmAccountMapping[]
   determinationRules     FicoAccountDeterminationRule[] @relation("FicoDeterminationRuleKey")
 

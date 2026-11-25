@@ -11,6 +11,8 @@ import { ProductService } from './product.service'
 import { SalesOrderController } from './sales-order.controller'
 import { OrderTrackingService } from './order-tracking.service'
 import { SalesOrderService } from './sales-order.service'
+import { SdSalesOrderFinanceService } from './sd-sales-order-finance.service'
+import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SdMmEventConsumer } from './sd-mm-event.consumer'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
@@ -111,6 +113,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         CustomerService,
         ProductService,
         SalesOrderService,
+        SdSalesOrderFinanceService,
+        SdExtPlatformFinanceService,
         SdEventEmitterService,
         SdMmEventConsumer,
         SdMmOrchestrationService,

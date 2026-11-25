@@ -927,6 +927,7 @@ export class ProductImportService {
                     status: 'ACTIVE',
                     sellable: true,
                     inventoryManaged: true,
+                    valuationMethod: 'STANDARD_COST',
                     standardCost:
                         parseNumber(payload.unitCost) &&
                         !Number.isNaN(parseNumber(payload.unitCost))

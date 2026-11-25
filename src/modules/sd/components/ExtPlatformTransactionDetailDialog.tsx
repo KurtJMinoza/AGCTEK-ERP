@@ -21,6 +21,7 @@ import classNames from '@/utils/classNames'
 import type { ExtPlatformTransaction } from '../types/extPlatform'
 import { formatSdMoney } from './SdDataTableCells'
 import { SourceBadge, SourceIcon, TaxClassTag, paymentMethodLabel } from './extPlatformUi'
+import ExtPlatformAccountingPanel from './ExtPlatformAccountingPanel'
 
 const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
     DRAFT: { label: 'Draft', tone: 'default' },
@@ -441,6 +442,14 @@ export default function ExtPlatformTransactionDetailDialog({
                         </Panel>
                     </div>
                 </aside>
+            </div>
+
+            <div className="border-t border-gray-200 bg-gray-50/50 px-4 py-4 dark:border-gray-700 dark:bg-gray-900/30 sm:px-5">
+                <ExtPlatformAccountingPanel
+                    transactionId={tx.id}
+                    companyId={tx.companyId}
+                    status={tx.status}
+                />
             </div>
         </FormDialog>
     )

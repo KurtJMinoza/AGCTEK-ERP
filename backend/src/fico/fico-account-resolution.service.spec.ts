@@ -34,7 +34,8 @@ function rule(overrides: Record<string, unknown> = {}) {
         priority: 100,
         effectiveFrom: null,
         effectiveTo: null,
-        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+        transactionKeyCode: null,
         valuationClassId: null,
         materialTypeCode: null,
         movementType: null,
@@ -239,7 +240,51 @@ describe('FicoAccountResolutionService', () => {
 
         await expect(
             service.resolve({ ...request, sourceModule: 'CRM' }),
-        ).rejects.toMatchObject({                message: expect.stringContaining('only configured for MM, SD, PP'),
+        ).rejects.toMatchObject({
+            message: expect.stringContaining('only configured for MM, SD, PP'),
+        })
+    })
+
+    it('prefers a rule scoped to the requested transaction key', async () => {
+        const generic = rule({ id: 'rule-gen', determinationCode: 'MM-GEN' })
+        const keyed = rule({
+            id: 'rule-key',
+            determinationCode: 'MM-KEY',
+            transactionKeyCode: 'GR_IR',
+        })
+        const { service } = setup([generic, keyed])
+
+        const result = await service.resolve({
+            ...request,
+            transactionType: 'GR_IR_CLEARING',
+            transactionKeyCode: 'GR_IR',
+        })
+
+        expect(result.rule.determinationCode).toBe('MM-KEY')
+        expect(result.rule.matchedTransactionKey).toBe(true)
+    })
+
+    it('resolveDeterminationBatch returns structured failure without partial success', async () => {
+        const { service, prisma } = setup([rule()])
+        prisma.ficoAccountDeterminationRule.findMany.mockResolvedValue([])
+
+        const batch = await service.resolveDeterminationBatch({
+            companyId: 'co-1',
+            sourceModule: 'SD',
+            postingDate: '2026-11-05',
+            dimensions: {},
+            items: [
+                { transactionKey: 'SALES_REVENUE', preferredSide: 'CREDIT' },
+                { transactionKey: 'OUTPUT_TAX', preferredSide: 'CREDIT' },
+            ],
+        })
+
+        expect(batch).toMatchObject({
+            ok: false,
+            failures: expect.arrayContaining([
+                expect.objectContaining({ transactionKey: 'SALES_REVENUE' }),
+                expect.objectContaining({ transactionKey: 'OUTPUT_TAX' }),
+            ]),
         })
     })
 })

@@ -60,6 +60,8 @@ function tabCount(tab: JournalWorkbenchTab, summary: FicoJournalWorkbenchSummary
             return summary.posted
         case 'reversed':
             return summary.reversed
+        case 'automatic':
+            return summary.automatic
         default:
             return undefined
     }

@@ -18,6 +18,8 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { postingKey } from '../common/idempotency.util'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MaterialValuationService } from '../valuation/material-valuation.service'
 
 /**
  * Goods Issue is the hard inventory deduction:
@@ -34,6 +36,8 @@ export class GoodsIssueService {
         private events: EventEmitter2,
         private domainEvents: MmDomainEventsService,
         private periodGuard: MmPostingPeriodGuard,
+        private accountingEvents: MmAccountingEventService,
+        private materialValuation: MaterialValuationService,
     ) {}
 
     async create(dto: CreateGoodsIssueDto) {
@@ -279,6 +283,12 @@ export class GoodsIssueService {
             const reservationId = line.reservationId ?? doc.reservationId
             const consumeReserved = !!(reservationId || doc.reservationHeaderId)
 
+            await this.materialValuation.ensureForPosting(
+                doc.companyId,
+                line.materialId,
+                doc.warehouseId,
+            )
+
             const txn = await this.postingService.postTransaction({
                 companyId: doc.companyId,
                 warehouseId: doc.warehouseId,
@@ -305,6 +315,25 @@ export class GoodsIssueService {
                     : undefined,
                 idempotencyKey: postingKey('gi', doc.id, line.id),
             })
+
+            if (txn) {
+                const valuedUnit = new Decimal(txn.unitCost ?? 0)
+                const valuedTotal = new Decimal(txn.totalCost ?? 0)
+                if (
+                    !valuedUnit.eq(line.unitCost) ||
+                    !valuedTotal.eq(line.totalCost)
+                ) {
+                    await this.prisma.mmGoodsIssueLine.update({
+                        where: { id: line.id },
+                        data: {
+                            unitCost: valuedUnit,
+                            totalCost: valuedTotal,
+                        },
+                    })
+                    line.unitCost = valuedUnit
+                    line.totalCost = valuedTotal
+                }
+            }
 
             if (line.pickingTaskId) {
                 const pickTask = await this.prisma.wmPickingTask.findUnique({
@@ -850,7 +879,159 @@ export class GoodsIssueService {
             },
         })
         if (!doc) throw new NotFoundException('Goods issue not found')
+        if (doc.status === 'POSTED') {
+            const repaired = await this.reconcilePostedLineCostsFromInventory(doc)
+            if (repaired) {
+                await this.retryGoodsIssueAccountingIfPending(doc)
+            }
+        }
         return doc
+    }
+
+    /**
+     * Draft GI lines often start with unitCost 0; valuation stamps the ledger txn.
+     * Copy valued amounts back onto the GI line for UI and GoodsIssuePosted payload.
+     */
+    private async reconcilePostedLineCostsFromInventory(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ): Promise<boolean> {
+        let changed = false
+        for (const line of doc.lines) {
+            if (Number(line.totalCost) > 0 && Number(line.unitCost) > 0) {
+                continue
+            }
+            const inv = await this.prisma.mmInventoryTransaction.findFirst({
+                where: {
+                    sourceDocumentType: 'GOODS_ISSUE',
+                    sourceDocumentId: doc.id,
+                    sourceDocumentLineId: line.id,
+                    reversalOfId: null,
+                },
+                orderBy: { createdAt: 'desc' },
+            })
+
+            let valuedUnit = new Decimal(inv?.unitCost ?? line.unitCost ?? 0)
+            let valuedTotal = new Decimal(inv?.totalCost ?? line.totalCost ?? 0)
+
+            if (valuedTotal.lte(0) && valuedUnit.lte(0)) {
+                const material =
+                    line.material ??
+                    (await this.prisma.mmMaterial.findUnique({
+                        where: { id: line.materialId },
+                        select: { standardCost: true },
+                    }))
+                const std = new Decimal(material?.standardCost ?? 0)
+                if (std.gt(0)) {
+                    await this.materialValuation.ensureForPosting(
+                        doc.companyId,
+                        line.materialId,
+                        doc.warehouseId,
+                    )
+                    valuedUnit = std
+                    valuedTotal = std.mul(line.quantity)
+                    if (inv) {
+                        await this.prisma.mmInventoryTransaction.update({
+                            where: { id: inv.id },
+                            data: {
+                                unitCost: valuedUnit,
+                                totalCost: valuedTotal,
+                            },
+                        })
+                    }
+                } else {
+                    continue
+                }
+            }
+
+            if (!inv && valuedTotal.lte(0)) continue
+            await this.prisma.mmGoodsIssueLine.update({
+                where: { id: line.id },
+                data: {
+                    unitCost: valuedUnit,
+                    totalCost: valuedTotal,
+                },
+            })
+            line.unitCost = valuedUnit
+            line.totalCost = valuedTotal
+            changed = true
+        }
+        return changed
+    }
+
+  /** Re-dispatch GoodsIssuePosted when a prior event was built with zero-valued lines. */
+    private async retryGoodsIssueAccountingIfPending(
+        doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
+    ): Promise<void> {
+        const idempotencyKey = this.accountingEvents.buildIdempotencyKey(
+            'GoodsIssuePosted',
+            'GOODS_ISSUE',
+            doc.id,
+        )
+        const event = await this.prisma.mmAccountingEvent.findUnique({
+            where: { idempotencyKey },
+        })
+        if (
+            !event ||
+            event.status === 'CONSUMED' ||
+            event.status === 'SKIPPED'
+        ) {
+            return
+        }
+        const enrichedLines = doc.lines.map((l) => ({
+            materialId: l.materialId,
+            quantity: Number(l.quantity),
+            unitCost: Number(l.unitCost),
+            totalCost: Number(l.totalCost),
+            warehouseId: doc.warehouseId,
+            movementType: 'ISSUE',
+        }))
+        const totalValue = enrichedLines.reduce(
+            (sum, l) => sum + l.totalCost,
+            0,
+        )
+        if (totalValue <= 0) return
+
+        const prev =
+            event.payload &&
+            typeof event.payload === 'object' &&
+            !Array.isArray(event.payload)
+                ? (event.payload as Record<string, unknown>)
+                : {}
+        const postingDate =
+            typeof prev.postingDate === 'string'
+                ? prev.postingDate
+                : doc.postingDate.toISOString()
+        const nextPayload = {
+            ...prev,
+            schemaVersion: 'v2',
+            eventType: 'GoodsIssuePosted',
+            companyId: doc.companyId,
+            documentType: 'GOODS_ISSUE',
+            documentId: doc.id,
+            postingDate,
+            transactionDate: postingDate,
+            sourceModule: 'STOCK_OPS',
+            warehouseId: doc.warehouseId,
+            issuePurpose: doc.issuePurpose,
+            lines: enrichedLines,
+            totalValue,
+            financiallyRelevant: true,
+            idempotencyKey,
+        }
+        await this.prisma.mmAccountingEvent.update({
+            where: { id: event.id },
+            data: {
+                payload: nextPayload as Prisma.InputJsonValue,
+                totalValue: new Decimal(totalValue),
+                status: 'PENDING',
+                lastError: null,
+                lastErrorCode: null,
+            },
+        })
+        this.events.emit('accounting.entry.requested', {
+            ...nextPayload,
+            mmAccountingEventId: event.id,
+        })
     }
 
     private async generateDocNumber(prefix: string): Promise<string> {

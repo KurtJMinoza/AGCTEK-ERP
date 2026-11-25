@@ -24,6 +24,7 @@ const APPROVAL_STATUS_TONE: Record<string, FicoBadgeTone> = {
 
 export const JOURNAL_TABS = [
     { id: 'all', label: 'All Journals' },
+    { id: 'automatic', label: 'Automatic' },
     { id: 'manual', label: 'Manual' },
     { id: 'my-drafts', label: 'My Drafts' },
     { id: 'posted', label: 'Posted' },

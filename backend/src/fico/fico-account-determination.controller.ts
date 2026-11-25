@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
     Body,
     Controller,
     Delete,
@@ -12,6 +13,8 @@ import type { AuthRequestUser } from '../auth/auth.decorator'
 import { CurrentUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import {
+    FicoAccountDeterminationBatchDto,
+    FicoAccountDeterminationDto,
     FicoAccountResolutionDto,
     FicoDeterminationReasonDto,
     FicoDeterminationRuleCreateDto,
@@ -20,12 +23,16 @@ import {
 } from './dto/account-determination.dto'
 import { FicoAccountDeterminationRulesService } from './fico-account-determination-rules.service'
 import { FicoAccountResolutionService } from './fico-account-resolution.service'
+import { FicoTransactionKeyService } from './fico-transaction-key.service'
+import { FicoMmMappingMigrationService } from './fico-mm-mapping-migration.service'
 
 @Controller('fico/account-determination')
 export class FicoAccountDeterminationController {
     constructor(
         private readonly rules: FicoAccountDeterminationRulesService,
         private readonly resolution: FicoAccountResolutionService,
+        private readonly transactionKeys: FicoTransactionKeyService,
+        private readonly mmMigration: FicoMmMappingMigrationService,
     ) {}
 
     // ------------------------------------------------------------------
@@ -39,6 +46,21 @@ export class FicoAccountDeterminationController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.rules.reference({ companyId }, user)
+    }
+
+    @Get('transaction-keys')
+    @RequirePermission('fico.account-determination', 'read')
+    async transactionKeyCatalog() {
+        return {
+            catalog: this.transactionKeys.catalog(),
+            persisted: await this.transactionKeys.listPersisted(),
+        }
+    }
+
+    @Post('transaction-keys/sync')
+    @RequirePermission('fico.account-determination', 'update')
+    syncTransactionKeys() {
+        return this.transactionKeys.syncCatalogFromCode()
     }
 
     @Get('summary')
@@ -70,6 +92,62 @@ export class FicoAccountDeterminationController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.resolveForUser(dto, user)
+    }
+
+    @Post('resolve-determination')
+    @RequirePermission('fico.account-determination', 'read')
+    async resolveDetermination(
+        @Body() dto: FicoAccountDeterminationDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.rules.assertCompanyAccess(dto.companyId, user)
+        return this.resolution.resolveDetermination({
+            ...dto,
+            dimensions: dto.dimensions ?? {},
+        })
+    }
+
+    @Post('mm-migration/dry-run')
+    @RequirePermission('fico.account-determination', 'read')
+    mmMigrationDryRun(
+        @Query('companyId') companyId: string,
+        @Query('postingDate') postingDate: string | undefined,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        if (!companyId) {
+            throw new BadRequestException('companyId is required.')
+        }
+        return this.mmMigration.dryRunReport(companyId, user, { postingDate })
+    }
+
+    @Post('mm-migration/apply-drafts')
+    @RequirePermission('fico.account-determination', 'update')
+    mmMigrationApplyDrafts(
+        @Query('companyId') companyId: string,
+        @Query('postingDate') postingDate: string | undefined,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        if (!companyId) {
+            throw new BadRequestException('companyId is required.')
+        }
+        return this.mmMigration.applyProposedDraftRules(companyId, user, { postingDate })
+    }
+
+    @Post('resolve-batch')
+    @RequirePermission('fico.account-determination', 'read')
+    async resolveBatch(
+        @Body() dto: FicoAccountDeterminationBatchDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.rules.assertCompanyAccess(dto.companyId, user)
+        const result = await this.resolution.resolveDeterminationBatch({
+            ...dto,
+            dimensions: dto.dimensions ?? {},
+        })
+        if ('ok' in result && result.ok === false) {
+            return result
+        }
+        return result
     }
 
     @Get('rules')

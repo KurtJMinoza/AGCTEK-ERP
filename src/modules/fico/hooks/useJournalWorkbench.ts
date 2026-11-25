@@ -46,12 +46,6 @@ function sanitizeStoredFilters(
 
 export function useJournalWorkbench(companyId: string) {
     const [tab, setTab] = useState<JournalWorkbenchTab>('all')
-
-    useEffect(() => {
-        if (tab === 'automatic') {
-            setTab('all')
-        }
-    }, [tab])
     const [filters, setFilters] = useState<FicoJournalListQuery>(() => {
         if (typeof window === 'undefined') return defaultFilters()
         try {
