@@ -1,3 +1,221 @@
+export type FicoJournalLine = {
+    id: string
+    lineNumber: number
+    glAccountId: string
+    debitAmount: string
+    creditAmount: string
+    currency: string
+    description?: string | null
+    glAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+        accountType: string
+    }
+}
+
+export type FicoJournalEntryListItem = {
+    id: string
+    documentNumber: string | null
+    documentType?: string
+    documentDate?: string | null
+    postingDate: string
+    fiscalYear?: number | null
+    status: string
+    approvalStatus?: string
+    totalAmount: string
+    currencyCode: string
+    description: string | null
+    sourceModule?: string | null
+    sourceDocumentId?: string | null
+    createdBy?: string | null
+    postedBy?: string | null
+    postedByName?: string | null
+    postedByEmployeeCode?: string | null
+    postedAt: string | null
+    createdAt?: string
+    lines: Array<{ id: string; lineNumber: number }>
+    fiscalPeriod?: {
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+}
+
+export type FicoJournalEntryDetail = FicoJournalEntryListItem & {
+    companyId: string
+    documentType: string
+    fiscalPeriodId?: string | null
+    approvalStatus: string
+    sourceModule?: string | null
+    sourceDocumentId?: string | null
+    reversalOfId?: string | null
+    lines: FicoJournalLine[]
+}
+
+export type FicoJournalListQuery = {
+    tab?: string
+    status?: string
+    approvalStatus?: string
+    documentType?: string
+    documentNumber?: string
+    sourceModule?: string
+    sourceDocumentId?: string
+    glAccountId?: string
+    currencyCode?: string
+    createdBy?: string
+    postedBy?: string
+    search?: string
+    fiscalYear?: number
+    fiscalPeriodId?: string
+    dateFrom?: string
+    dateTo?: string
+    documentDateFrom?: string
+    documentDateTo?: string
+    sortBy?: string
+    sortDir?: 'asc' | 'desc'
+    page?: number
+    pageSize?: number
+}
+
+export type FicoJournalWorkbenchSummary = {
+    total: number
+    draft: number
+    posted: number
+    reversed: number
+    cancelled: number
+    pendingApproval: number
+    readyToPost: number
+}
+
+export type FicoJournalListResponse = {
+    items: FicoJournalEntryListItem[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+}
+
+export type FicoJournalSimulateResult = {
+    valid: boolean
+    errors?: Array<{ code?: string; message: string; field?: string }>
+    warnings?: Array<{ code?: string; message: string }>
+    fiscalPeriod?: {
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+}
+
+export type FicoTrialBalanceRow = {
+    glAccountId: string
+    accountCode: string
+    accountName: string
+    accountType: string
+    normalBalance: string
+    debit: string
+    credit: string
+    netBalance: string
+    openingDebit?: string
+    openingCredit?: string
+    periodDebit?: string
+    periodCredit?: string
+    closingDebit?: string
+    closingCredit?: string
+    lineCount: number
+}
+
+export type FicoTrialBalanceResponse = {
+    companyId: string
+    chartOfAccountsId: string
+    dateFrom: string | null
+    dateTo: string | null
+    items: FicoTrialBalanceRow[]
+    totals: {
+        debit: string
+        credit: string
+        lineCount: number
+        openingDebit?: string
+        openingCredit?: string
+        periodDebit?: string
+        periodCredit?: string
+        closingDebit?: string
+        closingCredit?: string
+        openingDifference?: string
+        movementDifference?: string
+        closingDifference?: string
+    }
+    page: number
+    pageSize: number
+    totalAccounts: number
+    filteredView?: boolean
+}
+
+export type FicoGlLedgerLine = {
+    id: string
+    lineNumber: number
+    debitAmount: string
+    creditAmount: string
+    currency: string
+    description: string | null
+    company: { id: string; code: string; name: string }
+    journalEntry: {
+        id: string
+        documentNumber: string | null
+        documentType: string
+        postingDate: string
+        documentDate: string | null
+        status: string
+        sourceModule: string | null
+        sourceDocumentId: string | null
+        reversalOfId: string | null
+    }
+}
+
+export type FicoGlLedgerLineItemsResponse = {
+    account: {
+        id: string
+        accountCode: string
+        accountName: string
+    }
+    items: FicoGlLedgerLine[]
+    total: number
+    page: number
+    pageSize: number
+}
+
+export type FicoGlAccountBalanceSummary = {
+    account: {
+        id: string
+        accountCode: string
+        accountName: string
+        normalBalance: string
+        accountType?: string
+    }
+    totals: {
+        debit: string
+        credit: string
+        lineCount: number
+        openingDebit?: string
+        openingCredit?: string
+        periodDebit?: string
+        periodCredit?: string
+        closingDebit?: string
+        closingCredit?: string
+        netMovement?: string
+        closingBalance?: string
+        balanceDirection?: string
+    }
+    byCompany?: Array<{
+        company: { id: string; code?: string; name?: string }
+        debit: string
+        credit: string
+        lineCount: number
+    }>
+}
+
 export type FicoCompany = {
     id: string
     code: string
@@ -124,6 +342,7 @@ export type FicoGlAccount = {
     openItemManagement: boolean
     currencyRestriction: string | null
     status: string
+    updatedAt?: string
     companyAssignments?: FicoCompanyGlAccount[]
     usage?: {
         journalLines: number
@@ -185,7 +404,12 @@ export type FicoFiscalYearPreview = {
     }>
 }
 
-export type FicoAccountingEventStatus = 'PENDING' | 'CONSUMED' | 'FAILED'
+export type FicoAccountingEventStatus =
+    | 'PENDING'
+    | 'PROCESSING'
+    | 'CONSUMED'
+    | 'FAILED'
+    | 'SKIPPED'
 
 /** Business module that owns an auto-posting; `OTHER` covers unclaimed streams. */
 export type FicoPostingModule = 'MM' | 'SD' | 'PP' | 'OTHER'
@@ -203,6 +427,11 @@ export type FicoAccountingEvent = {
     accountingEffects: string[] | null
     status: FicoAccountingEventStatus
     errorSummary: string | null
+    lastErrorCode?: string | null
+    attemptCount?: number
+    lastAttemptAt?: string | null
+    outcomeReason?: string | null
+    journalEntryId?: string | null
     createdAt: string
     consumedAt: string | null
     journal: {
@@ -341,6 +570,69 @@ export type FicoGlAccountUsage = {
         transactionKey?: { name: string } | null
         profile?: { code: string } | null
         company?: { code: string; name: string } | null
+    }>
+}
+
+export type FicoGlAccountDependencyCategory = {
+    type: string
+    label: string
+    count: number
+    blocksDeletion: boolean
+    hiddenByScope?: number
+}
+
+export type FicoGlAccountDependencies = {
+    account: FicoGlAccount
+    canDelete: boolean
+    reasons: string[]
+    categories: FicoGlAccountDependencyCategory[]
+    hasPostedHistory: boolean
+    editLocks: {
+        accountCode: boolean
+        chartOfAccounts: boolean
+        accountType: boolean
+        accountGroup: boolean
+        normalBalance: boolean
+        currencyRestriction: boolean
+        reconciliation: boolean
+        openItemManagement: boolean
+    }
+}
+
+export type FicoGlAccountCompanyContext = {
+    account: FicoGlAccount & {
+        chartOfAccounts?: FicoChartRef
+        accountGroup?: FicoAccountGroup
+    }
+    assignments: FicoCompanyGlAccount[]
+    eligibleCompanies: Array<{
+        company: FicoCompany
+        accountingStatus: string
+        baseCurrency: string
+    }>
+    assignmentHistory: Array<{
+        id: string
+        action: string
+        actorId: string | null
+        createdAt: string
+        companyId: string | null
+        reason: string | null
+    }>
+}
+
+export type FicoGlAccountBalances = {
+    account: {
+        id: string
+        accountCode: string
+        accountName: string
+        normalBalance: string
+    }
+    totals: { debit: string; credit: string; lineCount: number }
+    byCompany: Array<{
+        company: { id: string; code?: string; name?: string }
+        debit: string
+        credit: string
+        lineCount: number
     }>
 }
 
@@ -1032,4 +1324,112 @@ export type FicoDocumentTypeHistoryResponse = {
     total: number
     page: number
     pageSize: number
+}
+
+export type FicoReconciliationCase = {
+    id: string
+    companyId: string
+    fingerprint: string
+    category: string
+    severity: 'ERROR' | 'WARNING' | 'INFO'
+    status: string
+    message: string
+    sourceModule?: string | null
+    sourceDocumentType?: string | null
+    sourceDocumentId?: string | null
+    journalEntryId?: string | null
+    mmAccountingEventId?: string | null
+    recommendedAction?: string | null
+    investigationNotes?: string | null
+    resolutionCode?: string | null
+    resolutionNotes?: string | null
+    assignedTo?: string | null
+    resolvedBy?: string | null
+    resolvedAt?: string | null
+    createdAt: string
+    updatedAt: string
+}
+
+export type FicoReconciliationScan = {
+    companyId: string
+    hasCriticalIntegrityExceptions: boolean
+    summary: {
+        total: number
+        byCategory: Record<string, number>
+        bySeverity: Record<string, number>
+        errorCount: number
+        warningCount: number
+    }
+    detected: Array<{
+        fingerprint: string
+        category: string
+        severity: string
+        message: string
+    }>
+    cases: FicoReconciliationCase[]
+}
+
+export type FicoOpeningBalanceBatch = {
+    id: string
+    companyId: string
+    batchReference: string
+    migrationDate: string
+    postingDate: string
+    fiscalYear: number
+    currencyCode: string
+    sourceSystem?: string | null
+    description?: string | null
+    status: string
+    journalEntryId?: string | null
+    createdAt: string
+    _count?: { lines: number }
+}
+
+export type FicoClosingCheck = {
+    code: string
+    label: string
+    level: 'blocking' | 'warning' | 'completed' | 'not_applicable'
+    count?: number
+    detail?: string
+    href?: string
+}
+
+export type FicoYearEndOverview = {
+    companyId: string
+    fiscalYear: number
+    run: {
+        id: string
+        status: string
+        closingJournalEntryId?: string | null
+        approvedAt?: string | null
+        executedAt?: string | null
+    } | null
+    closingJournal: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postedAt: string | null
+    } | null
+    carryforwardStrategy: string
+}
+
+export type FicoPeriodClosingReadiness = {
+    companyId: string
+    fiscalPeriod: {
+        id: string
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+        startDate: string
+        endDate: string
+    }
+    checks: FicoClosingCheck[]
+    summary: {
+        blocking: number
+        warning: number
+        completed: number
+        notApplicable: number
+        readyToClose: boolean
+    }
 }

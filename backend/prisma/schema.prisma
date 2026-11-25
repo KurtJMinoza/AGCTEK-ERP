@@ -281,6 +281,9 @@ model Company {
   accountingEvents       MmAccountingEvent[]
   ficoFinancialPeriods   FicoFinancialPeriod[]
   ficoJournalEntries     FicoJournalEntry[]
+  ficoReconciliationCases FicoReconciliationCase[]
+  ficoOpeningBalanceBatches FicoOpeningBalanceBatch[]
+  ficoPeriodClosingRuns     FicoPeriodClosingRun[]
 
   materialValuations           MmMaterialValuation[]
   costLayers                   MmCostLayer[]
@@ -3870,9 +3873,14 @@ model MmAccountingEvent {
   totalValue          Decimal?          @db.Decimal(18, 4)
   accountingEffects   Json?
   payload             Json
-  status              String            @default("PENDING") // PENDING | CONSUMED | FAILED
+  status              String            @default("PENDING") // PENDING | PROCESSING | CONSUMED | FAILED | SKIPPED
   journalEntryId      String?
   lastError           String?
+  lastErrorCode       String?
+  attemptCount        Int               @default(0)
+  lastAttemptAt       DateTime?
+  processingStartedAt DateTime?
+  outcomeReason       String?
   createdAt           DateTime          @default(now())
   consumedAt          DateTime?
   ficoJournalEntry    FicoJournalEntry?
@@ -3882,6 +3890,110 @@ model MmAccountingEvent {
   @@index([companyId, postingDate])
   @@index([sourceEventId])
   @@map("mm_accounting_events")
+}
+
+/// Accounting reconciliation workflow case (investigation / resolution — no silent GL mutation).
+model FicoReconciliationCase {
+  id                  String    @id @default(cuid())
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fingerprint         String
+  category            String
+  severity            String    @default("ERROR")
+  status              String    @default("OPEN")
+  message             String
+  sourceModule        String?
+  sourceDocumentType  String?
+  sourceDocumentId    String?
+  journalEntryId      String?
+  mmAccountingEventId String?
+  recommendedAction   String?
+  investigationNotes  String?
+  resolutionCode      String?
+  resolutionNotes     String?
+  assignedTo          String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([companyId, fingerprint])
+  @@index([companyId, status, severity])
+  @@map("fico_reconciliation_cases")
+}
+
+/// Opening balance migration batch (posted only via centralized journal engine).
+model FicoOpeningBalanceBatch {
+  id                  String                   @id @default(cuid())
+  companyId           String
+  company             Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  batchReference      String
+  migrationDate       DateTime                 @db.Date
+  postingDate         DateTime                 @db.Date
+  fiscalYear          Int
+  currencyCode        String                   @db.VarChar(3)
+  sourceSystem        String?
+  description         String?
+  status              String                   @default("DRAFT")
+  journalEntryId      String?
+  legacyTbTotalDebit  Decimal?                 @db.Decimal(18, 4)
+  legacyTbTotalCredit Decimal?                 @db.Decimal(18, 4)
+  createdBy           String?
+  submittedAt         DateTime?
+  approvedBy          String?
+  approvedAt          DateTime?
+  postedBy            String?
+  postedAt            DateTime?
+  lockedAt            DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  lines               FicoOpeningBalanceLine[]
+
+  @@unique([companyId, batchReference])
+  @@index([companyId, status])
+  @@map("fico_opening_balance_batches")
+}
+
+model FicoOpeningBalanceLine {
+  id           String                  @id @default(cuid())
+  batchId      String
+  batch        FicoOpeningBalanceBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  lineNumber   Int
+  glAccountId  String
+  glAccount    FicoGlAccount           @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  debitAmount  Decimal                 @default(0) @db.Decimal(18, 4)
+  creditAmount Decimal                 @default(0) @db.Decimal(18, 4)
+  importCode   String?
+  importName   String?
+
+  @@unique([batchId, lineNumber])
+  @@index([glAccountId])
+  @@map("fico_opening_balance_lines")
+}
+
+/// Fiscal period or year-end closing run (validation snapshot + idempotent execution).
+model FicoPeriodClosingRun {
+  id                    String   @id @default(cuid())
+  companyId             String
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  runType               String   // PERIOD | YEAR_END
+  fiscalYear            Int
+  fiscalPeriodId        String?
+  status                String   @default("VALIDATED") // VALIDATED | APPROVED | EXECUTED | FAILED
+  validationSnapshot    Json?
+  closingJournalEntryId String?
+  approvedBy            String?
+  approvedAt            DateTime?
+  executedBy            String?
+  executedAt            DateTime?
+  idempotencyKey        String   @unique
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([companyId, runType, fiscalYear])
+  @@index([companyId, fiscalYear, status])
+  @@map("fico_period_closing_runs")
 }
 
 /// Phase 1 — FICO fiscal period control (FICO owns period state).
@@ -3949,9 +4061,12 @@ model FicoJournalEntry {
   totalAmount         Decimal                @db.Decimal(18, 4)
   currencyCode        String                 @db.VarChar(3)
   exchangeRate        Decimal?               @db.Decimal(18, 6)
-  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY (GL posting state)
-  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | REVERSED
+  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | CANCELLED | LEGACY
+  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | NOT_REQUIRED | legacy POSTED | REVERSED
+  revisionNumber      Int                    @default(1)
   requiresApproval    Boolean                @default(true)
+  cancelledAt         DateTime?
+  cancelledBy         String?
   preparedBy          String?
   preparedAt          DateTime?
   reviewedBy          String?
@@ -4120,6 +4235,7 @@ model FicoGlAccount {
   updatedAt                       DateTime                        @updatedAt
   companyAssignments              FicoCompanyGlAccount[]
   journalLines                    FicoJournalEntryLine[]
+  openingBalanceLines             FicoOpeningBalanceLine[]
   debitMappings                   FicoMmAccountMapping[]          @relation("FicoMappingDebit")
   creditMappings                  FicoMmAccountMapping[]          @relation("FicoMappingCredit")
   determinationLines              FicoAccountDeterminationLine[]  @relation("FicoRuleLineGlAccount")

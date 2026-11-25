@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client'
 import type { AuthRequestUser } from '../auth/auth.decorator'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import { FicoAccountingEventProcessorService } from './fico-accounting-event-processor.service'
+import { FICO_ACCOUNTING_EVENT_STATUSES } from './fico-accounting-event.constants'
 import {
     FICO_POSTING_MODULE_KNOWN_SOURCES,
     ficoPostingModuleOf,
@@ -21,7 +23,7 @@ export type AccountingEventQuery = {
     pageSize?: number
 }
 
-export const FICO_ACCOUNTING_EVENT_STATUSES = ['PENDING', 'CONSUMED', 'FAILED'] as const
+export { FICO_ACCOUNTING_EVENT_STATUSES }
 
 const LIST_SELECT = {
     id: true,
@@ -35,8 +37,13 @@ const LIST_SELECT = {
     accountingEffects: true,
     status: true,
     lastError: true,
+    lastErrorCode: true,
+    attemptCount: true,
+    lastAttemptAt: true,
+    outcomeReason: true,
     createdAt: true,
     consumedAt: true,
+    journalEntryId: true,
     ficoJournalEntry: {
         select: { id: true, documentNumber: true, status: true, postingDate: true },
     },
@@ -70,6 +77,7 @@ export class FicoAccountingEventsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly access: FicoCompanyAccessService,
+        private readonly processor: FicoAccountingEventProcessorService,
     ) {}
 
     async list(query: AccountingEventQuery, user: AuthRequestUser) {
@@ -138,6 +146,10 @@ export class FicoAccountingEventsService {
                 totalValue: totalValue?.toString() ?? null,
                 errorSummary: summarizeAccountingError(lastError),
                 journal: ficoJournalEntry,
+                attemptCount: event.attemptCount,
+                lastErrorCode: event.lastErrorCode,
+                lastAttemptAt: event.lastAttemptAt,
+                outcomeReason: event.outcomeReason,
             })),
             total,
             page,
@@ -202,6 +214,23 @@ export class FicoAccountingEventsService {
             errorSummary: summarizeAccountingError(event.lastError),
             journal: ficoJournalEntry,
             lines: Array.isArray(lines) ? lines.slice(0, 200) : [],
+            attemptCount: event.attemptCount,
+            lastErrorCode: event.lastErrorCode,
+            lastAttemptAt: event.lastAttemptAt,
+            outcomeReason: event.outcomeReason,
         }
+    }
+
+    async retry(id: string, user: AuthRequestUser) {
+        const event = await this.prisma.mmAccountingEvent.findUnique({
+            where: { id },
+            select: { companyId: true },
+        })
+        if (!event) throw new NotFoundException('Accounting event not found.')
+        if (event.companyId) {
+            await this.access.assertAccess(user, event.companyId)
+        }
+        const status = await this.processor.retryEvent(id)
+        return { id, status }
     }
 }

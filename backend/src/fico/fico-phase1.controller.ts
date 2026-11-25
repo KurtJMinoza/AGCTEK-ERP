@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
     Body,
     Controller,
     Delete,
@@ -27,9 +28,14 @@ import {
     FicoFiscalVariantUpdateDto,
     FicoFiscalYearGenerateDto,
     FicoFiscalYearPreviewDto,
+    FicoGlAccountBalancesQueryDto,
     FicoGlAccountCreateDto,
+    FicoGlAccountDuplicateDto,
     FicoGlAccountImportDto,
     FicoGlAccountUpdateDto,
+    FicoGlChangeHistoryQueryDto,
+    FicoGlLineItemsQueryDto,
+    FicoReasonDto,
     FicoGlGroupCreateDto,
     FicoGlGroupUpdateDto,
     FicoListQueryDto,
@@ -40,12 +46,24 @@ import {
     FicoPostingVariantCreateDto,
     FicoPostingVariantUpdateDto,
     FicoPostingValidationDto,
-    FicoReasonDto,
+    FicoReconciliationScanQueryDto,
+    FicoReconciliationCaseUpdateDto,
+    FicoOpeningBalanceBatchCreateDto,
+    FicoOpeningBalanceImportDto,
+    FicoPeriodClosingReadinessQueryDto,
+    FicoYearEndQueryDto,
+    FicoYearEndActionDto,
 } from './dto/fico-phase1.dto'
 import {
+    CancelJournalEntryDto,
     CreateJournalEntryDto,
+    FicoJournalIntegrityQueryDto,
+    UpdateJournalEntryDto,
+    WithdrawJournalEntryDto,
+    FicoTrialBalanceQueryDto,
     JournalEntryDetailQueryDto,
     JournalEntryListQueryDto,
+    JournalEntrySummaryQueryDto,
     ReverseJournalEntryDto,
     SubmitJournalEntryDto,
     ApproveJournalEntryDto,
@@ -62,7 +80,14 @@ import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoOverviewService } from './fico-overview.service'
 import { FicoPostingPeriodService } from './fico-posting-period.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
+import { FicoGeneralLedgerService } from './fico-general-ledger.service'
+import { FicoJournalIntegrityService } from './fico-journal-integrity.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoAccountingReconciliationService } from './fico-accounting-reconciliation.service'
+import { FicoOpeningBalanceService } from './fico-opening-balance.service'
+import { FicoPeriodClosingService } from './fico-period-closing.service'
+import { FicoYearEndClosingService } from './fico-year-end-closing.service'
+import { FicoReconciliationService } from './fico-reconciliation.service'
 
 @Controller('fico')
 export class FicoPhase1Controller {
@@ -74,11 +99,18 @@ export class FicoPhase1Controller {
         private readonly periods: FicoPostingPeriodService,
         private readonly validation: FicoPostingValidationService,
         private readonly journal: FicoJournalService,
+        private readonly generalLedger: FicoGeneralLedgerService,
+        private readonly journalIntegrity: FicoJournalIntegrityService,
         private readonly overview: FicoOverviewService,
         private readonly audit: FicoAuditService,
         private readonly access: FicoCompanyAccessService,
         private readonly mappings: FicoAccountMappingService,
         private readonly accountingEvents: FicoAccountingEventsService,
+        private readonly reconciliation: FicoReconciliationService,
+        private readonly accountingReconciliation: FicoAccountingReconciliationService,
+        private readonly openingBalances: FicoOpeningBalanceService,
+        private readonly periodClosing: FicoPeriodClosingService,
+        private readonly yearEndClosing: FicoYearEndClosingService,
     ) {}
 
     // ---------------------------------------------------------------------
@@ -322,6 +354,12 @@ export class FicoPhase1Controller {
         return this.accounts.list(query)
     }
 
+    @Get('gl-accounts/summary')
+    @RequirePermission('fico.gl-accounts', 'read')
+    summarizeAccounts(@Query() query: FicoListQueryDto) {
+        return this.accounts.summary(query)
+    }
+
     @Post('gl-accounts')
     @RequirePermission('fico.gl-accounts', 'create')
     createAccount(
@@ -338,6 +376,25 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accounts.importAccounts(dto, user)
+    }
+
+  /** Validates an import file without committing (alias: dryRun import). */
+    @Post('gl-accounts/import/validate')
+    @RequirePermission('fico.gl-accounts', 'create')
+    validateGlAccountImport(
+        @Body() dto: FicoGlAccountImportDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.importAccounts({ ...dto, dryRun: true }, user)
+    }
+
+    @Post('gl-accounts/import/confirm')
+    @RequirePermission('fico.gl-accounts', 'create')
+    confirmGlAccountImport(
+        @Body() dto: FicoGlAccountImportDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.importAccounts({ ...dto, dryRun: false }, user)
     }
 
     @Get('gl-accounts/companies/:companyId')
@@ -364,6 +421,135 @@ export class FicoPhase1Controller {
         return this.accounts.usage(id, user)
     }
 
+    @Get('gl-accounts/:id/dependencies')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountDependencies(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.dependencies(id, user)
+    }
+
+    @Get('gl-accounts/:id/where-used')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountWhereUsed(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.whereUsed(id, user)
+    }
+
+    @Get('gl-accounts/:id/deletion-eligibility')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountDeletionEligibility(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.deletionEligibility(id, user)
+    }
+
+    @Get('gl-accounts/:id/change-history')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountChangeHistory(
+        @Param('id') id: string,
+        @Query() query: FicoGlChangeHistoryQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.changeHistory(id, user, query)
+    }
+
+    @Get('gl-accounts/:id/line-items')
+    @RequirePermission(['fico.gl-accounts', 'fico.journal-entries'], 'read')
+    getAccountLineItems(
+        @Param('id') id: string,
+        @Query() query: FicoGlLineItemsQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.lineItems(id, user, query)
+    }
+
+    @Get('gl-accounts/:id/company-settings')
+    @RequirePermission('fico.gl-accounts', 'read')
+    getAccountCompanySettings(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.companyAssignmentContext(id, user)
+    }
+
+    @Get('gl-accounts/:id/balances')
+    @RequirePermission(['fico.gl-accounts', 'fico.journal-entries'], 'read')
+    getAccountBalances(
+        @Param('id') id: string,
+        @Query() query: FicoGlAccountBalancesQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.balances(id, user, query)
+    }
+
+    @Post('gl-accounts/:id/duplicate')
+    @RequirePermission('fico.gl-accounts', 'create')
+    duplicateAccount(
+        @Param('id') id: string,
+        @Body() dto: FicoGlAccountDuplicateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.duplicate(id, dto.accountCode, user)
+    }
+
+    @Post('gl-accounts/:id/activate')
+    @RequirePermission('fico.gl-accounts', 'update')
+    activateGlAccount(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.activate(id, user)
+    }
+
+    @Post('gl-accounts/:id/deactivate')
+    @RequirePermission('fico.gl-accounts', 'update')
+    deactivateGlAccount(
+        @Param('id') id: string,
+        @Body() dto: FicoReasonDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.deactivate(id, user, dto.reason)
+    }
+
+    @Post('gl-accounts/:id/reactivate')
+    @RequirePermission('fico.gl-accounts', 'update')
+    reactivateGlAccount(
+        @Param('id') id: string,
+        @Body() dto: FicoReasonDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.reactivate(id, user, dto.reason)
+    }
+
+    @Post('gl-accounts/:id/submit')
+    @RequirePermission('fico.gl-accounts', 'update')
+    submitGlAccountForApproval() {
+        throw new BadRequestException(
+            'G/L account approval workflow is not enabled. Accounts are created ACTIVE until draft/approval lifecycle is configured.',
+        )
+    }
+
+    @Post('gl-accounts/:id/approve')
+    @RequirePermission('fico.gl-accounts', 'update')
+    approveGlAccount() {
+        throw new BadRequestException(
+            'G/L account approval workflow is not enabled.',
+        )
+    }
+
+    @Post('gl-accounts/:id/reject')
+    @RequirePermission('fico.gl-accounts', 'update')
+    rejectGlAccount() {
+        throw new BadRequestException(
+            'G/L account approval workflow is not enabled.',
+        )
+    }
+
     @Patch('gl-accounts/:id')
     @RequirePermission('fico.gl-accounts', 'update')
     updateAccount(
@@ -381,6 +567,38 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accounts.remove(id, user)
+    }
+
+    @Post('gl-accounts/:id/companies/:companyId/block-posting')
+    @RequirePermission('fico.gl-accounts', 'update')
+    blockCompanyGlPosting(
+        @Param('id') id: string,
+        @Param('companyId') companyId: string,
+        @Body() dto: FicoReasonDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.blockCompanyPosting(
+            id,
+            companyId,
+            user,
+            dto.reason,
+        )
+    }
+
+    @Post('gl-accounts/:id/companies/:companyId/unblock-posting')
+    @RequirePermission('fico.gl-accounts', 'update')
+    unblockCompanyGlPosting(
+        @Param('id') id: string,
+        @Param('companyId') companyId: string,
+        @Body() dto: FicoReasonDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accounts.unblockCompanyPosting(
+            id,
+            companyId,
+            user,
+            dto.reason,
+        )
     }
 
     @Put('gl-accounts/:id/companies/:companyId')
@@ -644,6 +862,32 @@ export class FicoPhase1Controller {
     // Journal entries (manual posting)
     // ---------------------------------------------------------------------
 
+    @Get('journal-entries/summary')
+    @RequirePermission('fico.journal-entries', 'read')
+    journalEntriesSummary(
+        @Query() query: JournalEntrySummaryQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.access
+            .assertAccess(user, query.companyId)
+            .then(() =>
+                this.journal.workbenchSummary(query.companyId, {
+                    dateFrom: query.dateFrom,
+                    dateTo: query.dateTo,
+                }),
+            )
+    }
+
+    @Post('journal-entries/simulate')
+    @RequirePermission('fico.journal-entries', 'read')
+    async simulateJournalPosting(
+        @Body() dto: CreateJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.simulatePosting(dto)
+    }
+
     @Get('journal-entries')
     @RequirePermission('fico.journal-entries', 'read')
     listJournalEntries(
@@ -653,14 +897,7 @@ export class FicoPhase1Controller {
         return this.access
             .assertAccess(user, query.companyId)
             .then(() =>
-                this.journal.listEntries({
-                    companyId: query.companyId,
-                    status: query.status,
-                    dateFrom: query.dateFrom,
-                    dateTo: query.dateTo,
-                    page: query.page ?? 1,
-                    pageSize: query.pageSize ?? 20,
-                }),
+                this.journal.listEntries(query, user.id),
             )
     }
 
@@ -686,8 +923,71 @@ export class FicoPhase1Controller {
         return this.journal.createEntry(dto, user)
     }
 
-    @Post('journal-entries/:id/reverse')
+    @Patch('journal-entries/:id')
     @RequirePermission('fico.journal-entries', 'update')
+    async updateJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: UpdateJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.updateDraft(id, dto, user)
+    }
+
+    @Post('journal-entries/:id/cancel')
+    @RequirePermission('fico.journal-entries', 'update')
+    async cancelJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: CancelJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.cancelDraft(id, dto.companyId, user, dto.reason)
+    }
+
+    @Post('journal-entries/:id/withdraw')
+    @RequirePermission('fico.journal-entries', 'update')
+    async withdrawJournalEntry(
+        @Param('id') id: string,
+        @Body() dto: WithdrawJournalEntryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, dto.companyId)
+        return this.journal.withdrawSubmission(id, user)
+    }
+
+    @Get('journal-entries/:id/approval-history')
+    @RequirePermission('fico.journal-entries', 'read')
+    journalApprovalHistory(
+        @Param('id') id: string,
+        @Query('companyId') companyId: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.access
+            .assertAccess(user, companyId)
+            .then(() => this.journal.getApprovalHistory(id))
+    }
+
+    @Get('reports/trial-balance')
+    @RequirePermission(['fico.reports', 'fico.journal-entries'], 'read')
+    trialBalance(
+        @Query() query: FicoTrialBalanceQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.generalLedger.trialBalance(user, query)
+    }
+
+    @Get('journal-integrity')
+    @RequirePermission('fico.configuration', 'read')
+    runJournalIntegrity(
+        @Query() query: FicoJournalIntegrityQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.journalIntegrity.run(user, query)
+    }
+
+    @Post('journal-entries/:id/reverse')
+    @RequirePermission('fico.journal-reversal', 'create')
     async reverseJournalEntry(
         @Param('id') id: string,
         @Body() dto: ReverseJournalEntryDto,
@@ -779,6 +1079,228 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accountingEvents.get(id, user)
+    }
+
+    @Post('accounting-events/:id/retry')
+    @RequirePermission('fico.journal-entries', 'update')
+    retryAccountingEvent(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountingEvents.retry(id, user)
+    }
+
+    // ---------------------------------------------------------------------
+    // Accounting reconciliation
+    // ---------------------------------------------------------------------
+
+    @Get('accounting-reconciliation')
+    @RequirePermission(['fico.journal-entries', 'fico.accounting-reconciliation'], 'read')
+    accountingReconciliationList(
+        @Query() query: FicoReconciliationScanQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.reconciliationScanHandler(query, user)
+    }
+
+    @Get('reconciliation/scan')
+    @RequirePermission(['fico.journal-entries', 'fico.accounting-reconciliation'], 'read')
+    reconciliationScan(
+        @Query() query: FicoReconciliationScanQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.reconciliationScanHandler(query, user)
+    }
+
+    private reconciliationScanHandler(
+        query: FicoReconciliationScanQueryDto,
+        user: AuthRequestUser,
+    ) {
+        const syncCases =
+            query.syncCases === undefined
+                ? true
+                : query.syncCases === true || String(query.syncCases) === 'true'
+        return this.accountingReconciliation.scan(user, {
+            companyId: query.companyId,
+            dateFrom: query.dateFrom,
+            dateTo: query.dateTo,
+            syncCases,
+        })
+    }
+
+    @Patch('reconciliation/cases/:id')
+    @RequirePermission(['fico.journal-entries', 'fico.accounting-reconciliation'], 'update')
+    reconciliationUpdateCase(
+        @Param('id') id: string,
+        @Body() body: FicoReconciliationCaseUpdateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountingReconciliation.updateCase(user, id, body)
+    }
+
+    // ---------------------------------------------------------------------
+    // Opening balances (migration)
+    // ---------------------------------------------------------------------
+
+    @Get('opening-balances/template')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'read')
+    openingBalanceTemplate() {
+        return {
+            contentType: 'text/csv',
+            fileName: 'opening-balance-template.csv',
+            content: this.openingBalances.templateCsv(),
+        }
+    }
+
+    @Get('opening-balances')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'read')
+    listOpeningBalances(
+        @Query('companyId') companyId: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.list(companyId, user)
+    }
+
+    @Get('opening-balances/:id')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'read')
+    getOpeningBalance(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.get(id, user)
+    }
+
+    @Post('opening-balances')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'create')
+    createOpeningBalance(
+        @Body() body: FicoOpeningBalanceBatchCreateDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.create(user, body)
+    }
+
+    @Post('opening-balances/:id/import')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'update')
+    importOpeningBalance(
+        @Param('id') id: string,
+        @Body() body: FicoOpeningBalanceImportDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.importLines(user, id, body.rows)
+    }
+
+    @Post('opening-balances/:id/submit')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'update')
+    submitOpeningBalance(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.submit(user, id)
+    }
+
+    @Post('opening-balances/:id/approve')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'update')
+    approveOpeningBalance(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.approve(user, id)
+    }
+
+    @Post('opening-balances/:id/post')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'update')
+    postOpeningBalance(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.post(user, id)
+    }
+
+    @Post('opening-balances/:id/lock')
+    @RequirePermission(['fico.journal-entries', 'fico.opening-balances'], 'update')
+    lockOpeningBalance(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.openingBalances.lock(user, id)
+    }
+
+    // ---------------------------------------------------------------------
+    // Period closing readiness
+    // ---------------------------------------------------------------------
+
+    @Get('period-closing/readiness')
+    @RequirePermission('fico.periods', 'read')
+    periodClosingReadiness(
+        @Query() query: FicoPeriodClosingReadinessQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.periodClosing.readiness(user, query)
+    }
+
+    @Get('closing/checklist')
+    @RequirePermission('fico.periods', 'read')
+    closingChecklistAlias(
+        @Query() query: FicoPeriodClosingReadinessQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.periodClosing.readiness(user, query)
+    }
+
+    @Get('closing/year-end')
+    @RequirePermission(['fico.periods', 'fico.year-end-close'], 'read')
+    getYearEndClosing(
+        @Query() query: FicoYearEndQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.yearEndClosing.getOverview(
+            user,
+            query.companyId,
+            query.fiscalYear,
+        )
+    }
+
+    @Post('closing/year-end/validate')
+    @RequirePermission('fico.year-end-close', 'update')
+    validateYearEndClosing(
+        @Body() body: FicoYearEndActionDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.yearEndClosing.validate(user, body)
+    }
+
+    @Post('closing/year-end/approve')
+    @RequirePermission('fico.year-end-close', 'update')
+    approveYearEndClosing(
+        @Body() body: FicoYearEndActionDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.yearEndClosing.approve(user, body)
+    }
+
+    @Post('closing/year-end/execute')
+    @RequirePermission('fico.year-end-close', 'update')
+    executeYearEndClosing(
+        @Body() body: FicoYearEndActionDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.yearEndClosing.execute(user, body)
+    }
+
+    @Get('reports/inventory-accounting-audit')
+    @RequirePermission(['fico.journal-entries', 'fico.configuration'], 'read')
+    async inventoryAccountingAudit(
+        @Query('companyId') companyId: string,
+        @Query('dateFrom') dateFrom: string | undefined,
+        @Query('dateTo') dateTo: string | undefined,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        await this.access.assertAccess(user, companyId)
+        return this.reconciliation.auditInventoryAccounting({
+            companyId,
+            dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+            dateTo: dateTo ? new Date(dateTo) : undefined,
+        })
     }
 
     @Get('audit')

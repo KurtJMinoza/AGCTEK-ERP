@@ -343,15 +343,17 @@ const NumberRangesPage = () => {
                 actions={
                     <div className="flex flex-wrap items-center gap-2">
                         <Button
+                            size="sm"
                             variant="solid"
+                            icon={<HiOutlinePlus />}
                             onClick={() => {
                                 setEditing(null)
                                 setIsFormOpen(true)
                             }}
-                            className="px-4 py-2.5 text-sm font-medium"
+                            className="shrink-0"
                         >
-                            <HiOutlinePlus className="w-4 h-4 mr-1.5" />
-                            Create Number Range
+                            <span className="hidden sm:inline">Create Number Range</span>
+                            <span className="sm:hidden">Create</span>
                         </Button>
                     </div>
                 }

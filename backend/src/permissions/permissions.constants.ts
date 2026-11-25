@@ -492,6 +492,26 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Reopen a closed posting period (reason required).',
         ],
         [
+            'period-close',
+            'Period Close',
+            'Close posting periods and run period-end readiness checks.',
+        ],
+        [
+            'year-end-close',
+            'Year-End Closing',
+            'Validate, approve, and execute year-end income/expense closing journals.',
+        ],
+        [
+            'opening-balances',
+            'Opening Balances',
+            'Migration opening balance batches and posting.',
+        ],
+        [
+            'accounting-reconciliation',
+            'Accounting Reconciliation',
+            'Investigate and resolve accounting reconciliation exceptions.',
+        ],
+        [
             'period-unlock',
             'Period Unlock',
             'Unlock a locked posting period (privileged action).',

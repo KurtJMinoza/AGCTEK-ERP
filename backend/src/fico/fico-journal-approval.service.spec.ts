@@ -69,7 +69,12 @@ function setup(initialApprovalStatus: string = 'DRAFT') {
                 accountType: 'ASSET',
             }),
         } as never,
-        undefined as never,
+        {
+            allocateDocumentNumber: jest.fn().mockResolvedValue('JE000001'),
+            persistJournalInTransaction: jest.fn(),
+            assertBalancedLines: jest.fn(),
+        } as never,
+        undefined,
     )
 
     return { prisma, service }
@@ -184,24 +189,31 @@ describe('FicoJournalService approval workflow', () => {
     })
 
     describe('postApproved', () => {
-        it('posts an approved entry', async () => {
+        it('posts a draft manual entry without prior approval', async () => {
             const { prisma, service } = setup('APPROVED')
             prisma.ficoJournalEntry.findUnique.mockResolvedValue(
-                makeJournal({ approvalStatus: 'APPROVED', status: 'DRAFT' }),
+                makeJournal({
+                    approvalStatus: 'DRAFT',
+                    status: 'DRAFT',
+                    requiresApproval: false,
+                }),
             )
             prisma.ficoJournalEntry.update.mockResolvedValue(
-                updatedWith('POSTED', 'POSTED'),
+                updatedWith('NOT_REQUIRED', 'POSTED'),
             )
 
             const result = await service.postApproved('je-1', user)
 
             expect(result.status).toBe('POSTED')
-            expect(result.approvalStatus).toBe('POSTED')
+            expect(result.approvalStatus).toBe('NOT_REQUIRED')
             expect(result.postedAt).toBeDefined()
         })
 
-        it('rejects posting an entry that is not approved', async () => {
-            const { service } = setup('PENDING_APPROVAL')
+        it('rejects posting an entry stuck in legacy approval', async () => {
+            const { prisma, service } = setup('PENDING_APPROVAL')
+            prisma.ficoJournalEntry.findUnique.mockResolvedValue(
+                makeJournal({ approvalStatus: 'PENDING_APPROVAL', status: 'DRAFT' }),
+            )
             await expect(
                 service.postApproved('je-1', user),
             ).rejects.toBeInstanceOf(BadRequestException)

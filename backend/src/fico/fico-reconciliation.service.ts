@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { ledgerCommittedJournalWhere } from './fico-ledger-policy'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -70,18 +71,20 @@ export class FicoReconciliationService {
             }
         }
 
-        const journalWhere: any = {
-            companyId: input.companyId,
-            status: 'POSTED',
-        }
-        if (input.dateFrom || input.dateTo) {
-            journalWhere.postingDate = {}
-            if (input.dateFrom) journalWhere.postingDate.gte = input.dateFrom
-            if (input.dateTo) journalWhere.postingDate.lte = input.dateTo
-        }
-
         const journals = await this.prisma.ficoJournalEntry.findMany({
-            where: journalWhere,
+            where: ledgerCommittedJournalWhere({
+                companyId: input.companyId,
+                ...(input.dateFrom || input.dateTo
+                    ? {
+                          postingDate: {
+                              ...(input.dateFrom
+                                  ? { gte: input.dateFrom }
+                                  : {}),
+                              ...(input.dateTo ? { lte: input.dateTo } : {}),
+                          },
+                      }
+                    : {}),
+            }),
             select: { totalAmount: true, metadata: true },
         })
 
@@ -152,6 +155,156 @@ export class FicoReconciliationService {
                 difference,
                 varianceCount: rows.filter((r) => r.status === 'VARIANCE').length,
             },
+        }
+    }
+
+    /**
+     * MM ↔ FICO bridge audit using valuation transactions and accounting events
+     * (authoritative MM costs, not catalog prices).
+     */
+    async auditInventoryAccounting(input: {
+        companyId: string
+        dateFrom?: Date
+        dateTo?: Date
+    }) {
+        const txWhere: {
+            companyId: string
+            totalCost: { gt: Decimal }
+            postingDate?: { gte?: Date; lte?: Date }
+        } = {
+            companyId: input.companyId,
+            totalCost: { gt: new Decimal(0) },
+        }
+        if (input.dateFrom || input.dateTo) {
+            txWhere.postingDate = {
+                ...(input.dateFrom ? { gte: input.dateFrom } : {}),
+                ...(input.dateTo ? { lte: input.dateTo } : {}),
+            }
+        }
+
+        const [valuationMovements, events, journalKeys] = await Promise.all([
+            this.prisma.mmInventoryTransaction.findMany({
+                where: txWhere,
+                select: {
+                    id: true,
+                    totalCost: true,
+                    movementType: true,
+                    sourceDocumentId: true,
+                },
+                take: 5000,
+            }),
+            this.prisma.mmAccountingEvent.findMany({
+                where: {
+                    companyId: input.companyId,
+                    sourceModule: { in: ['STOCK_OPS', 'MM', 'VALUATION'] },
+                    ...(input.dateFrom || input.dateTo
+                        ? {
+                              postingDate: {
+                                  ...(input.dateFrom ? { gte: input.dateFrom } : {}),
+                                  ...(input.dateTo ? { lte: input.dateTo } : {}),
+                              },
+                          }
+                        : {}),
+                },
+                select: {
+                    id: true,
+                    status: true,
+                    documentId: true,
+                    totalValue: true,
+                    journalEntryId: true,
+                    lastErrorCode: true,
+                    idempotencyKey: true,
+                },
+            }),
+            this.prisma.ficoJournalEntry.findMany({
+                where: { companyId: input.companyId },
+                select: { idempotencyKey: true },
+            }),
+        ])
+        const keyCounts = new Map<string, number>()
+        for (const row of journalKeys) {
+            keyCounts.set(
+                row.idempotencyKey,
+                (keyCounts.get(row.idempotencyKey) ?? 0) + 1,
+            )
+        }
+        const duplicateJournals = [...keyCounts.entries()]
+            .filter(([, count]) => count > 1)
+            .map(([idempotencyKey]) => ({ idempotencyKey }))
+
+        const financiallyRelevant = valuationMovements.filter((row) =>
+            row.totalCost?.gt(0),
+        )
+        const eventsByDoc = new Map(
+            events.map((event) => [event.documentId, event]),
+        )
+
+        const missingFinancialJournal = financiallyRelevant
+            .filter((row) => {
+                const docId = row.sourceDocumentId ?? row.id
+                const event = eventsByDoc.get(docId)
+                return !event || (event.status !== 'CONSUMED' && event.status !== 'SKIPPED')
+            })
+            .map((row) => ({
+                code: 'MISSING_FINANCIAL_JOURNAL',
+                inventoryTransactionId: row.id,
+                movementType: row.movementType,
+                totalCost: row.totalCost?.toString() ?? '0',
+            }))
+
+        const failedEvents = events
+            .filter((e) => e.status === 'FAILED')
+            .map((e) => ({
+                code: 'FAILED_ACCOUNTING_EVENT',
+                eventId: e.id,
+                documentId: e.documentId,
+                errorCode: e.lastErrorCode,
+            }))
+
+        const consumedWithoutJournal = events
+            .filter((e) => e.status === 'CONSUMED' && !e.journalEntryId)
+            .map((e) => ({
+                code: 'CONSUMED_WITHOUT_JOURNAL',
+                eventId: e.id,
+            }))
+
+        const valueMismatches = events
+            .filter((e) => e.status === 'CONSUMED' && e.journalEntryId)
+            .map((event) => {
+                const movement = financiallyRelevant.find(
+                    (row) =>
+                        (row.sourceDocumentId ?? row.id) === event.documentId,
+                )
+                if (!movement?.totalCost || !event.totalValue) return null
+                if (!movement.totalCost.eq(event.totalValue)) {
+                    return {
+                        code: 'VALUE_MISMATCH',
+                        eventId: event.id,
+                        mmValue: movement.totalCost.toString(),
+                        eventValue: event.totalValue.toString(),
+                    }
+                }
+                return null
+            })
+            .filter(Boolean)
+
+        return {
+            companyId: input.companyId,
+            exceptionCount:
+                missingFinancialJournal.length +
+                failedEvents.length +
+                consumedWithoutJournal.length +
+                valueMismatches.length +
+                duplicateJournals.length,
+            missingFinancialJournal,
+            failedEvents,
+            consumedWithoutJournal,
+            valueMismatches,
+            duplicateJournalKeys: duplicateJournals.map(
+                (row) => row.idempotencyKey,
+            ),
+            scannedMovements: financiallyRelevant.length,
+            scannedEvents: events.length,
         }
     }
 }

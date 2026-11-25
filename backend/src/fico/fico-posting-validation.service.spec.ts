@@ -90,6 +90,18 @@ describe('FicoPostingValidationService posting controls', () => {
         ).rejects.toThrow(/Negative posting amounts are not allowed/)
     })
 
+    it('rejects unsupported document currency', async () => {
+        const { service } = validationService(postingSettings())
+
+        await expect(
+            service.validate({
+                companyId: 'company-1',
+                postingDate: daysAgo(0),
+                currencyCode: 'USD',
+            }),
+        ).rejects.toThrow(/functional currency PHP only/)
+    })
+
     it('accepts a current posting when backdating and negatives are allowed', async () => {
         const { service } = validationService(
             postingSettings({

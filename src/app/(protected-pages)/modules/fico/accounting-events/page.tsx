@@ -1,6 +1,5 @@
-import { redirect } from 'next/navigation'
-
-/** Transaction - FICO Posting Monitor is a tab of the G/L Accounts workspace. */
-export default function Page() {
-    redirect('/modules/fico/gl-accounts?tab=events')
+export const metadata = {
+    title: 'Accounting Events | FICO | AGCTEK ERP',
 }
+
+export { default } from '@/modules/fico/pages/AccountingEventsPage'

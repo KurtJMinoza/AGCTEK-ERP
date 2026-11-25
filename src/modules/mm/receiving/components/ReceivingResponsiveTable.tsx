@@ -18,7 +18,11 @@ export type ReceivingMobileConfig<T> = {
     title: (row: T) => string
     subtitle?: (row: T) => string | null | undefined
     status?: (row: T) => { text: string; tone: RcvBadgeTone } | null | undefined
-    fields?: { label: string; value: (row: T) => ReactNode }[]
+    fields?: {
+        label: string
+        value: (row: T) => ReactNode
+        align?: 'left' | 'right'
+    }[]
     onPress?: (row: T) => void
 }
 
@@ -27,6 +31,7 @@ type ReceivingResponsiveTableProps<T> = ComponentProps<typeof DataTable<T>> & {
     tableMinWidthClass?: string
     /** Override default receiving row entrance (e.g. supplier-management tables). */
     rowEnterClass?: (index: number) => string
+    mobileCardEnterClass?: (index: number) => string
 }
 
 function mergeRowClass<T>(
@@ -42,6 +47,7 @@ export default function ReceivingResponsiveTable<T>({
     mobile,
     tableMinWidthClass = 'min-w-[720px]',
     rowEnterClass = rcvTableRowEnterClass,
+    mobileCardEnterClass = rcvMobileCardEnterClass,
     rowClassName,
     getRowId,
     data,
@@ -161,7 +167,7 @@ export default function ReceivingResponsiveTable<T>({
                                         onClick={
                                             clickable ? () => mobile.onPress?.(row) : undefined
                                         }
-                                        className={`w-full rounded-xl border border-gray-200/90 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-900/40 ${rcvMobileCardEnterClass(index)}`}
+                                        className={`w-full rounded-xl border border-gray-200/90 bg-white p-4 text-left shadow-sm transition-shadow duration-200 hover:border-primary/20 hover:shadow-md dark:border-gray-700 dark:bg-gray-900/40 ${mobileCardEnterClass(index)}`}
                                     >
                                         <div className="mb-2 flex items-start justify-between gap-2">
                                             <div className="min-w-0">
@@ -184,11 +190,18 @@ export default function ReceivingResponsiveTable<T>({
                                         {mobile.fields?.length ? (
                                             <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                                                 {mobile.fields.map((f) => (
-                                                    <div key={f.label} className="min-w-0">
+                                                    <div
+                                                        key={f.label}
+                                                        className={
+                                                            f.align === 'right'
+                                                                ? 'min-w-0 text-right'
+                                                                : 'min-w-0'
+                                                        }
+                                                    >
                                                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                                             {f.label}
                                                         </dt>
-                                                        <dd className="mt-0.5 truncate text-gray-800 dark:text-gray-200">
+                                                        <dd className="mt-0.5 text-gray-800 dark:text-gray-200">
                                                             {f.value(row)}
                                                         </dd>
                                                     </div>

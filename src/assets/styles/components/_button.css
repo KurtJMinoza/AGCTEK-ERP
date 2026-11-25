@@ -1,6 +1,6 @@
 @layer components {
 	.button {
-		@apply font-bold outline-none whitespace-nowrap content-center;
+		@apply inline-flex items-center justify-center gap-1 font-bold outline-none whitespace-nowrap;
 	}
 	
 	.button-press-feedback {

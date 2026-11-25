@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoPostingPeriodService } from './fico-posting-period.service'
 import { formatFicoPeriodKey } from './fico.constants'
+import { assertPostingCurrencyPolicy } from './fico-currency-policy'
 
 export type PostingValidationLine = {
     glAccountId: string
@@ -124,6 +125,15 @@ export class FicoPostingValidationService {
         )
             .trim()
             .toUpperCase()
+
+        assertPostingCurrencyPolicy({
+            companyCurrency: settings.baseCurrency,
+            documentCurrency: currency,
+            lineCurrencies: (input.lines ?? [])
+                .map((line) => line.currency)
+                .filter((c): c is string => Boolean(c)),
+        })
+
         const accounts: Array<{
             glAccountId: string
             accountCode: string

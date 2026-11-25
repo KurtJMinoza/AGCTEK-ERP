@@ -75,6 +75,52 @@ export class FicoListQueryDto {
     @Min(1)
     @Max(500)
     pageSize?: number
+
+    @IsOptional()
+    @IsIn(['accountCode', 'accountName', 'status', 'updatedAt'])
+    sortBy?: 'accountCode' | 'accountName' | 'status' | 'updatedAt'
+
+    @IsOptional()
+    @IsIn(['asc', 'desc'])
+    sortDir?: 'asc' | 'desc'
+}
+
+export class FicoGlLineItemsQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
+}
+
+export class FicoGlChangeHistoryQueryDto {
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number
 }
 
 export class FicoCompanySettingsUpsertDto {
@@ -468,6 +514,23 @@ export class FicoGlAccountUpdateDto {
     @IsOptional()
     @IsIn(FICO_CHART_STATUSES)
     status?: string
+
+    @IsOptional()
+    @IsDateString()
+    expectedUpdatedAt?: string
+}
+
+export class FicoGlAccountDuplicateDto {
+    @IsString()
+    @MinLength(1)
+    @MaxLength(32)
+    accountCode!: string
+}
+
+export class FicoGlAccountBalancesQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
 }
 
 export class FicoGlAccountImportRowDto {
@@ -1848,6 +1911,127 @@ export class FicoTaxCodeHistoryQueryDto {
     @Min(1)
     @Max(200)
     pageSize?: number
+}
+
+export class FicoReconciliationScanQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsBoolean()
+    syncCases?: boolean
+}
+
+export class FicoReconciliationCaseUpdateDto {
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    investigationNotes?: string
+
+    @IsOptional()
+    @IsString()
+    assignedTo?: string
+
+    @IsOptional()
+    @IsString()
+    resolutionCode?: string
+
+    @IsOptional()
+    @IsString()
+    resolutionNotes?: string
+}
+
+export class FicoOpeningBalanceBatchCreateDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    @MinLength(1)
+    @MaxLength(64)
+    batchReference!: string
+
+    @IsDateString()
+    migrationDate!: string
+
+    @IsDateString()
+    postingDate!: string
+
+    @IsInt()
+    fiscalYear!: number
+
+    @IsString()
+    @MinLength(3)
+    @MaxLength(3)
+    currencyCode!: string
+
+    @IsOptional()
+    @IsString()
+    sourceSystem?: string
+
+    @IsOptional()
+    @IsString()
+    description?: string
+}
+
+export class FicoOpeningBalanceImportLineDto {
+    @IsString()
+    accountCode!: string
+
+    @IsOptional()
+    @IsNumber()
+    debitAmount?: number
+
+    @IsOptional()
+    @IsNumber()
+    creditAmount?: number
+
+    @IsOptional()
+    @IsString()
+    accountName?: string
+}
+
+export class FicoOpeningBalanceImportDto {
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => FicoOpeningBalanceImportLineDto)
+    rows!: FicoOpeningBalanceImportLineDto[]
+}
+
+export class FicoPeriodClosingReadinessQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsString()
+    fiscalPeriodId!: string
+}
+
+export class FicoYearEndQueryDto {
+    @IsString()
+    companyId!: string
+
+    @Type(() => Number)
+    @IsInt()
+    fiscalYear!: number
+}
+
+export class FicoYearEndActionDto {
+    @IsString()
+    companyId!: string
+
+    @Type(() => Number)
+    @IsInt()
+    fiscalYear!: number
 }
 
 export class FicoTaxCodeDuplicateDto {

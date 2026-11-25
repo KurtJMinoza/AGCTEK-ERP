@@ -7,6 +7,7 @@ import toast from '@/components/ui/toast'
 import Tag from '@/components/ui/Tag'
 import { ficoSettingsService } from '../services/ficoService'
 import type { FicoCompanySettingsRow } from '../types'
+import { journalPortalSelectProps } from './journal/journalUi'
 
 const STORAGE_KEY = 'fico.selectedCompanyId'
 
@@ -40,7 +41,10 @@ export function useFicoCompanies() {
                         ? window.localStorage.getItem(STORAGE_KEY)
                         : null
                 const initial =
-                    items.find((item) => item.company.id === stored)?.company.id ??
+                    items.find((item) => item.company.id === stored)?.company
+                        .id ??
+                    items.find((item) => item.settings?.status === 'ACTIVE')
+                        ?.company.id ??
                     items[0]?.company.id ??
                     ''
                 setCompanyIdState(initial)
@@ -97,6 +101,8 @@ type FicoCompanySelectProps = {
     onChange: (value: string) => void
     loading?: boolean
     className?: string
+    /** When false, omits “All companies” (use on document forms). */
+    allowAll?: boolean
 }
 
 export function FicoCompanySelect({
@@ -105,21 +111,20 @@ export function FicoCompanySelect({
     onChange,
     loading,
     className,
+    allowAll = true,
 }: FicoCompanySelectProps) {
-    const options = useMemo(
-        () => [
-            { value: '', label: 'All companies' },
-            ...companies.map((company) => ({
-                value: company.id,
-                label: `${company.code} — ${company.name}`,
-            })),
-        ],
-        [companies],
-    )
+    const options = useMemo(() => {
+        const mapped = companies.map((company) => ({
+            value: company.id,
+            label: `${company.code} — ${company.name}`,
+        }))
+        if (!allowAll) return mapped
+        return [{ value: '', label: 'All companies' }, ...mapped]
+    }, [companies, allowAll])
     return (
         <div className={className ?? 'w-full sm:w-80'}>
             <Select
-                isClearable={true}
+                isClearable={allowAll}
                 isLoading={loading}
                 options={options}
                 value={
@@ -131,6 +136,7 @@ export function FicoCompanySelect({
                     )
                 }
                 placeholder="Select company"
+                {...journalPortalSelectProps}
             />
         </div>
     )
@@ -157,13 +163,28 @@ export function statusTag(status: string | undefined | null) {
     )
 }
 
-export function notifyError(error: unknown, fallback: string) {
-    const response = (
+function errorDetail(error: unknown, fallback: string) {
+    const data = (
         error as {
-            response?: { data?: { message?: string | string[] } }
+            response?: {
+                data?: {
+                    message?: string | string[] | Record<string, unknown>
+                    error?: string
+                }
+            }
         }
-    )?.response?.data?.message
-    const message = Array.isArray(response) ? response.join(', ') : response
+    )?.response?.data
+    const message = data?.message
+    if (Array.isArray(message)) return message.join(', ')
+    if (typeof message === 'string' && message.trim()) return message
+    if (message && typeof message === 'object' && typeof message.message === 'string') {
+        return message.message
+    }
+    if (typeof data?.error === 'string' && data.error.trim()) return data.error
+    return fallback
+}
+
+export function notifyError(error: unknown, fallback: string) {
     toast.push(
         <Notification
             type="danger"
@@ -171,7 +192,7 @@ export function notifyError(error: unknown, fallback: string) {
             closable
             duration={5000}
         >
-            {message || fallback}
+            {errorDetail(error, fallback)}
         </Notification>,
         { placement: 'top-end' },
     )

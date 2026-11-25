@@ -48,10 +48,12 @@ describe('FicoAccountDeterminationService', () => {
         )
     })
 
-    it('keeps the documented legacy bridge for companies without FICO settings', async () => {
+    it('blocks MM posting when company accounting settings are missing', async () => {
         prisma.ficoCompanyAccountingSettings.findUnique.mockResolvedValue(null)
 
-        await expect(service.resolveMmPosting(payload)).resolves.toBeNull()
+        await expect(service.resolveMmPosting(payload)).rejects.toBeInstanceOf(
+            BadRequestException,
+        )
         expect(prisma.ficoMmAccountMapping.findMany).not.toHaveBeenCalled()
     })
 

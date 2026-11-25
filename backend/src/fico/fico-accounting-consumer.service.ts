@@ -1,13 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { OnEvent } from '@nestjs/event-emitter'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
-import { FicoJournalService } from './fico-journal.service'
+import { FicoAccountingEventProcessorService } from './fico-accounting-event-processor.service'
 
 @Injectable()
 export class FicoAccountingConsumerService {
     private readonly logger = new Logger(FicoAccountingConsumerService.name)
 
-    constructor(private journal: FicoJournalService) {}
+    constructor(private readonly processor: FicoAccountingEventProcessorService) {}
 
     @OnEvent('accounting.entry.requested', { async: true })
     async handleAccountingEntryRequested(
@@ -17,11 +17,6 @@ export class FicoAccountingConsumerService {
             this.logger.warn('Ignoring accounting.entry.requested with missing fields')
             return
         }
-        const result = await this.journal.createFromAccountingEvent(payload)
-        if (result.duplicate) {
-            this.logger.debug(
-                `Duplicate accounting event consumed: ${payload.idempotencyKey ?? payload.documentId}`,
-            )
-        }
+        await this.processor.processDispatch(payload)
     }
 }
