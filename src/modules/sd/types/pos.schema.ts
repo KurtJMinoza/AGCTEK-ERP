@@ -36,6 +36,8 @@ export const PosTenderSchema = z.object({
     bankName: z.string().trim().min(1).optional(),
     transactionDate: z.string().trim().min(1).optional(),
     employeeNumber: z.string().trim().min(1).optional(),
+    employeeName: z.string().trim().min(1).optional(),
+    employeeUserId: z.string().trim().min(1).optional(),
     payrollReference: z.string().trim().min(1).optional(),
     /** Cashier that confirmed the tender; without it the tender stays pending. */
     verifiedBy: z.string().trim().min(1).optional(),
@@ -55,8 +57,15 @@ export const PosCheckoutLineSchema = z.object({
     unitPrice: z.number().nonnegative(),
 })
 
+/**
+ * CHARGE = pay later: the customer takes the goods now and settles the whole
+ * amount (or a down payment) by the due date. It carries no tenders.
+ */
+export const POS_PAYMENT_MODES = ['FULL', 'SPLIT', 'DOWN_PAYMENT', 'CHARGE'] as const
+export type PosPaymentMode = (typeof POS_PAYMENT_MODES)[number]
+
 /** Body of POST /sd/pos/checkout. */
-export const PosCheckoutPayloadSchema = z.object({
+const PosCheckoutBaseSchema = z.object({
     /** Known shift of the register; the server opens one when it is missing. */
     posSessionId: z.string().trim().min(1).optional(),
     /** Company scope of the branch the register sells for. */
@@ -72,7 +81,44 @@ export const PosCheckoutPayloadSchema = z.object({
     createdBy: z.string().trim().min(1).optional(),
     discountAmount: z.number().nonnegative().optional(),
     lines: z.array(PosCheckoutLineSchema).min(1, 'Cart is empty'),
-    tenders: PosTenderListSchema,
+    /** One row per payment method; empty for a CHARGE (pay later) sale. */
+    tenders: z.array(PosTenderSchema).optional(),
+    /** FULL | SPLIT | DOWN_PAYMENT | CHARGE */
+    paymentMode: z.enum(POS_PAYMENT_MODES).optional(),
+    downPaymentType: z.enum(['PERCENTAGE', 'FIXED']).optional(),
+    downPaymentPct: z.number().min(0).max(100).optional(),
+    downPaymentAmount: z.number().nonnegative().optional(),
+    dueDate: z.string().trim().min(1).optional(),
+    /** Free-text payment remarks captured at Take Payment. */
+    remarks: z.string().trim().max(500).optional(),
+})
+
+export const PosCheckoutPayloadSchema = PosCheckoutBaseSchema.superRefine((body, ctx) => {
+    const tenders = body.tenders ?? []
+    if (body.paymentMode === 'CHARGE') {
+        if (tenders.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['tenders'],
+                message: 'A charge sale takes no payment now',
+            })
+        }
+        if (!body.dueDate) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['dueDate'],
+                message: 'Choose when the customer will pay',
+            })
+        }
+        return
+    }
+    if (tenders.length === 0) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['tenders'],
+            message: 'Add at least one payment method',
+        })
+    }
 })
 
 export type PosTenderInput = z.infer<typeof PosTenderSchema>

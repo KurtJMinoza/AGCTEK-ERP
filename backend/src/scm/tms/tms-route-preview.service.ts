@@ -5,6 +5,7 @@ import { OsrmService } from '../routing/osrm.service'
 import { computeHaversineLegs } from '../routing/haversine-route'
 import { assertFound, optionalDate } from '../scm.utils'
 import { loadPlanInclude } from './tms-load-plans.service'
+import { parseDepartureMode, parseServiceMinutes } from './route-preview.params'
 import { stopKey, type StopDraft, type TmsStopType } from './tms.rules'
 import {
     planTripStops,
@@ -13,9 +14,7 @@ import {
 } from './stop-location.rules'
 import {
     computeSchedule,
-    defaultServiceMinutes,
     recommendDeparture,
-    type DepartureMode,
     type ScheduleLeg,
     type ScheduleStop,
     type ScheduledStop,
@@ -240,21 +239,6 @@ function parseStopOrder(value: unknown): string[] | null {
         throw new BadRequestException('stopOrder must be an array of stop keys')
     }
     return value as string[]
-}
-
-function parseServiceMinutes(value: unknown): number {
-    if (value == null || value === '') return defaultServiceMinutes()
-    const n = Number(value)
-    if (!Number.isFinite(n) || n < 0 || n > 480) {
-        throw new BadRequestException('serviceTimeMin must be between 0 and 480')
-    }
-    return n
-}
-
-function parseDepartureMode(value: unknown): DepartureMode {
-    if (value == null || value === '') return 'ON_TIME'
-    if (value === 'ON_TIME' || value === 'EARLY') return value
-    throw new BadRequestException('departureMode must be ON_TIME or EARLY')
 }
 
 function originOf(stops: ResolvedStop[], recommendedAt: Date | null) {

@@ -132,26 +132,13 @@ export class ProductController {
         return this.products.suggestSku(divisionId)
     }
 
-    /** Options + variants of a product (admin editor + storefront detail). */
-    @Get(':id/options-variants')
-    optionsVariants(@Param('id') id: string) {
-        return this.optionVariants.getForProduct(id)
-    }
-
-    /** Replace the full options + variants set (variant generator output). */
-    @Put(':id/options-variants')
-    @RequirePermission('sd.product-catalog', 'update')
-    updateOptionsVariants(
-        @Param('id') id: string,
-        @Body() dto: UpdateProductOptionsVariantsDto,
-    ) {
-        return this.optionVariants.updateOptionsAndVariants(id, dto)
-    }
-
     /** POS / scanner: barcode → the exact variant (plus parent product). */
     @Get('variants/barcode/:barcode')
-    variantByBarcode(@Param('barcode') barcode: string) {
-        return this.optionVariants.findVariantByBarcode(barcode)
+    variantByBarcode(
+        @Param('barcode') barcode: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.optionVariants.findVariantByBarcode(barcode, companyId)
     }
 
     /** Per-variant MM availability (selected variant is the stock item). */
@@ -167,6 +154,22 @@ export class ProductController {
             companyId,
             branchId,
         )
+    }
+
+    /** Options + variants of a product (admin editor + storefront detail). */
+    @Get(':id/options-variants')
+    optionsVariants(@Param('id') id: string) {
+        return this.optionVariants.getForProduct(id)
+    }
+
+    /** Replace the full options + variants set (variant generator output). */
+    @Put(':id/options-variants')
+    @RequirePermission('sd.product-catalog', 'update')
+    updateOptionsVariants(
+        @Param('id') id: string,
+        @Body() dto: UpdateProductOptionsVariantsDto,
+    ) {
+        return this.optionVariants.updateOptionsAndVariants(id, dto)
     }
 
     /** Batch per-variant availability for a product page. */

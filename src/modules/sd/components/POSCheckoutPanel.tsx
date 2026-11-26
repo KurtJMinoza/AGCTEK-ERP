@@ -1,7 +1,8 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import {
-    HiOutlinePencil,
+    HiOutlineSearch,
     HiOutlineUser,
     HiOutlineUserAdd,
     HiOutlineX,
@@ -10,6 +11,7 @@ import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import NumericInput from '@/components/shared/NumericInput'
 import Avatar from '@/components/ui/Avatar'
 import Button from '@/components/ui/Button'
+import Select from '@/components/ui/Select'
 import Tag from '@/components/ui/Tag'
 import classNames from '@/utils/classNames'
 import type { POSCartCustomer } from '../store/usePOSCartStore'
@@ -17,6 +19,8 @@ import type { POSCartCustomer } from '../store/usePOSCartStore'
 export type POSCustomerOption = {
     value: string
     label: string
+    /** Company / customer name without the customer number suffix. */
+    name: string
     accountType: string
 }
 
@@ -40,6 +44,7 @@ type POSCheckoutPanelProps = {
     /** Opens the full customer form (a new customer with details). */
     onOpenCustomerDialog: () => void
     addingCustomer?: boolean
+    customersLoading?: boolean
     /** The terminal can take money without an opened shift. */
     canPay: boolean
     onPay: () => void
@@ -69,6 +74,7 @@ const POSCheckoutPanel = ({
     onSearchCustomers,
     onOpenCustomerDialog,
     addingCustomer = false,
+    customersLoading = false,
     canPay,
     onPay,
     onHold,
@@ -76,7 +82,33 @@ const POSCheckoutPanel = ({
     onVoid,
     formatPrice,
 }: POSCheckoutPanelProps) => {
+    const [selectingExisting, setSelectingExisting] = useState(false)
+    const [discountError, setDiscountError] = useState<string | null>(null)
     const total = amountDue ?? Number((subtotal - discountAmount).toFixed(2))
+
+    useEffect(() => {
+        if (!selectingExisting) return
+        onLoadCustomers()
+        // Load once when the picker opens; typing triggers onSearchCustomers.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid reload loop when options refresh
+    }, [selectingExisting])
+
+    useEffect(() => {
+        if (customer) setSelectingExisting(false)
+    }, [customer])
+
+    const openExistingPicker = () => setSelectingExisting(true)
+
+    const applyExistingCustomer = (option: POSCustomerOption | null) => {
+        if (!option) return
+        onCustomerChange({
+            id: option.value,
+            name: option.name || option.label,
+            accountType: option.accountType,
+        })
+        setSelectingExisting(false)
+    }
+
     return (
         <AdaptiveCard className="border border-gray-200 shadow-sm dark:border-gray-700 xl:sticky xl:top-4">
             <div className="mb-4 flex items-start justify-between gap-2">
@@ -144,30 +176,54 @@ const POSCheckoutPanel = ({
                         decimalScale={2}
                         fixedDecimalScale
                         allowNegative={false}
+                        invalid={Boolean(discountError)}
                         value={discountAmount}
-                        onValueChange={(v) =>
-                            onDiscountChange(
-                                Math.min(
-                                    Math.max(v.floatValue ?? 0, 0),
-                                    subtotal,
-                                ),
+                        onValueChange={(v) => {
+                            const typed = Math.max(v.floatValue ?? 0, 0)
+                            setDiscountError(
+                                typed > subtotal + 0.005
+                                    ? `The discount cannot exceed the cart subtotal (${formatPrice(subtotal)}); it was set to the maximum.`
+                                    : null,
                             )
-                        }
+                            onDiscountChange(Math.min(typed, subtotal))
+                        }}
                     />
+                    {discountError ? (
+                        <p
+                            role="alert"
+                            className="mt-1 text-xs font-medium text-red-600 dark:text-red-400"
+                        >
+                            {discountError}
+                        </p>
+                    ) : null}
                 </div>
 
                 <div>
-                    <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                        Customer name
-                    </span>
-                    <div className="rounded-xl border border-gray-200 p-3 dark:border-gray-700">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Customer
+                        </span>
+                        {!customer && !selectingExisting ? (
+                            <span className="text-[11px] text-gray-400">
+                                Optional
+                            </span>
+                        ) : null}
+                    </div>
+                    <div
+                        className={classNames(
+                            'rounded-xl border px-3 py-3 dark:border-gray-700',
+                            customer
+                                ? 'border-primary/30 bg-primary-subtle/40 dark:bg-primary/10'
+                                : 'border-gray-200 bg-white dark:bg-gray-900/20',
+                        )}
+                    >
                         <div className="flex items-center gap-3">
                             <Avatar
-                                size={40}
+                                size={36}
                                 shape="circle"
                                 className={classNames(
                                     customer
-                                        ? 'bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light'
+                                        ? 'bg-primary text-white'
                                         : 'bg-gray-100 text-gray-400 dark:bg-gray-700',
                                 )}
                                 icon={<HiOutlineUser />}
@@ -175,40 +231,94 @@ const POSCheckoutPanel = ({
                             <div className="min-w-0 flex-1">
                                 <p
                                     className={classNames(
-                                        'truncate font-semibold',
+                                        'truncate text-sm font-semibold',
                                         customer
                                             ? 'heading-text'
-                                            : 'text-gray-400',
+                                            : 'text-gray-500',
                                     )}
                                 >
-                                    {customer?.name ?? 'Walk-in customer'}
+                                    {customer?.name ?? 'Walk-in'}
                                 </p>
-                                <p className="text-[11px] text-gray-500">
+                                <p className="truncate text-[11px] text-gray-500">
                                     {customer
-                                        ? 'Linked to this sale'
-                                        : 'Add the customer details to link a name to this sale'}
+                                        ? customer.accountType === 'CREDIT'
+                                            ? 'Credit customer · linked'
+                                            : 'Cash customer · linked'
+                                        : selectingExisting
+                                          ? 'Search Customer Master'
+                                          : 'Leave as walk-in, or link a name'}
                                 </p>
                             </div>
                             {customer ? (
-                                <Tag className="shrink-0">
+                                <Tag className="shrink-0 bg-white/80 dark:bg-gray-800">
                                     {customer.accountType === 'CREDIT'
                                         ? 'Credit'
                                         : 'Cash'}
                                 </Tag>
                             ) : null}
                         </div>
-                        {customer ? (
-                            <div className="mt-3 grid grid-cols-2 gap-2">
+
+                        {selectingExisting ? (
+                            <div className="mt-3 space-y-2.5 border-t border-gray-100 pt-3 dark:border-gray-700/80">
+                                <Select<POSCustomerOption>
+                                    options={customerOptions}
+                                    isSearchable
+                                    isLoading={customersLoading}
+                                    placeholder="Type a name or customer no."
+                                    noOptionsMessage={() =>
+                                        customersLoading
+                                            ? 'Loading…'
+                                            : 'No matching customers'
+                                    }
+                                    filterOption={null}
+                                    onInputChange={(value, meta) => {
+                                        if (meta.action === 'input-change') {
+                                            onSearchCustomers(value)
+                                        }
+                                        return value
+                                    }}
+                                    onChange={(option) =>
+                                        applyExistingCustomer(option)
+                                    }
+                                    value={null}
+                                />
+                                <div className="flex items-center justify-between gap-2">
+                                    <button
+                                        type="button"
+                                        className="text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                        onClick={() =>
+                                            setSelectingExisting(false)
+                                        }
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                                        disabled={addingCustomer}
+                                        onClick={() => {
+                                            setSelectingExisting(false)
+                                            onOpenCustomerDialog()
+                                        }}
+                                    >
+                                        <HiOutlineUserAdd className="h-3.5 w-3.5" />
+                                        New customer
+                                    </button>
+                                </div>
+                            </div>
+                        ) : customer ? (
+                            <div className="mt-3 flex gap-2 border-t border-primary/15 pt-3">
                                 <Button
                                     size="sm"
-                                    icon={<HiOutlinePencil />}
-                                    loading={addingCustomer}
-                                    onClick={onOpenCustomerDialog}
+                                    className="flex-1"
+                                    icon={<HiOutlineSearch />}
+                                    onClick={openExistingPicker}
                                 >
                                     Change
                                 </Button>
                                 <Button
                                     size="sm"
+                                    className="flex-1"
                                     icon={<HiOutlineX />}
                                     disabled={addingCustomer}
                                     onClick={() => onCustomerChange(null)}
@@ -217,16 +327,25 @@ const POSCheckoutPanel = ({
                                 </Button>
                             </div>
                         ) : (
-                            <Button
-                                block
-                                size="sm"
-                                className="mt-3"
-                                icon={<HiOutlineUserAdd />}
-                                loading={addingCustomer}
-                                onClick={onOpenCustomerDialog}
-                            >
-                                Add customer with details
-                            </Button>
+                            <div className="mt-3 flex gap-2 border-t border-gray-100 pt-3 dark:border-gray-700/80">
+                                <Button
+                                    size="sm"
+                                    className="flex-1"
+                                    icon={<HiOutlineSearch />}
+                                    onClick={openExistingPicker}
+                                >
+                                    Select existing
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="flex-1"
+                                    icon={<HiOutlineUserAdd />}
+                                    loading={addingCustomer}
+                                    onClick={onOpenCustomerDialog}
+                                >
+                                    Add new
+                                </Button>
+                            </div>
                         )}
                     </div>
                 </div>

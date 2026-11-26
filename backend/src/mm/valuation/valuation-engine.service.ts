@@ -170,6 +170,7 @@ export class ValuationEngineService {
             companyId: original.companyId,
             postingDate: new Date(),
             sourceTransactionId: reversal.id,
+            financiallyRelevant: false,
             accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.REVERSAL],
             lines: [
                 {
@@ -393,6 +394,9 @@ export class ValuationEngineService {
             postingDate: new Date(),
             sourceTransactionId: valTxn.id,
             accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_REVALUATION],
+            // The variance/revaluation posting below is the financial authority;
+            // this event only exposes the valuation recalculation.
+            financiallyRelevant: false,
             lines: [
                 {
                     materialId: valTxn.materialId,

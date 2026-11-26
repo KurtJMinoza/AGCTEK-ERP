@@ -25,6 +25,8 @@ const INVOICE_INCLUDES = {
     supplier: true,
     purchaseOrder: { include: { currency: true, supplier: true } },
     currency: true,
+    taxCode: true,
+    withholdingTaxCode: true,
     lines: {
         include: {
             material: true,
@@ -41,6 +43,22 @@ const INVOICE_INCLUDES = {
         orderBy: { lineNumber: 'asc' as const },
     },
     exceptions: true,
+    ficoApDocuments: {
+        select: {
+            id: true,
+            documentType: true,
+            status: true,
+            journalEntryId: true,
+            reconciliationAccountCode: true,
+            postingDate: true,
+            dueDate: true,
+            liabilityAmount: true,
+            paymentBlocked: true,
+            journalEntry: {
+                select: { id: true, documentNumber: true, status: true },
+            },
+        },
+    },
 }
 
 @Injectable()
@@ -69,6 +87,20 @@ export class SupplierInvoiceService {
                     supplier: true,
                     purchaseOrder: true,
                     currency: true,
+                    ficoApDocuments: {
+                        select: {
+                            id: true,
+                            documentType: true,
+                            status: true,
+                            journalEntryId: true,
+                            dueDate: true,
+                            liabilityAmount: true,
+                            paymentBlocked: true,
+                            journalEntry: {
+                                select: { id: true, documentNumber: true, status: true },
+                            },
+                        },
+                    },
                     _count: { select: { lines: true, exceptions: true } },
                 },
                 orderBy: { createdAt: 'desc' },
@@ -154,9 +186,14 @@ export class SupplierInvoiceService {
                 currencyId: dto.currencyId ?? po.currencyId ?? null,
                 invoiceDate: new Date(dto.invoiceDate),
                 postingDate: dto.postingDate ? new Date(dto.postingDate) : null,
+                baselineDate: dto.baselineDate ? new Date(dto.baselineDate) : null,
+                dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+                taxCodeId: dto.taxCodeId ?? null,
+                withholdingTaxCodeId: dto.withholdingTaxCodeId ?? null,
                 taxAmount,
                 totalAmount,
                 status: 'DRAFT',
+                paymentBlocked: dto.paymentBlocked ?? false,
                 createdBy: dto.createdBy ?? null,
                 remarks: dto.remarks ?? null,
                 lines: { create: lineCreates },
@@ -233,6 +270,28 @@ export class SupplierInvoiceService {
                                 ? new Date(dto.postingDate)
                                 : null
                             : undefined,
+                    baselineDate:
+                        dto.baselineDate !== undefined
+                            ? dto.baselineDate
+                                ? new Date(dto.baselineDate)
+                                : null
+                            : undefined,
+                    dueDate:
+                        dto.dueDate !== undefined
+                            ? dto.dueDate
+                                ? new Date(dto.dueDate)
+                                : null
+                            : undefined,
+                    taxCodeId:
+                        dto.taxCodeId !== undefined ? dto.taxCodeId || null : undefined,
+                    withholdingTaxCodeId:
+                        dto.withholdingTaxCodeId !== undefined
+                            ? dto.withholdingTaxCodeId || null
+                            : undefined,
+                    paymentBlocked:
+                        dto.paymentBlocked !== undefined
+                            ? dto.paymentBlocked
+                            : undefined,
                     taxAmount,
                     totalAmount,
                     currencyId: dto.currencyId ?? undefined,
@@ -253,6 +312,28 @@ export class SupplierInvoiceService {
                         ? dto.postingDate
                             ? new Date(dto.postingDate)
                             : null
+                        : undefined,
+                baselineDate:
+                    dto.baselineDate !== undefined
+                        ? dto.baselineDate
+                            ? new Date(dto.baselineDate)
+                            : null
+                        : undefined,
+                dueDate:
+                    dto.dueDate !== undefined
+                        ? dto.dueDate
+                            ? new Date(dto.dueDate)
+                            : null
+                        : undefined,
+                taxCodeId:
+                    dto.taxCodeId !== undefined ? dto.taxCodeId || null : undefined,
+                withholdingTaxCodeId:
+                    dto.withholdingTaxCodeId !== undefined
+                        ? dto.withholdingTaxCodeId || null
+                        : undefined,
+                paymentBlocked:
+                    dto.paymentBlocked !== undefined
+                        ? dto.paymentBlocked
                         : undefined,
                 taxAmount:
                     dto.taxAmount !== undefined

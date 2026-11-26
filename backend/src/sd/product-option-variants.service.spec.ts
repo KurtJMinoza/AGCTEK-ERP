@@ -571,6 +571,28 @@ describe('ProductOptionVariantsService', () => {
         ).rejects.toThrow(NotFoundException)
     })
 
+    it('finds the variant when the scanner reads a leading zero the stored barcode lost', async () => {
+        const stored = {
+            id: 'v-9',
+            variantName: 'Default',
+            sku: 'AVEENO-1',
+            barcode: '62600061546', // spreadsheet dropped the leading 0
+            product: { id: 'p9', sku: 'RET-9' },
+        }
+        mockPrisma.sdProductVariant.findUnique.mockResolvedValue(null)
+        mockPrisma.sdProductVariant.findFirst.mockResolvedValue(stored)
+
+        const found = await service.findVariantByBarcode('062600061546')
+
+        expect(found?.id).toBe('v-9')
+        expect(mockPrisma.sdProductVariant.findUnique).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { barcode: '062600061546' } }),
+        )
+        const alternate = mockPrisma.sdProductVariant.findFirst.mock.calls.at(-1)?.[0]
+            .where.barcode as { in: string[] }
+        expect(alternate.in).toContain('62600061546')
+    })
+
     it('reports per-variant MM availability through the availability service', async () => {
         mockPrisma.sdProductVariant.findUnique.mockResolvedValue({
             id: 'v-1',

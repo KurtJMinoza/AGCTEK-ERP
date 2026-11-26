@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -15,10 +15,13 @@ import StatCard from '@/components/shared/StatCard'
 import StatusBadge from '@/components/shared/StatusBadge'
 import usePermissions from '@/utils/hooks/usePermissions'
 import LoyaltyPanel from '../components/LoyaltyPanel'
+import BirthdayEditDialog from '../components/customer360/BirthdayEditDialog'
 import CardGrid from '../components/customer360/CardGrid'
-import CustomerRatingDialog from '../components/customer360/CustomerRatingDialog'
+import CustomerRatingPanel from '../components/customer360/CustomerRatingPanel'
 import SalesOrderCard from '../components/customer360/SalesOrderCard'
 import ShipmentCard, { SCM_SHIPMENTS_PATH } from '../components/customer360/ShipmentCard'
+import { updateCustomer } from '@/modules/sd/services/customerMasterService'
+import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 import { shipmentActivityAt } from '../components/customer360/statusTones'
 import OpportunityFormDialog from '../components/OpportunityFormDialog'
 import TicketActivitiesDialog from '../components/TicketActivitiesDialog'
@@ -31,13 +34,10 @@ import {
     formatDate,
     formatEnumLabel,
     formatMoney,
-    toDateInput,
 } from '../utils/format'
 import { SD_SALES_ORDERS_PATH } from '../components/OpportunitySalesOrderDialog'
 import { opportunityHref } from '../utils/deepLinks'
 import type { Customer360SectionState, Opportunity, Ticket } from '../types'
-import Input from '@/components/ui/Input'
-import { getApiErrorMessage } from '@/modules/scm/utils/apiError'
 
 /** A degraded section shows its placeholder; the rest of the page still renders. */
 function Section({
@@ -87,7 +87,6 @@ const CUSTOMER_360_TABS = [
     'invoices',
     'tickets',
     'loyalty',
-    'history',
 ] as const
 type Customer360Tab = (typeof CUSTOMER_360_TABS)[number]
 const isCustomer360Tab = (value: string | null): value is Customer360Tab =>
@@ -108,22 +107,6 @@ function TabLabel({ label, count }: { label: string; count: number | null }) {
         </span>
     )
 }
-
-function StarDisplay({ stars }: { stars: number }) {
-    return (
-        <span className="inline-flex items-center gap-0.5 text-amber-400" aria-label={`${stars} of 5 stars`}>
-            {[1, 2, 3, 4, 5].map((n) => (
-                <span key={n} className={n <= stars ? '' : 'text-gray-300'}>
-                    ★
-                </span>
-            ))}
-            <span className="ml-1 text-sm tabular-nums text-gray-700 dark:text-gray-200">
-                {stars}/5
-            </span>
-        </span>
-    )
-}
-
 const SD_CUSTOMER_MASTER_PATH = '/modules/sd/customer-master'
 
 export default function CustomerDetailPage() {
@@ -138,14 +121,13 @@ export default function CustomerDetailPage() {
         updateOpportunity,
         createTicket,
         updateTicket,
-        setRating,
-        setBirthDate,
+        rateCustomer,
     } = useCustomer360(customerId)
     const { can } = usePermissions()
     const canCreate = can('crm.tickets', 'create')
     const canUpdate = can('crm.tickets', 'update')
-    const canRate = can('crm.customers', 'update')
     const canEditBirthday = can('sd.customer-master', 'update')
+    const canRateCustomer = can('crm.customers', 'update')
 
     const [opportunityDialog, setOpportunityDialog] = useState<{ row: Opportunity | null } | null>(
         null,
@@ -153,11 +135,7 @@ export default function CustomerDetailPage() {
     const [ticketDialog, setTicketDialog] = useState<{ row: Ticket | null } | null>(null)
     const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null)
     const [ticketActivitiesFor, setTicketActivitiesFor] = useState<Ticket | null>(null)
-    const [ratingOpen, setRatingOpen] = useState(false)
-    const [ratingSaving, setRatingSaving] = useState(false)
-    const [birthdayDraft, setBirthdayDraft] = useState('')
-    const [birthdaySaving, setBirthdaySaving] = useState(false)
-    const [actionError, setActionError] = useState<string | null>(null)
+    const [birthdayOpen, setBirthdayOpen] = useState(false)
 
     const opportunityColumns = useMemo<ColumnDef<Opportunity>[]>(
         () => [
@@ -307,12 +285,12 @@ export default function CustomerDetailPage() {
         )
     }
 
-    const { customer, profile, summary, loyalty, rating, sections } = data
+    const { customer, profile, summary, loyalty, sections, rating, ratingHistory } = data
     const tier = loyalty?.tier ?? profile?.tier ?? null
     const ordersOk = sections.orders.status === 'ok'
-    const ratingOk = sections.rating?.status === 'ok'
-    const currentRating = rating?.current ?? null
-    const ratingHistory = rating?.history ?? []
+    const birthdayLabel = customer.birthDate
+        ? formatDate(customer.birthDate)
+        : 'Not set'
 
     return (
         <PageContainer>
@@ -337,14 +315,9 @@ export default function CustomerDetailPage() {
                     {error}
                 </Alert>
             ) : null}
-            {actionError ? (
-                <Alert showIcon type="danger" className="mb-4" title="Update failed">
-                    {actionError}
-                </Alert>
-            ) : null}
 
             <AdaptiveCard className="mb-4">
-                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
                     <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Status</p>
                         <StatusBadge className="mt-1" tone={crmTone(customer.status)}>
@@ -362,110 +335,18 @@ export default function CustomerDetailPage() {
                         )}
                     </div>
                     <div>
-                        <p className="text-xs uppercase tracking-wide text-gray-400">Rating</p>
-                        {!ratingOk && sections.rating.status !== 'ok' ? (
-                            <div className="mt-1">
-                                <SectionNotice state={sections.rating} />
-                            </div>
-                        ) : currentRating ? (
-                            <div className="mt-1 space-y-1">
-                                <StarDisplay stars={currentRating.stars} />
-                                <p className="text-xs text-gray-500">
-                                    Updated {formatDate(currentRating.ratedAt)}
-                                </p>
-                                {canRate ? (
-                                    <Button size="xs" onClick={() => setRatingOpen(true)}>
-                                        Change rating
-                                    </Button>
-                                ) : null}
-                            </div>
-                        ) : (
-                            <div className="mt-1 space-y-1">
-                                <p className="text-gray-500">No rating yet</p>
-                                {canRate ? (
-                                    <Button size="xs" variant="solid" onClick={() => setRatingOpen(true)}>
-                                        Rate customer
-                                    </Button>
-                                ) : null}
-                            </div>
-                        )}
-                    </div>
-                    <div>
-                        <p className="text-xs uppercase tracking-wide text-gray-400">Birthday</p>
-                        {canEditBirthday ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                                <Input
-                                    type="date"
-                                    className="max-w-[11rem]"
-                                    value={birthdayDraft || toDateInput(customer.birthDate)}
-                                    max={new Date().toISOString().slice(0, 10)}
-                                    onChange={(e) => setBirthdayDraft(e.target.value)}
-                                />
-                                <Button
-                                    size="xs"
-                                    loading={birthdaySaving}
-                                    disabled={
-                                        (birthdayDraft || toDateInput(customer.birthDate)) ===
-                                        toDateInput(customer.birthDate)
-                                    }
-                                    onClick={() => {
-                                        void (async () => {
-                                            setBirthdaySaving(true)
-                                            setActionError(null)
-                                            try {
-                                                const next = birthdayDraft || null
-                                                await setBirthDate(next)
-                                                setBirthdayDraft('')
-                                            } catch (err) {
-                                                setActionError(
-                                                    getApiErrorMessage(err, 'Unable to save birthday'),
-                                                )
-                                            } finally {
-                                                setBirthdaySaving(false)
-                                            }
-                                        })()
-                                    }}
-                                >
-                                    Save
-                                </Button>
-                                {customer.birthDate || birthdayDraft ? (
-                                    <Button
-                                        size="xs"
-                                        loading={birthdaySaving}
-                                        onClick={() => {
-                                            void (async () => {
-                                                setBirthdaySaving(true)
-                                                setActionError(null)
-                                                try {
-                                                    await setBirthDate(null)
-                                                    setBirthdayDraft('')
-                                                } catch (err) {
-                                                    setActionError(
-                                                        getApiErrorMessage(
-                                                            err,
-                                                            'Unable to clear birthday',
-                                                        ),
-                                                    )
-                                                } finally {
-                                                    setBirthdaySaving(false)
-                                                }
-                                            })()
-                                        }}
-                                    >
-                                        Clear
-                                    </Button>
-                                ) : null}
-                            </div>
-                        ) : (
-                            <p className="mt-1">
-                                {customer.birthDate ? formatDate(customer.birthDate) : 'Not set'}
-                            </p>
-                        )}
-                    </div>
-                    <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Contact</p>
                         <p className="mt-1">{customer.email || '—'}</p>
                         <p className="text-gray-500">{customer.phone || '—'}</p>
+                    </div>
+                    <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Birthday</p>
+                        <p className="mt-1">{birthdayLabel}</p>
+                        {canEditBirthday ? (
+                            <Button size="xs" className="mt-1" onClick={() => setBirthdayOpen(true)}>
+                                Edit
+                            </Button>
+                        ) : null}
                     </div>
                     <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">
@@ -486,6 +367,14 @@ export default function CustomerDetailPage() {
                     </p>
                 ) : null}
             </AdaptiveCard>
+
+            <CustomerRatingPanel
+                rating={rating}
+                history={ratingHistory}
+                historyState={sections.ratings}
+                canRate={canRateCustomer}
+                onRate={rateCustomer}
+            />
 
             <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 <StatCard
@@ -555,12 +444,6 @@ export default function CustomerDetailPage() {
                     </TabNav>
                     <TabNav value="loyalty" className="shrink-0">
                         <TabLabel label="Loyalty" count={null} />
-                    </TabNav>
-                    <TabNav value="history" className="shrink-0">
-                        <TabLabel
-                            label="History"
-                            count={ratingOk ? ratingHistory.length : null}
-                        />
                     </TabNav>
                 </TabList>
 
@@ -669,38 +552,6 @@ export default function CustomerDetailPage() {
                     </Section>
                 </TabContent>
 
-                <TabContent value="history">
-                    <Section title="Customer history" state={sections.rating}>
-                        {!loading && ratingHistory.length === 0 ? (
-                            <EmptySection>
-                                No rating history yet. Loyalty and commercial documents stay separate.
-                            </EmptySection>
-                        ) : (
-                            <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                                {ratingHistory.map((entry) => (
-                                    <li key={entry.id} className="py-3 text-sm">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <StarDisplay stars={entry.stars} />
-                                            <span className="text-xs text-gray-500">
-                                                {formatDate(entry.ratedAt)}
-                                            </span>
-                                            {entry.previousStars !== null ? (
-                                                <span className="text-xs text-gray-500">
-                                                    (was {entry.previousStars}/5)
-                                                </span>
-                                            ) : null}
-                                        </div>
-                                        {entry.comment ? (
-                                            <p className="mt-1 text-gray-700 dark:text-gray-200">
-                                                {entry.comment}
-                                            </p>
-                                        ) : null}
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </Section>
-                </TabContent>
             </Tabs>
 
             <OpportunityFormDialog
@@ -732,21 +583,16 @@ export default function CustomerDetailPage() {
                 canUpdate={canUpdate}
                 onClose={() => setTicketActivitiesFor(null)}
             />
-            <CustomerRatingDialog
-                isOpen={ratingOpen}
-                saving={ratingSaving}
-                initialStars={currentRating?.stars}
-                onClose={() => setRatingOpen(false)}
-                onSubmit={async (input) => {
-                    setRatingSaving(true)
-                    setActionError(null)
+            <BirthdayEditDialog
+                isOpen={birthdayOpen}
+                birthDate={customer.birthDate}
+                onClose={() => setBirthdayOpen(false)}
+                onSave={async (birthDate) => {
                     try {
-                        await setRating(input)
-                        setRatingOpen(false)
+                        await updateCustomer(customer.id, { birthDate })
+                        await reload()
                     } catch (err) {
-                        setActionError(getApiErrorMessage(err, 'Unable to save rating'))
-                    } finally {
-                        setRatingSaving(false)
+                        throw new Error(getApiErrorMessage(err, 'Unable to save birthday'))
                     }
                 }}
             />

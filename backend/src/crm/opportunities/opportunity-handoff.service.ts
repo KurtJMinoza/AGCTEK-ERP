@@ -33,7 +33,7 @@ type SdOrderLike = {
     lines: unknown[]
     createdAt: Date
     companyId?: string | null
-    company?: { id: string; code: string; name: string } | null
+    company?: { id: string; code?: string | null; name: string } | null
 }
 
 type HandoffUser = { id: string; role: string }
@@ -106,8 +106,13 @@ export function salesOrderSummary(order: SdOrderLike) {
         lineCount: order.lines.length,
         createdAt: order.createdAt,
         companyId: order.companyId ?? order.company?.id ?? null,
+        companyName: order.company?.name ?? null,
         company: order.company
-            ? { id: order.company.id, code: order.company.code, name: order.company.name }
+            ? {
+                  id: order.company.id,
+                  code: order.company.code ?? null,
+                  name: order.company.name,
+              }
             : null,
     }
 }

@@ -20,7 +20,34 @@ import {
 } from './fico-account-determination.constants'
 import { FicoAuditService } from './fico-audit.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import { FicoAccountDeterminationValidationService } from './fico-account-determination-validation.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
+import {
+    FICO_DETERMINATION_ID_DIMENSIONS,
+    persistenceFromExtendedDimensions,
+} from './fico-determination-dimension.util'
+import {
+    FICO_TREASURY_PAYMENT_METHOD_HINTS,
+    FICO_TREASURY_SETTLEMENT_EXAMPLE,
+} from './fico-treasury-payment-determination.policy'
+import { FICO_AA_ASSET_CLASS_HINTS } from './fico-aa-account-determination.policy'
+import {
+    FICO_PP_CO_ACCOUNTING_FLOW,
+    FICO_PP_CO_FLOW_NARRATIVE,
+} from './fico-pp-co-account-determination.policy'
+import { ficoRuleAuthoringDimensions } from './fico-rule-authoring-dimensions.policy'
+import {
+    FICO_LIVE_TRANSACTION_KEY_CODES,
+    FICO_TRANSACTION_KEY_CATALOG,
+} from './fico-transaction-key.catalog'
+import { FICO_ACCOUNTING_ERROR_CODES } from './fico-accounting-event.constants'
+import {
+    ficoAssertAccountTypeForCategory,
+    ficoCatalogEntryForKey,
+    FICO_ACCOUNTING_CATEGORY_GL_TYPES,
+} from './fico-account-determination-policy'
+import { FicoDeterminationSodPolicy } from './fico-determination-sod.policy'
+import { randomUUID } from 'node:crypto'
 
 export type DeterminationLineInput = {
     side: string
@@ -45,6 +72,17 @@ export type CreateDeterminationInput = {
     customerAccountGroup?: string | null
     salesOrganization?: string | null
     distributionChannel?: string | null
+    paymentMethodCode?: string | null
+    bankAccountId?: string | null
+    paymentProviderCode?: string | null
+    currencyCode?: string | null
+    branchId?: string | null
+    assetClassCode?: string | null
+    depreciationAreaCode?: string | null
+    documentTypeCode?: string | null
+    productionOrderTypeCode?: string | null
+    costElementCategoryCode?: string | null
+    controllingAreaCode?: string | null
     changeReason?: string | null
     lines: DeterminationLineInput[]
 }
@@ -57,11 +95,32 @@ export type DeterminationQuery = {
     companyId?: string
     sourceModule?: string
     transactionType?: string
+    transactionKeyCode?: string
+    glAccountId?: string
     status?: string
+    effectiveOn?: string
+    accountingCategory?: string
+    /** COMPLETE = has a transaction key and both sides; INCOMPLETE = missing either. */
+    completeness?: string
     search?: string
+    sortBy?: string
+    sortDir?: 'asc' | 'desc'
     page?: number
     pageSize?: number
 }
+
+const SORTABLE_RULE_FIELDS = new Set([
+    'determinationCode',
+    'name',
+    'priority',
+    'status',
+    'sourceModule',
+    'transactionType',
+    'transactionKeyCode',
+    'effectiveFrom',
+    'effectiveTo',
+    'updatedAt',
+])
 
 const RULE_INCLUDE = {
     lines: {
@@ -110,6 +169,8 @@ export class FicoAccountDeterminationRulesService {
         private readonly access: FicoCompanyAccessService,
         private readonly audit: FicoAuditService,
         private readonly postingValidation: FicoPostingValidationService,
+        private readonly determinationValidation: FicoAccountDeterminationValidationService,
+        private readonly sod: FicoDeterminationSodPolicy,
     ) {}
 
     async list(query: DeterminationQuery, user: AuthRequestUser) {
@@ -121,25 +182,78 @@ export class FicoAccountDeterminationRulesService {
         const page = Math.max(1, query.page ?? 1)
         const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50))
         const search = query.search?.trim()
+        const effectiveOn = query.effectiveOn
+            ? toDate(query.effectiveOn, 'effective date filter')
+            : null
+        const categoryKeys = query.accountingCategory
+            ? FICO_TRANSACTION_KEY_CATALOG.filter(
+                  (entry) =>
+                      entry.accountingCategory.toUpperCase() ===
+                      query.accountingCategory!.trim().toUpperCase(),
+              ).map((entry) => entry.code)
+            : null
+
         const where: Prisma.FicoAccountDeterminationRuleWhereInput = {
             companyId,
             ...(query.sourceModule ? { sourceModule: query.sourceModule } : {}),
             ...(query.transactionType ? { transactionType: query.transactionType } : {}),
+            ...(query.transactionKeyCode
+                ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                : {}),
             ...(query.status ? { status: query.status } : {}),
+            ...(query.glAccountId
+                ? { lines: { some: { glAccountId: query.glAccountId } } }
+                : {}),
+            ...(categoryKeys ? { transactionKeyCode: { in: categoryKeys } } : {}),
+            ...(query.completeness === 'INCOMPLETE'
+                ? { transactionKeyCode: null }
+                : query.completeness === 'COMPLETE'
+                  ? { transactionKeyCode: { not: null } }
+                  : {}),
+            ...(effectiveOn
+                ? {
+                      AND: [
+                          {
+                              OR: [
+                                  { effectiveFrom: null },
+                                  { effectiveFrom: { lte: effectiveOn } },
+                              ],
+                          },
+                          {
+                              OR: [
+                                  { effectiveTo: null },
+                                  { effectiveTo: { gte: effectiveOn } },
+                              ],
+                          },
+                      ],
+                  }
+                : {}),
             ...(search
                 ? {
                       OR: [
                           { determinationCode: { contains: search, mode: 'insensitive' } },
                           { name: { contains: search, mode: 'insensitive' } },
+                          { transactionKeyCode: { contains: search, mode: 'insensitive' } },
                       ],
                   }
                 : {}),
         }
+
+        const sortBy =
+            query.sortBy && SORTABLE_RULE_FIELDS.has(query.sortBy)
+                ? query.sortBy
+                : null
+        const sortDir = query.sortDir === 'desc' ? 'desc' : 'asc'
+        const orderBy: Prisma.FicoAccountDeterminationRuleOrderByWithRelationInput[] =
+            sortBy
+                ? [{ [sortBy]: sortDir } as never, { determinationCode: 'asc' }]
+                : [{ priority: 'asc' }, { determinationCode: 'asc' }]
+
         const [items, total] = await Promise.all([
             this.prisma.ficoAccountDeterminationRule.findMany({
                 where,
                 include: RULE_INCLUDE,
-                orderBy: [{ priority: 'asc' }, { determinationCode: 'asc' }],
+                orderBy,
                 skip: (page - 1) * pageSize,
                 take: pageSize,
             }),
@@ -177,7 +291,189 @@ export class FicoAccountDeterminationRulesService {
             pendingApproval: byStatus.PENDING_APPROVAL ?? 0,
             drafts: byStatus.DRAFT ?? 0,
             rejected: byStatus.REJECTED ?? 0,
+            approved: byStatus.APPROVED ?? 0,
+            inactive: byStatus.INACTIVE ?? 0,
         }
+    }
+
+    async workbenchOverview(companyId: string, user: AuthRequestUser) {
+        await this.access.assertAccess(user, companyId)
+        const summary = await this.overview({ companyId }, user)
+        const today = new Date(
+            Date.UTC(
+                new Date().getUTCFullYear(),
+                new Date().getUTCMonth(),
+                new Date().getUTCDate(),
+            ),
+        )
+
+        const [
+            scheduledRules,
+            settings,
+            failedResolutionEvents,
+            pendingAccountingEvents,
+            invalidRuleCount,
+            activeKeyCount,
+        ] = await Promise.all([
+            this.prisma.ficoAccountDeterminationRule.count({
+                where: {
+                    companyId,
+                    status: { in: ['APPROVED', 'ACTIVE', 'INACTIVE'] },
+                    effectiveFrom: { gt: today },
+                },
+            }),
+            this.prisma.ficoCompanyAccountingSettings.findUnique({
+                where: { companyId },
+                select: {
+                    status: true,
+                    accountDeterminationProfileId: true,
+                    chartOfAccountsId: true,
+                },
+            }),
+            this.prisma.mmAccountingEvent.count({
+                where: {
+                    companyId,
+                    OR: [
+                        { lastErrorCode: FICO_ACCOUNTING_ERROR_CODES.DETERMINATION },
+                        {
+                            status: 'PENDING',
+                            lastErrorCode: {
+                                in: [
+                                    FICO_ACCOUNTING_ERROR_CODES.DETERMINATION,
+                                    FICO_ACCOUNTING_ERROR_CODES.VALIDATION,
+                                ],
+                            },
+                        },
+                    ],
+                },
+            }),
+            this.prisma.mmAccountingEvent.count({
+                where: { companyId, status: 'PENDING' },
+            }),
+            this.prisma.ficoAccountDeterminationRule.count({
+                where: {
+                    companyId,
+                    lines: {
+                        some: {
+                            glAccount: { status: { not: 'ACTIVE' } },
+                        },
+                    },
+                },
+            }),
+            this.prisma.ficoAccountDeterminationRule.count({
+                where: {
+                    companyId,
+                    status: 'ACTIVE',
+                    transactionKeyCode: { not: null },
+                },
+            }),
+        ])
+
+        const missingProfile = !settings?.accountDeterminationProfileId
+        const liveKeys = FICO_LIVE_TRANSACTION_KEY_CODES.length
+        const moduleCoverage = FICO_TRANSACTION_KEY_CATALOG.filter(
+            (entry) => entry.integrationStatus === 'LIVE',
+        ).map((entry) => ({
+            transactionKeyCode: entry.code,
+            integrationStatus: entry.integrationStatus,
+            hasActiveRule: false,
+        }))
+
+        const activeRulesWithKeys = await this.prisma.ficoAccountDeterminationRule.findMany({
+            where: {
+                companyId,
+                status: 'ACTIVE',
+                transactionKeyCode: { not: null },
+            },
+            select: { transactionKeyCode: true },
+            distinct: ['transactionKeyCode'],
+        })
+        const keyed = new Set(
+            activeRulesWithKeys
+                .map((row) => row.transactionKeyCode)
+                .filter((value): value is string => !!value),
+        )
+        for (const row of moduleCoverage) {
+            row.hasActiveRule = keyed.has(row.transactionKeyCode)
+        }
+
+        const missingLiveKeyRules = moduleCoverage.filter((row) => !row.hasActiveRule).length
+
+        return {
+            ...summary,
+            scheduledRules,
+            missingAccountDeterminationProfile: missingProfile,
+            companyAccountingInactive: settings?.status !== 'ACTIVE',
+            failedAccountResolutionEvents: failedResolutionEvents,
+            pendingAccountingEvents,
+            invalidGlReferencesInRules: invalidRuleCount,
+            liveTransactionKeys: liveKeys,
+            activeRulesWithTransactionKey: activeKeyCount,
+            missingLiveTransactionKeyRules: missingLiveKeyRules,
+            moduleCoverage,
+        }
+    }
+
+    async duplicateAsDraft(ruleId: string, user: AuthRequestUser) {
+        const existing = await this.findRule(ruleId)
+        await this.access.assertAccess(user, existing.companyId)
+        const suffix = Date.now().toString(36).toUpperCase()
+        const determinationCode = `${existing.determinationCode}-COPY-${suffix}`.slice(0, 32)
+        const input: CreateDeterminationInput = {
+            determinationCode,
+            name: `${existing.name} (copy)`,
+            description: existing.description,
+            companyId: existing.companyId,
+            sourceModule: existing.sourceModule,
+            transactionType: existing.transactionType,
+            transactionKeyCode: existing.transactionKeyCode,
+            priority: existing.priority,
+            effectiveFrom: existing.effectiveFrom
+                ? existing.effectiveFrom.toISOString().slice(0, 10)
+                : null,
+            effectiveTo: existing.effectiveTo
+                ? existing.effectiveTo.toISOString().slice(0, 10)
+                : null,
+            valuationClassId: existing.valuationClassId,
+            materialTypeCode: existing.materialTypeCode,
+            movementType: existing.movementType,
+            customerAccountGroup: existing.customerAccountGroup,
+            salesOrganization: existing.salesOrganization,
+            distributionChannel: existing.distributionChannel,
+            paymentMethodCode: existing.paymentMethodCode,
+            bankAccountId: existing.bankAccountId,
+            paymentProviderCode: existing.paymentProviderCode,
+            currencyCode: existing.currencyCode,
+            branchId: existing.branchId,
+            assetClassCode: existing.assetClassCode,
+            depreciationAreaCode: existing.depreciationAreaCode,
+            documentTypeCode: existing.documentTypeCode,
+            productionOrderTypeCode: existing.productionOrderTypeCode,
+            costElementCategoryCode: existing.costElementCategoryCode,
+            controllingAreaCode: existing.controllingAreaCode,
+            changeReason: 'Duplicated from existing rule',
+            lines: existing.lines.map((line) => ({
+                side: line.side,
+                glAccountId: line.glAccountId,
+                description: line.description,
+            })),
+        }
+        const created = await this.create(input, user)
+        await this.audit.log({
+            companyId: existing.companyId,
+            actorId: user.id,
+            action: FICO_DETERMINATION_AUDIT_ACTIONS.DUPLICATE,
+            entityType: FICO_DETERMINATION_ENTITY_TYPE,
+            entityId: created.id,
+            previousValues: this.snapshot(existing),
+            newValues: this.snapshot(created),
+            metadata: {
+                correlationId: randomUUID(),
+                sourceRuleId: existing.id,
+                sourceRuleCode: existing.determinationCode,
+            },
+        })
+        return created
     }
 
     async reference(query: { companyId?: string }, user: AuthRequestUser) {
@@ -216,6 +512,19 @@ export class FicoAccountDeterminationRulesService {
                 .sort(),
             /** SdSalesOrder.channel values. */
             distributionChannels: ['STANDARD', 'POS', 'ECOMMERCE'],
+            paymentMethodHints: FICO_TREASURY_PAYMENT_METHOD_HINTS,
+            treasurySettlementExample: FICO_TREASURY_SETTLEMENT_EXAMPLE,
+            assetClassHints: FICO_AA_ASSET_CLASS_HINTS,
+            productionCostingFlow: {
+                keys: [...FICO_PP_CO_ACCOUNTING_FLOW],
+                narrative: FICO_PP_CO_FLOW_NARRATIVE,
+            },
+            authoringDimensionsByModule: Object.fromEntries(
+                FICO_DETERMINATION_SOURCE_MODULES.map((code) => [
+                    code,
+                    ficoRuleAuthoringDimensions(code),
+                ]),
+            ),
         }
     }
 
@@ -244,6 +553,7 @@ export class FicoAccountDeterminationRulesService {
         }
 
         const lines = await this.normaliseLines(input.companyId, input.lines, effectiveFrom)
+        const extended = persistenceFromExtendedDimensions(input)
 
         const existing = await this.prisma.ficoAccountDeterminationRule.findUnique({
             where: { determinationCode: input.determinationCode.trim() },
@@ -274,6 +584,7 @@ export class FicoAccountDeterminationRulesService {
                 customerAccountGroup: normalise(input.customerAccountGroup),
                 salesOrganization: normalise(input.salesOrganization),
                 distributionChannel: normalise(input.distributionChannel),
+                ...extended,
                 changeReason: input.changeReason ?? null,
                 createdBy: user.id,
                 updatedBy: user.id,
@@ -359,6 +670,31 @@ export class FicoAccountDeterminationRulesService {
                     ...(input.distributionChannel !== undefined
                         ? { distributionChannel: normalise(input.distributionChannel) }
                         : {}),
+                    ...(input.paymentMethodCode !== undefined ||
+                    input.bankAccountId !== undefined ||
+                    input.paymentProviderCode !== undefined ||
+                    input.currencyCode !== undefined ||
+                    input.branchId !== undefined ||
+                    input.assetClassCode !== undefined ||
+                    input.depreciationAreaCode !== undefined ||
+                    input.documentTypeCode !== undefined ||
+                    input.productionOrderTypeCode !== undefined ||
+                    input.costElementCategoryCode !== undefined ||
+                    input.controllingAreaCode !== undefined
+                        ? persistenceFromExtendedDimensions({
+                              paymentMethodCode: input.paymentMethodCode,
+                              bankAccountId: input.bankAccountId,
+                              paymentProviderCode: input.paymentProviderCode,
+                              currencyCode: input.currencyCode,
+                              branchId: input.branchId,
+                              assetClassCode: input.assetClassCode,
+                              depreciationAreaCode: input.depreciationAreaCode,
+                              documentTypeCode: input.documentTypeCode,
+                              productionOrderTypeCode: input.productionOrderTypeCode,
+                              costElementCategoryCode: input.costElementCategoryCode,
+                              controllingAreaCode: input.controllingAreaCode,
+                          })
+                        : {}),
                     ...(input.changeReason !== undefined
                         ? { changeReason: input.changeReason }
                         : {}),
@@ -438,6 +774,9 @@ export class FicoAccountDeterminationRulesService {
     }
 
     async approve(id: string, input: { reason?: string }, user: AuthRequestUser) {
+        const existing = await this.findRule(id)
+        await this.access.assertAccess(user, existing.companyId)
+        await this.sod.assertCanApprove(existing, user.id)
         return this.transition(id, user, {
             from: ['PENDING_APPROVAL'],
             action: FICO_DETERMINATION_AUDIT_ACTIONS.APPROVE,
@@ -485,29 +824,269 @@ export class FicoAccountDeterminationRulesService {
                 'A determination must be approved before it can be activated.',
             )
         }
+        await this.sod.assertCanActivate(existing, user.id)
         this.assertPostableLines(existing)
         await this.assertNoActiveClone(existing)
+        await this.determinationValidation.assertSafeToActivate(
+            existing as never,
+        )
 
-        const updated = await this.prisma.ficoAccountDeterminationRule.update({
-            where: { id },
-            data: {
-                status: 'ACTIVE',
-                activatedBy: user.id,
-                activatedAt: new Date(),
-                updatedBy: user.id,
-            },
-            include: RULE_INCLUDE,
-        })
-        await this.audit.log({
-            companyId: updated.companyId,
-            actorId: user.id,
-            action: FICO_DETERMINATION_AUDIT_ACTIONS.ACTIVATE,
-            entityType: FICO_DETERMINATION_ENTITY_TYPE,
-            entityId: updated.id,
-            previousValues: this.snapshot(existing),
-            newValues: this.snapshot(updated),
+        const correlationId = randomUUID()
+        // Activation and its audit record commit together (04.28).
+        const updated = await this.prisma.$transaction(async (tx) => {
+            const row = await tx.ficoAccountDeterminationRule.update({
+                where: { id, status: existing.status },
+                data: {
+                    status: 'ACTIVE',
+                    activatedBy: user.id,
+                    activatedAt: new Date(),
+                    updatedBy: user.id,
+                },
+                include: RULE_INCLUDE,
+            })
+            await this.audit.log(
+                {
+                    companyId: row.companyId,
+                    actorId: user.id,
+                    action: FICO_DETERMINATION_AUDIT_ACTIONS.ACTIVATE,
+                    entityType: FICO_DETERMINATION_ENTITY_TYPE,
+                    entityId: row.id,
+                    previousValues: this.snapshot(existing),
+                    newValues: this.snapshot(row),
+                    metadata: {
+                        correlationId,
+                        ruleVersion: row.updatedAt.getTime(),
+                        determinationCode: row.determinationCode,
+                    },
+                },
+                tx,
+            )
+            return row
         })
         return updated
+    }
+
+    /**
+     * Phase 04.26 — replacement version: closes the active rule's validity and
+     * opens a draft successor. Historical journals are never touched.
+     */
+    async newVersion(
+        id: string,
+        input: { effectiveFrom?: string; changeReason?: string },
+        user: AuthRequestUser,
+    ) {
+        const existing = await this.findRule(id)
+        await this.access.assertAccess(user, existing.companyId)
+        if (!['ACTIVE', 'APPROVED', 'INACTIVE'].includes(existing.status)) {
+            throw new BadRequestException(
+                `Only approved, active or inactive rules can be replaced. ${existing.determinationCode} is ${existing.status}.`,
+            )
+        }
+        const from = toDate(input.effectiveFrom, 'effective from date') ?? new Date()
+        const successorFrom = new Date(
+            Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()),
+        )
+        const predecessorTo = new Date(successorFrom)
+        predecessorTo.setUTCDate(predecessorTo.getUTCDate() - 1)
+
+        const nextVersion = await this.nextVersionCode(existing.determinationCode)
+        const correlationId = randomUUID()
+
+        const draft = await this.create(
+            {
+                determinationCode: nextVersion,
+                name: existing.name,
+                description: existing.description,
+                companyId: existing.companyId,
+                sourceModule: existing.sourceModule,
+                transactionType: existing.transactionType,
+                transactionKeyCode: existing.transactionKeyCode,
+                priority: existing.priority,
+                effectiveFrom: successorFrom.toISOString().slice(0, 10),
+                effectiveTo: existing.effectiveTo
+                    ? existing.effectiveTo.toISOString().slice(0, 10)
+                    : null,
+                valuationClassId: existing.valuationClassId,
+                materialTypeCode: existing.materialTypeCode,
+                movementType: existing.movementType,
+                customerAccountGroup: existing.customerAccountGroup,
+                salesOrganization: existing.salesOrganization,
+                distributionChannel: existing.distributionChannel,
+                paymentMethodCode: existing.paymentMethodCode,
+                bankAccountId: existing.bankAccountId,
+                paymentProviderCode: existing.paymentProviderCode,
+                currencyCode: existing.currencyCode,
+                branchId: existing.branchId,
+                assetClassCode: existing.assetClassCode,
+                depreciationAreaCode: existing.depreciationAreaCode,
+                documentTypeCode: existing.documentTypeCode,
+                productionOrderTypeCode: existing.productionOrderTypeCode,
+                costElementCategoryCode: existing.costElementCategoryCode,
+                controllingAreaCode: existing.controllingAreaCode,
+                changeReason:
+                    input.changeReason ?? `Replacement version of ${existing.determinationCode}`,
+                lines: existing.lines.map((line) => ({
+                    side: line.side,
+                    glAccountId: line.glAccountId,
+                    description: line.description,
+                })),
+            },
+            user,
+        )
+
+        await this.audit.log({
+            companyId: existing.companyId,
+            actorId: user.id,
+            action: FICO_DETERMINATION_AUDIT_ACTIONS.NEW_VERSION,
+            entityType: FICO_DETERMINATION_ENTITY_TYPE,
+            entityId: existing.id,
+            previousValues: this.snapshot(existing),
+            newValues: {
+                successorRuleId: draft.id,
+                successorCode: draft.determinationCode,
+                predecessorEffectiveTo: predecessorTo.toISOString().slice(0, 10),
+            },
+            reason: input.changeReason ?? null,
+            metadata: { correlationId, ruleVersion: existing.updatedAt.getTime() },
+        })
+
+        return {
+            predecessor: {
+                id: existing.id,
+                determinationCode: existing.determinationCode,
+                proposedEffectiveTo: predecessorTo.toISOString().slice(0, 10),
+            },
+            successor: draft,
+            note: 'The predecessor stays active until you set its effective-to date or deactivate it. Historical journals are unaffected.',
+        }
+    }
+
+    /** Where a determination rule or G/L account is actually used (04.26). */
+    async usage(
+        query: { companyId: string; glAccountId?: string; transactionKeyCode?: string },
+        user: AuthRequestUser,
+    ) {
+        if (!query.companyId) {
+            throw new BadRequestException('companyId is required.')
+        }
+        await this.access.assertAccess(user, query.companyId)
+        const where: Prisma.FicoAccountDeterminationRuleWhereInput = {
+            companyId: query.companyId,
+            ...(query.transactionKeyCode
+                ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                : {}),
+            ...(query.glAccountId
+                ? { lines: { some: { glAccountId: query.glAccountId } } }
+                : {}),
+        }
+        const [rules, legacyMappings, journalCount] = await Promise.all([
+            this.prisma.ficoAccountDeterminationRule.findMany({
+                where,
+                select: {
+                    id: true,
+                    determinationCode: true,
+                    name: true,
+                    status: true,
+                    sourceModule: true,
+                    transactionType: true,
+                    transactionKeyCode: true,
+                    priority: true,
+                    updatedAt: true,
+                },
+                orderBy: [{ status: 'asc' }, { priority: 'asc' }],
+                take: 200,
+            }),
+            this.prisma.ficoMmAccountMapping.count({
+                where: {
+                    companyId: query.companyId,
+                    ...(query.transactionKeyCode
+                        ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                        : {}),
+                    ...(query.glAccountId
+                        ? {
+                              OR: [
+                                  { debitAccountId: query.glAccountId },
+                                  { creditAccountId: query.glAccountId },
+                              ],
+                          }
+                        : {}),
+                },
+            }),
+            query.glAccountId
+                ? this.prisma.ficoJournalEntryLine.count({
+                      where: {
+                          companyId: query.companyId,
+                          glAccountId: query.glAccountId,
+                      },
+                  })
+                : Promise.resolve(0),
+        ])
+        return {
+            companyId: query.companyId,
+            rules,
+            legacyMappingCount: legacyMappings,
+            postedJournalLineCount: journalCount,
+        }
+    }
+
+    /** Live transaction-key coverage per module (04.26 module-coverage). */
+    async moduleCoverage(companyId: string, user: AuthRequestUser) {
+        await this.access.assertAccess(user, companyId)
+        const activeRules = await this.prisma.ficoAccountDeterminationRule.findMany({
+            where: { companyId, status: 'ACTIVE' },
+            select: { transactionKeyCode: true, sourceModule: true },
+        })
+        const covered = new Set(
+            activeRules
+                .map((row) => row.transactionKeyCode)
+                .filter((code): code is string => !!code),
+        )
+        const keys = FICO_TRANSACTION_KEY_CATALOG.map((entry) => ({
+            transactionKeyCode: entry.code,
+            name: entry.name,
+            owningModule: entry.owningModule,
+            accountingCategory: entry.accountingCategory,
+            integrationStatus: entry.integrationStatus,
+            hasActiveRule: covered.has(entry.code),
+        }))
+        const byModule: Record<
+            string,
+            { total: number; live: number; covered: number; liveCovered: number }
+        > = {}
+        for (const key of keys) {
+            const bucket = (byModule[key.owningModule] ??= {
+                total: 0,
+                live: 0,
+                covered: 0,
+                liveCovered: 0,
+            })
+            bucket.total += 1
+            if (key.hasActiveRule) bucket.covered += 1
+            if (key.integrationStatus === 'LIVE') {
+                bucket.live += 1
+                if (key.hasActiveRule) bucket.liveCovered += 1
+            }
+        }
+        return {
+            companyId,
+            liveTransactionKeys: FICO_LIVE_TRANSACTION_KEY_CODES.length,
+            keys,
+            byModule,
+        }
+    }
+
+    private async nextVersionCode(baseCode: string) {
+        const root = baseCode.replace(/-V\d+$/i, '')
+        const existing = await this.prisma.ficoAccountDeterminationRule.findMany({
+            where: { determinationCode: { startsWith: root } },
+            select: { determinationCode: true },
+        })
+        let max = 1
+        for (const row of existing) {
+            const match = /-V(\d+)$/i.exec(row.determinationCode)
+            if (match) max = Math.max(max, Number(match[1]))
+        }
+        return `${root}-V${max + 1}`.slice(0, 32)
     }
 
     async deactivate(id: string, input: { reason?: string }, user: AuthRequestUser) {
@@ -636,6 +1215,7 @@ export class FicoAccountDeterminationRulesService {
         customerAccountGroup: string | null
         salesOrganization: string | null
         distributionChannel: string | null
+        transactionKeyCode?: string | null
     }) {
         const active = await this.prisma.ficoAccountDeterminationRule.findMany({
             where: {
@@ -653,6 +1233,7 @@ export class FicoAccountDeterminationRulesService {
                 customerAccountGroup: true,
                 salesOrganization: true,
                 distributionChannel: true,
+                transactionKeyCode: true,
             },
         })
         const signature = this.dimensionSignature(rule)
@@ -666,19 +1247,18 @@ export class FicoAccountDeterminationRulesService {
         }
     }
 
-    private dimensionSignature(input: {
-        valuationClassId: string | null
-        materialTypeCode: string | null
-        movementType: string | null
-        customerAccountGroup: string | null
-        salesOrganization: string | null
-        distributionChannel: string | null
-    }) {
-        return FICO_DETERMINATION_DIMENSIONS.map((dimension: FicoDeterminationDimension) =>
-            dimension === 'valuationClassId'
+    private dimensionSignature(
+        input: Partial<Record<FicoDeterminationDimension, string | null>> & {
+            transactionKeyCode?: string | null
+        },
+    ) {
+        const key = (input.transactionKeyCode ?? '').trim().toUpperCase()
+        const body = FICO_DETERMINATION_DIMENSIONS.map((dimension: FicoDeterminationDimension) =>
+            (FICO_DETERMINATION_ID_DIMENSIONS as readonly string[]).includes(dimension)
                 ? (input[dimension] ?? '')
                 : (normalise(input[dimension]) ?? ''),
         ).join('|')
+        return `${key}|${body}`
     }
 
     private assertModuleAndType(sourceModule: string, transactionType: string) {
@@ -807,7 +1387,7 @@ export class FicoAccountDeterminationRulesService {
         distributionChannel: string | null
         rejectionReason?: string | null
         lines?: Array<{ side: string; glAccountId: string; lineNumber: number }>
-    }) {
+    } & Partial<Record<FicoDeterminationDimension, string | null>>) {
         return {
             determinationCode: rule.determinationCode,
             name: rule.name,
@@ -827,6 +1407,17 @@ export class FicoAccountDeterminationRulesService {
             customerAccountGroup: rule.customerAccountGroup,
             salesOrganization: rule.salesOrganization,
             distributionChannel: rule.distributionChannel,
+            paymentMethodCode: rule.paymentMethodCode ?? null,
+            bankAccountId: rule.bankAccountId ?? null,
+            paymentProviderCode: rule.paymentProviderCode ?? null,
+            currencyCode: rule.currencyCode ?? null,
+            branchId: rule.branchId ?? null,
+            assetClassCode: rule.assetClassCode ?? null,
+            depreciationAreaCode: rule.depreciationAreaCode ?? null,
+            documentTypeCode: rule.documentTypeCode ?? null,
+            productionOrderTypeCode: rule.productionOrderTypeCode ?? null,
+            costElementCategoryCode: rule.costElementCategoryCode ?? null,
+            controllingAreaCode: rule.controllingAreaCode ?? null,
             rejectionReason: rule.rejectionReason ?? null,
             lines: (rule.lines ?? []).map((line) => ({
                 lineNumber: line.lineNumber,
@@ -834,5 +1425,248 @@ export class FicoAccountDeterminationRulesService {
                 glAccountId: line.glAccountId,
             })),
         }
+    }
+
+    async validateDraft(input: CreateDeterminationInput, user: AuthRequestUser) {
+        await this.access.assertAccess(user, input.companyId)
+        const sourceModule = normalise(input.sourceModule) ?? ''
+        const transactionType = normalise(input.transactionType) ?? ''
+        this.assertModuleAndType(sourceModule, transactionType)
+        this.assertModuleDimensions(sourceModule, input)
+        const effectiveFrom = toDate(input.effectiveFrom, 'effective from date')
+        const errors: string[] = []
+        const warnings: string[] = []
+
+        try {
+            const lines = await this.normaliseLines(
+                input.companyId,
+                input.lines,
+                effectiveFrom,
+            )
+            const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
+                where: { companyId: input.companyId },
+                select: { chartOfAccountsId: true, baseCurrency: true },
+            })
+            const keyEntry = input.transactionKeyCode
+                ? ficoCatalogEntryForKey(input.transactionKeyCode)
+                : undefined
+            const glRows = await this.prisma.ficoGlAccount.findMany({
+                where: { id: { in: lines.map((line) => line.glAccountId) } },
+                select: {
+                    id: true,
+                    accountCode: true,
+                    accountType: true,
+                    status: true,
+                },
+            })
+            for (const line of lines) {
+                const account = glRows.find((row) => row.id === line.glAccountId)
+                if (!account) {
+                    errors.push(`Line ${line.lineNumber}: G/L account not found.`)
+                    continue
+                }
+                if (account.status !== 'ACTIVE') {
+                    errors.push(
+                        `Line ${line.lineNumber}: ${account.accountCode} is not active.`,
+                    )
+                }
+                if (keyEntry) {
+                    try {
+                        ficoAssertAccountTypeForCategory(
+                            keyEntry.accountingCategory,
+                            account.accountType,
+                            account.accountCode,
+                        )
+                    } catch (error) {
+                        errors.push(
+                            error instanceof Error
+                                ? error.message
+                                : `Line ${line.lineNumber}: incompatible account type.`,
+                        )
+                    }
+                }
+            }
+            if (settings?.chartOfAccountsId) {
+                await this.determinationValidation.assertRuleAccountsEligible(
+                    {
+                        id: 'DRAFT_VALIDATION',
+                        companyId: input.companyId,
+                        determinationCode: input.determinationCode,
+                        sourceModule,
+                        transactionType,
+                        transactionKeyCode: input.transactionKeyCode ?? null,
+                        priority: input.priority ?? 100,
+                        effectiveFrom,
+                        effectiveTo: toDate(input.effectiveTo, 'effective to date'),
+                        status: 'DRAFT',
+                        valuationClassId: input.valuationClassId ?? null,
+                        materialTypeCode: input.materialTypeCode ?? null,
+                        movementType: normalise(input.movementType),
+                        customerAccountGroup: normalise(input.customerAccountGroup),
+                        salesOrganization: normalise(input.salesOrganization),
+                        distributionChannel: normalise(input.distributionChannel),
+                        paymentMethodCode: input.paymentMethodCode ?? null,
+                        bankAccountId: input.bankAccountId ?? null,
+                        paymentProviderCode: input.paymentProviderCode ?? null,
+                        currencyCode: input.currencyCode ?? null,
+                        branchId: input.branchId ?? null,
+                        assetClassCode: input.assetClassCode ?? null,
+                        depreciationAreaCode: input.depreciationAreaCode ?? null,
+                        documentTypeCode: input.documentTypeCode ?? null,
+                        productionOrderTypeCode: input.productionOrderTypeCode ?? null,
+                        costElementCategoryCode: input.costElementCategoryCode ?? null,
+                        controllingAreaCode: input.controllingAreaCode ?? null,
+                        lines: lines.map((line, index) => ({
+                            lineNumber: index + 1,
+                            side: line.side,
+                            glAccountId: line.glAccountId,
+                            glAccount: glRows.find((row) => row.id === line.glAccountId)!,
+                        })),
+                    } as never,
+                    settings.chartOfAccountsId,
+                    (settings.baseCurrency || 'PHP').toUpperCase(),
+                )
+            }
+        } catch (error) {
+            errors.push(error instanceof Error ? error.message : 'Validation failed.')
+        }
+
+        if (!input.transactionKeyCode) {
+            warnings.push('Transaction key is not set — production resolution may be ambiguous.')
+        }
+        return { ok: errors.length === 0, errors, warnings }
+    }
+
+    /** Validate a persisted rule without changing its lifecycle state (04.26). */
+    async validateExisting(id: string, user: AuthRequestUser) {
+        const rule = await this.findRule(id)
+        await this.access.assertAccess(user, rule.companyId)
+        const errors: string[] = []
+        const warnings: string[] = []
+
+        try {
+            this.assertPostableLines(rule)
+        } catch (error) {
+            errors.push(error instanceof Error ? error.message : 'Invalid posting lines.')
+        }
+        try {
+            await this.determinationValidation.assertSafeToActivate(rule as never)
+        } catch (error) {
+            errors.push(error instanceof Error ? error.message : 'Rule is not safe to activate.')
+        }
+        if (!rule.transactionKeyCode) {
+            warnings.push(
+                'No transaction key is assigned; this rule competes only on transaction type and dimensions.',
+            )
+        }
+        if (rule.effectiveTo && rule.effectiveTo < new Date()) {
+            warnings.push('The effective-to date is in the past; this rule can no longer resolve.')
+        }
+
+        await this.audit.log({
+            companyId: rule.companyId,
+            actorId: user.id,
+            action: FICO_DETERMINATION_AUDIT_ACTIONS.VALIDATE,
+            entityType: FICO_DETERMINATION_ENTITY_TYPE,
+            entityId: rule.id,
+            newValues: { ok: errors.length === 0, errors, warnings },
+            metadata: { correlationId: randomUUID(), ruleVersion: rule.updatedAt.getTime() },
+        })
+
+        return {
+            ruleId: rule.id,
+            determinationCode: rule.determinationCode,
+            status: rule.status,
+            ok: errors.length === 0,
+            errors,
+            warnings,
+        }
+    }
+
+    async listEligibleGlAccounts(
+        companyId: string,
+        user: AuthRequestUser,
+        query: { search?: string; transactionKeyCode?: string },
+    ) {
+        await this.access.assertAccess(user, companyId)
+        const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
+            where: { companyId },
+            select: { chartOfAccountsId: true, baseCurrency: true },
+        })
+        if (!settings?.chartOfAccountsId) {
+            throw new BadRequestException(
+                'Company chart of accounts is not configured.',
+            )
+        }
+        const search = query.search?.trim()
+        const keyEntry = query.transactionKeyCode
+            ? ficoCatalogEntryForKey(query.transactionKeyCode)
+            : undefined
+        const allowedTypes = keyEntry
+            ? FICO_ACCOUNTING_CATEGORY_GL_TYPES[keyEntry.accountingCategory.toUpperCase()]
+            : null
+
+        const rows = await this.prisma.ficoCompanyGlAccount.findMany({
+            where: {
+                companyId,
+                glAccount: {
+                    chartOfAccountsId: settings.chartOfAccountsId,
+                    isPostingAccount: true,
+                    allowAutomaticPosting: true,
+                    status: 'ACTIVE',
+                    ...(search
+                        ? {
+                              OR: [
+                                  {
+                                      accountCode: {
+                                          contains: search,
+                                          mode: 'insensitive',
+                                      },
+                                  },
+                                  {
+                                      accountName: {
+                                          contains: search,
+                                          mode: 'insensitive',
+                                      },
+                                  },
+                              ],
+                          }
+                        : {}),
+                },
+            },
+            include: {
+                glAccount: {
+                    include: { accountGroup: { select: { code: true, name: true } } },
+                },
+            },
+            take: 100,
+            orderBy: { glAccount: { accountCode: 'asc' } },
+        })
+
+        return rows
+            .map((row) => {
+                const account = row.glAccount
+                const typeAllowed =
+                    !allowedTypes ||
+                    allowedTypes.includes(account.accountType.toUpperCase())
+                return {
+                    id: account.id,
+                    accountCode: account.accountCode,
+                    accountName: account.accountName,
+                    accountType: account.accountType,
+                    accountGroupCode: account.accountGroup.code,
+                    normalBalance: account.normalBalance,
+                    companyAssignment: true,
+                    postingEligible:
+                        account.isPostingAccount &&
+                        account.allowAutomaticPosting &&
+                        account.status === 'ACTIVE',
+                    reconciliationType: account.reconciliationType,
+                    isReconciliationAccount: account.isReconciliationAccount,
+                    status: account.status,
+                    categoryEligible: typeAllowed,
+                }
+            })
+            .filter((row) => row.categoryEligible)
     }
 }

@@ -26,31 +26,24 @@ const MAX_CREATE_ATTEMPTS = MAX_CUSTOMER_NUMBER_ATTEMPTS
 
 type Client = PrismaService | Prisma.TransactionClient
 
-/** Parse YYYY-MM-DD (or ISO datetime) to a UTC date-only; reject future calendar days. */
-function parseBirthDate(value: string): Date {
-    const day = value.slice(0, 10)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-        throw new BadRequestException('birthDate must be a date (YYYY-MM-DD)')
+function startOfUtcDay(date: Date): Date {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+}
+
+/** Parse YYYY-MM-DD (or ISO) as a UTC date-only value; reject future calendar days. */
+export function parseCustomerBirthDate(value: string | null): Date | null {
+    if (value === null) return null
+    const raw = value.trim()
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00.000Z` : raw
+    const parsed = new Date(iso)
+    if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('birthDate must be a valid date')
     }
-    const [y, m, d] = day.split('-').map(Number)
-    const date = new Date(Date.UTC(y, m - 1, d))
-    if (
-        date.getUTCFullYear() !== y ||
-        date.getUTCMonth() !== m - 1 ||
-        date.getUTCDate() !== d
-    ) {
-        throw new BadRequestException('birthDate is not a valid calendar date')
-    }
-    const today = new Date()
-    const todayUtc = Date.UTC(
-        today.getUTCFullYear(),
-        today.getUTCMonth(),
-        today.getUTCDate(),
-    )
-    if (date.getTime() > todayUtc) {
+    const day = startOfUtcDay(parsed)
+    if (day.getTime() > startOfUtcDay(new Date()).getTime()) {
         throw new BadRequestException('birthDate cannot be in the future')
     }
-    return date
+    return day
 }
 
 @Injectable()
@@ -219,6 +212,8 @@ export class CustomerService {
     ) {
         const customerNumber = await this.nextCustomerNumber(attempt, client)
         const creditLimit = new Decimal(dto.creditLimit ?? 0)
+        const birthDate =
+            dto.birthDate !== undefined ? parseCustomerBirthDate(dto.birthDate) : undefined
         return client.sdCustomer.create({
             data: {
                 customerNumber,
@@ -234,7 +229,7 @@ export class CustomerService {
                 paymentTerms: account.paymentTerms,
                 creditStatus: account.creditStatus,
                 paymentMode: dto.paymentMode ?? 'CASH',
-                birthDate: dto.birthDate ? parseBirthDate(dto.birthDate) : null,
+                ...(birthDate !== undefined ? { birthDate } : {}),
                 createdBy: dto.createdBy,
                 updatedBy: dto.createdBy,
             },
@@ -301,8 +296,7 @@ export class CustomerService {
             data.paymentMode = dto.paymentMode
         }
         if (dto.birthDate !== undefined) {
-            data.birthDate =
-                dto.birthDate === null ? null : parseBirthDate(dto.birthDate)
+            data.birthDate = parseCustomerBirthDate(dto.birthDate)
         }
 
         if (Object.keys(data).length === 1) {

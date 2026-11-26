@@ -29,11 +29,14 @@ export type POSBarcodeHit = {
  *
  * Local catalog matches are instant (name / SKU / item id). When the typed text
  * looks like a code and no product matches, the centralized barcode registry is
- * asked once after a short debounce — the same lookup MM, SD and the barcode
- * dialog use. Nothing here decides stock; adding to the cart still goes through
- * the live ATP check.
+ * asked once after a short debounce — scoped to the terminal company. Nothing
+ * here decides stock; adding to the cart still goes through the live ATP check.
  */
-export function usePOSCatalogSearch(products: RetailProduct[], query: string) {
+export function usePOSCatalogSearch(
+    products: RetailProduct[],
+    query: string,
+    companyId?: string | null,
+) {
     const text = query.trim()
     const normalized = text.toLowerCase()
 
@@ -66,9 +69,10 @@ export function usePOSCatalogSearch(products: RetailProduct[], query: string) {
         // The stored hit is only returned when its code still equals the typed
         // text, so a stale result never needs an explicit reset here.
         if (!LOOKS_LIKE_CODE.test(text) || matches.length > 0) return
+        if (!companyId) return
         let cancelled = false
         const timer = window.setTimeout(() => {
-            lookupProductBarcode(text)
+            lookupProductBarcode(text, companyId)
                 .then((result) => {
                     if (!cancelled) setBarcode({ code: text, result })
                 })
@@ -80,7 +84,7 @@ export function usePOSCatalogSearch(products: RetailProduct[], query: string) {
             cancelled = true
             window.clearTimeout(timer)
         }
-    }, [text, matches.length])
+    }, [text, matches.length, companyId])
 
     return {
         /** Catalog products matching the typed text, best match first. */

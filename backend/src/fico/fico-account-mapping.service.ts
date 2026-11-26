@@ -135,6 +135,7 @@ export class FicoAccountMappingService {
     }
 
     async create(input: CreateAccountMappingInput, user: AuthRequestUser) {
+        await this.assertLegacyWritesAllowed(input.companyId)
         await this.access.assertAccess(user, input.companyId)
         const context = await this.companyContext(input.companyId)
         const key = await this.prisma.ficoTransactionKey.findUnique({
@@ -211,6 +212,7 @@ export class FicoAccountMappingService {
     async update(id: string, input: UpdateAccountMappingInput, user: AuthRequestUser) {
         const current = await this.prisma.ficoMmAccountMapping.findUnique({ where: { id } })
         if (!current) throw new NotFoundException('Account mapping not found')
+        await this.assertLegacyWritesAllowed(current.companyId)
         await this.access.assertAccess(user, current.companyId)
         const context = await this.companyContext(current.companyId)
 
@@ -340,6 +342,18 @@ export class FicoAccountMappingService {
     private assertDates(from: Date | null, to: Date | null) {
         if (from && to && to < from) {
             throw new BadRequestException('The end date cannot be before the start date.')
+        }
+    }
+
+    private async assertLegacyWritesAllowed(companyId: string) {
+        const settings = (await this.prisma.ficoCompanyAccountingSettings.findUnique({
+            where: { companyId },
+        })) as { mmResolutionMode?: string } | null
+        const mode = settings?.mmResolutionMode
+        if (mode === 'CENTRAL_ONLY') {
+            throw new BadRequestException(
+                'Legacy MM account mapping writes are disabled after centralized cutover (CENTRAL_ONLY).',
+            )
         }
     }
 }

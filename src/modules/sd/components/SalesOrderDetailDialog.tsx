@@ -15,7 +15,11 @@ import Tag from '@/components/ui/Tag'
 import StatusBadge from '@/components/shared/StatusBadge'
 import { TaxClassTag } from './extPlatformUi'
 import {
-    PAYMENT_METHOD_LABEL,
+    formatSalesDueDate,
+    isDueDatePassed,
+} from '../services/salesAnalyticsService'
+import {
+    paymentMethodLabel,
     type SalesOrderRecord,
 } from '../services/salesOrderDashboardService'
 import {
@@ -30,6 +34,7 @@ import {
     SalesOrderChannelBadge,
     SalesOrderStatusBadge,
 } from './salesOrderPresentation'
+import SalesOrderAccountingPanel from './SalesOrderAccountingPanel'
 
 type Line = SalesOrderRecord['lines'][number]
 
@@ -98,6 +103,15 @@ const OrderLineRow = ({ line }: { line: Line }) => (
                             {line.variantBarcode}
                         </p>
                     ) : null}
+                    {line.batchNumber || line.lotNumber ? (
+                        <p className="mt-1 font-mono text-[10px] text-gray-500">
+                            {line.batchNumber
+                                ? `Batch ${line.batchNumber}`
+                                : null}
+                            {line.batchNumber && line.lotNumber ? ' · ' : null}
+                            {line.lotNumber ? `Lot ${line.lotNumber}` : null}
+                        </p>
+                    ) : null}
                 </div>
                 <div className="shrink-0 text-right">
                     <div className="text-xs text-gray-500">
@@ -106,6 +120,16 @@ const OrderLineRow = ({ line }: { line: Line }) => (
                     <div className="mt-0.5 text-sm font-bold tabular-nums">
                         {formatOrderPrice(line.lineTotal)}
                     </div>
+                    {line.unitCost > 0.005 ? (
+                        <div className="mt-0.5 text-[11px] tabular-nums text-gray-500">
+                            Cost{' '}
+                            {formatOrderPrice(line.unitCost * line.quantity)}
+                            <span className="text-gray-400">
+                                {' '}
+                                ({formatOrderPrice(line.unitCost)} ea)
+                            </span>
+                        </div>
+                    ) : null}
                     {line.taxClassification ? (
                         <div className="mt-1 flex flex-col items-end gap-0.5">
                             <TaxClassTag
@@ -153,6 +177,10 @@ const SalesOrderDetailDialog = ({
     }
 
     const items = orderItemCount(order)
+    const totalCost = order.lines.reduce(
+        (sum, line) => sum + line.unitCost * line.quantity,
+        0,
+    )
     // Totals of the VAT frozen on the lines at sale time (display only).
     const vat = order.lines.some((line) => line.taxClassification)
         ? order.lines.reduce(
@@ -170,12 +198,20 @@ const SalesOrderDetailDialog = ({
               { vatable: 0, vat: 0, exempt: 0, zeroRated: 0 },
           )
         : null
+    const outstandingDue = Number(order.outstandingBalance ?? 0)
+    const isPartiallyPaid =
+        order.payment?.status === 'PARTIALLY_PAID' ||
+        order.payment?.status === 'Partially Paid' ||
+        outstandingDue > 0.005
     const paidTone =
         order.payment?.status === 'Paid'
             ? 'success'
-            : order.payment?.status === 'Failed'
+            : order.payment?.status === 'Failed' ||
+                order.payment?.status === 'Cancelled'
               ? 'danger'
-              : 'warning'
+              : isPartiallyPaid
+                ? 'warning'
+                : 'warning'
 
     return (
         <Dialog
@@ -286,14 +322,7 @@ const SalesOrderDetailDialog = ({
                                 <div className="flex items-center justify-between gap-2">
                                     <span className="text-gray-500">Method</span>
                                     <span className="flex items-center gap-2 font-semibold">
-                                        {order.payment.method &&
-                                        order.payment.method in
-                                            PAYMENT_METHOD_LABEL
-                                            ? PAYMENT_METHOD_LABEL[
-                                                  order.payment
-                                                      .method as keyof typeof PAYMENT_METHOD_LABEL
-                                              ]
-                                            : order.payment.method}
+                                        {paymentMethodLabel(order.payment.method)}
                                         {order.payment.isDemo ? (
                                             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-gray-500 dark:bg-gray-800">
                                                 Demo
@@ -307,6 +336,93 @@ const SalesOrderDetailDialog = ({
                                         {order.payment.status ?? '—'}
                                     </StatusBadge>
                                 </div>
+                                {order.tenders.length > 0 ? (
+                                    <div className="space-y-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                            {order.tenders.length > 1
+                                                ? `Split tenders (${order.tenders.length})`
+                                                : 'Tender'}
+                                        </div>
+                                        {order.tenders.map((tender, index) => (
+                                            <div
+                                                key={`${tender.method}-${index}`}
+                                                className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-800/40"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span className="font-semibold heading-text">
+                                                                {order.tenders
+                                                                    .length > 1
+                                                                    ? `${index + 1}. `
+                                                                    : ''}
+                                                                {paymentMethodLabel(
+                                                                    tender.method,
+                                                                )}
+                                                            </span>
+                                                            <StatusBadge
+                                                                tone={
+                                                                    tender.status ===
+                                                                    'Paid'
+                                                                        ? 'success'
+                                                                        : tender.status ===
+                                                                            'Unpaid'
+                                                                          ? 'warning'
+                                                                          : 'warning'
+                                                                }
+                                                            >
+                                                                {tender.status}
+                                                            </StatusBadge>
+                                                        </div>
+                                                        {tender.referenceNumber ? (
+                                                            <p className="mt-0.5 truncate font-mono text-[11px] text-gray-500">
+                                                                Ref:{' '}
+                                                                {
+                                                                    tender.referenceNumber
+                                                                }
+                                                            </p>
+                                                        ) : null}
+                                                        {tender.bankName ? (
+                                                            <p className="mt-0.5 text-[11px] text-gray-500">
+                                                                Bank:{' '}
+                                                                {tender.bankName}
+                                                            </p>
+                                                        ) : null}
+                                                        {tender.employeeName ? (
+                                                            <p className="mt-0.5 text-[11px] text-gray-500">
+                                                                Employee:{' '}
+                                                                {
+                                                                    tender.employeeName
+                                                                }
+                                                            </p>
+                                                        ) : null}
+                                                        {tender.method ===
+                                                            'CASH' &&
+                                                        tender.tenderAmount >
+                                                            tender.amount +
+                                                                0.005 ? (
+                                                            <p className="mt-0.5 text-[11px] text-gray-500">
+                                                                Received{' '}
+                                                                {formatOrderPrice(
+                                                                    tender.tenderAmount,
+                                                                )}{' '}
+                                                                · change{' '}
+                                                                {formatOrderPrice(
+                                                                    tender.changeAmount,
+                                                                )}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                    <span className="shrink-0 text-sm font-bold tabular-nums heading-text">
+                                                        {formatOrderPrice(
+                                                            tender.amount,
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
                                 {order.paymentReceived !== null ? (
                                     <>
                                         <div className="flex justify-between border-t border-gray-100 pt-2 dark:border-gray-800">
@@ -331,7 +447,58 @@ const SalesOrderDetailDialog = ({
                                         </div>
                                     </>
                                 ) : null}
-                                {order.payment.reference ? (
+                                {order.downPaymentAmount != null &&
+                                Number(order.downPaymentAmount) > 0 ? (
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">
+                                            Down payment
+                                            {order.downPaymentPct != null
+                                                ? ` (${Number(order.downPaymentPct)}%)`
+                                                : ''}
+                                        </span>
+                                        <span className="font-semibold tabular-nums">
+                                            {formatOrderPrice(
+                                                Number(order.downPaymentAmount),
+                                            )}
+                                        </span>
+                                    </div>
+                                ) : null}
+                                {isPartiallyPaid && outstandingDue > 0 ? (
+                                    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-500/40 dark:bg-amber-500/10">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                                Balance due
+                                            </span>
+                                            <span className="text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                                                {formatOrderPrice(outstandingDue)}
+                                            </span>
+                                        </div>
+                                        {order.dueDate ? (
+                                            <p
+                                                className={
+                                                    isDueDatePassed(order.dueDate)
+                                                        ? 'mt-1 text-[11px] font-semibold text-red-600 dark:text-red-400'
+                                                        : 'mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/80'
+                                                }
+                                            >
+                                                {isDueDatePassed(order.dueDate)
+                                                    ? 'Overdue — was due '
+                                                    : 'Due '}
+                                                {formatSalesDueDate(order.dueDate)}
+                                            </p>
+                                        ) : null}
+                                        {order.payment.method === 'CHARGE' ? (
+                                            <p className="mt-1 text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                                                Charge sale — the goods were
+                                                released and the customer pays
+                                                later. Record payments from the
+                                                POS transactions screen.
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : null}
+                                {order.payment.reference &&
+                                order.tenders.length <= 1 ? (
                                     <p className="font-mono text-xs text-gray-500">
                                         Ref: {order.payment.reference}
                                     </p>
@@ -423,6 +590,14 @@ const SalesOrderDetailDialog = ({
                                 {formatOrderPrice(order.totalAmount)}
                             </dd>
                         </div>
+                        {totalCost > 0.005 ? (
+                            <div className="flex justify-between text-gray-500">
+                                <dt>Total cost</dt>
+                                <dd className="tabular-nums font-medium">
+                                    {formatOrderPrice(totalCost)}
+                                </dd>
+                            </div>
+                        ) : null}
                         {vat ? (
                             <div className="space-y-1 border-t border-dashed border-gray-200 pt-2 text-xs dark:border-gray-700">
                                 {[
@@ -440,6 +615,12 @@ const SalesOrderDetailDialog = ({
                         ) : null}
                     </dl>
                 </section>
+
+                <SalesOrderAccountingPanel
+                    salesOrderId={order.id}
+                    companyId={order.company?.id ?? null}
+                    channel={order.channel}
+                />
             </div>
 
             {footer ? (

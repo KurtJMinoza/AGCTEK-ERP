@@ -11,6 +11,8 @@ import { ProductService } from './product.service'
 import { SalesOrderController } from './sales-order.controller'
 import { OrderTrackingService } from './order-tracking.service'
 import { SalesOrderService } from './sales-order.service'
+import { SdSalesOrderFinanceService } from './sd-sales-order-finance.service'
+import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SdMmEventConsumer } from './sd-mm-event.consumer'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
@@ -25,8 +27,14 @@ import { SdMmPipelineService } from './sd-mm-pipeline.service'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
 import { QuotationService } from './quotation.service'
+import { QuotationMailService } from './mail.service'
 import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
+import { QuotationEmailService } from './quotation-email.service'
+import {
+    QuotationEmailController,
+    QuotationEmailTemplateController,
+} from './quotation-email.controller'
 import { SalesReturnService } from './sales-return.service'
 import { SalesReturnController } from './sales-return.controller'
 import { SalesInvoiceService } from './sales-invoice.service'
@@ -48,6 +56,8 @@ import { PricingResolutionService } from './pricing-resolution.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
 import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
+import { SalesPerformanceService } from './sales-performance.service'
+import { MonthlyCollectionService } from './monthly-collection.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
 import { ProductImportController } from './product-import.controller'
@@ -62,7 +72,9 @@ import { PosCustomerService } from './pos/pos-customer.service'
 import { PosVoidService } from './pos/pos-void.service'
 import { PosPaymentMethodService } from './pos/pos-payment-method.service'
 import { PosRefundService } from './pos/pos-refund.service'
+import { PosCollectionService } from './pos/pos-collection.service'
 import { PosRevenuePostingListener } from './pos/pos-revenue-posting.listener'
+import { PosEmployeeService } from './pos/pos-employee.service'
 import { ExtPlatformTransactionController } from './ext-platform-transaction.controller'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 
@@ -82,6 +94,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        QuotationEmailController,
+        QuotationEmailTemplateController,
         SalesReturnController,
         ReturnRequestController,
         DeliveryController,
@@ -99,6 +113,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         CustomerService,
         ProductService,
         SalesOrderService,
+        SdSalesOrderFinanceService,
+        SdExtPlatformFinanceService,
         SdEventEmitterService,
         SdMmEventConsumer,
         SdMmOrchestrationService,
@@ -112,6 +128,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         SdMaterialReferenceService,
         QuotationService,
         QuotationPdfService,
+        QuotationMailService,
+        QuotationEmailService,
         SalesReturnService,
         SalesInvoiceService,
         SdFulfillmentEventsListener,
@@ -126,6 +144,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         PricingConditionService,
          PricingResolutionService,
         SalesAnalyticsService,
+        SalesPerformanceService,
+        MonthlyCollectionService,
         BackorderReportService,
         ProductImportService,
         ProductBarcodeService,
@@ -136,6 +156,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         PosVoidService,
         PosPaymentMethodService,
         PosRefundService,
+        PosEmployeeService,
+        PosCollectionService,
         PosRevenuePostingListener,
         ExtPlatformTransactionService,
     ],
@@ -146,6 +168,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        QuotationEmailService,
+        QuotationMailService,
         SalesReturnService,
         ReturnRequestService,
         ReviewModule,

@@ -16,10 +16,11 @@ import { CrmLoyaltyService } from './loyalty/loyalty.service'
 import { CrmLoyaltyEarnListener } from './loyalty/loyalty-earn.listener'
 import { CrmCustomer360Controller } from './customer-360/customer-360.controller'
 import { CrmCustomer360Service } from './customer-360/customer-360.service'
-import { CrmCustomerRatingController } from './customer-rating/customer-rating.controller'
-import { CrmCustomerRatingService } from './customer-rating/customer-rating.service'
+import { CrmCustomerRatingsController } from './customer-ratings/customer-ratings.controller'
+import { CrmCustomerRatingsService } from './customer-ratings/customer-ratings.service'
 import {
     CrmActivitiesController,
+    CrmCalendarActivitiesController,
     CrmLeadActivitiesController,
     CrmTicketActivitiesController,
 } from './activities/activities.controller'
@@ -35,6 +36,11 @@ import {
 } from './attachments/attachments.controller'
 import { CrmAttachmentsService } from './attachments/attachments.service'
 import { CrmUsersService } from './users/crm-users.service'
+import { CrmEmailController } from './emails/crm-email.controller'
+import { CrmEmailService } from './emails/crm-email.service'
+import { CrmMaildevClient } from './emails/crm-maildev.client'
+import { CrmEmailInboundService } from './emails/crm-email-inbound.service'
+import { CrmEmailInboundPoller } from './emails/crm-email-inbound.poller'
 
 /**
  * CRM extends SdCustomer (SD-owned customer master). Every endpoint is guarded with
@@ -53,7 +59,8 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmTicketsController,
         CrmLoyaltyController,
         CrmCustomer360Controller,
-        CrmCustomerRatingController,
+        CrmCustomerRatingsController,
+        CrmCalendarActivitiesController,
         CrmActivitiesController,
         CrmTicketActivitiesController,
         CrmDashboardController,
@@ -62,6 +69,7 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmLeadActivitiesController,
         CrmTicketAttachmentsController,
         CrmOpportunityAttachmentsController,
+        CrmEmailController,
     ],
     providers: [
         CrmLeadsService,
@@ -74,12 +82,16 @@ import { CrmUsersService } from './users/crm-users.service'
         CrmLoyaltyService,
         CrmLoyaltyEarnListener,
         CrmCustomer360Service,
-        CrmCustomerRatingService,
+        CrmCustomerRatingsService,
         CrmActivitiesService,
         CrmDashboardService,
         CrmMessagesService,
         CrmUsersService,
         CrmAttachmentsService,
+        CrmEmailService,
+        CrmMaildevClient,
+        CrmEmailInboundService,
+        CrmEmailInboundPoller,
     ],
 })
 export class CrmModule {}

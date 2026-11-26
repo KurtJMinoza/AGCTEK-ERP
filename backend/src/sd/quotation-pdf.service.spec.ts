@@ -87,7 +87,15 @@ describe('buildQuotationPdfModel', () => {
         expect(model.company.address).toBe('')
         expect(model.notes).toBeNull()
         expect(model.opportunityName).toBeNull()
+        expect(model.paymentTerms).toBeNull()
         expect(model.quotation.validUntil).toBe('2026-11-01')
+    })
+
+    it('prints customer-facing payment terms when set (trimmed, null when blank)', () => {
+        expect(buildQuotationPdfModel(baseInput({ paymentTerms: ' 50% on order, 50% on delivery ' })).paymentTerms).toBe(
+            '50% on order, 50% on delivery',
+        )
+        expect(buildQuotationPdfModel(baseInput()).paymentTerms).toBeNull()
     })
 
     it('reports no lines', () => {
@@ -126,6 +134,16 @@ describe('QuotationPdfService', () => {
 
     it('rejects a quotation with no lines with a 400', async () => {
         await expect(service.render(baseInput({ lines: [] }))).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('renders payment terms and long terms wrap without failing', async () => {
+        const buffer = await service.render(
+            baseInput({
+                status: 'SENT',
+                paymentTerms: '30% downpayment on order, 40% before delivery, 30% within 30 days of invoice date',
+            }),
+        )
+        expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
     })
 
     it('does not require the DRAFT status to render', async () => {

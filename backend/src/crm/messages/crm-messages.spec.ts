@@ -6,6 +6,7 @@ import {
     formatSystemLabel,
     NOTE_EDIT_WINDOW_MS,
     CrmMessagesService,
+    quotationEventSummary,
     systemSummary,
 } from './crm-messages.service'
 import { CrmMessagesController } from './messages.controller'
@@ -480,6 +481,22 @@ describe('SYSTEM message summaries', () => {
         expect(formatSystemLabel('NEGOTIATION')).toBe('Negotiation')
     })
 })
+
+describe('quotationEventSummary email actions', () => {
+    const label = 'Q-000012 rev 2'
+    const note = 'To ann@acme.test · Your quote · Q-000012_rev2.pdf'
+
+    it.each([
+        ['EMAIL_SENT', `Quotation ${label} emailed (${note})`],
+        ['EMAIL_RESENT', `Quotation ${label} email resent (${note})`],
+        ['EMAIL_FAILED', `Quotation ${label} email failed (${note})`],
+        ['EMAIL_SKIPPED', `Quotation ${label} email skipped (${note})`],
+        ['PDF_STORED', `Quotation ${label} PDF stored (${note})`],
+    ] as const)('%s is readable on the opportunity feed', (action, expected) => {
+        expect(quotationEventSummary(action, label, note)).toBe(expected)
+    })
+})
+
 
 describe('CrmMessagesController RBAC metadata', () => {
     it.each([

@@ -64,6 +64,12 @@ describe('PosVoidService', () => {
                 }),
                 findUnique: jest.fn().mockResolvedValue(null),
             },
+            sdPosReceivable: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            sdEmployeeLoanItem: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
             $transaction: jest.fn(async (fn: (tx: any) => unknown) => fn(prisma)),
             mmGoodsIssue: {
                 findFirst: jest.fn().mockResolvedValue({
@@ -200,14 +206,14 @@ describe('PosVoidService', () => {
         })
     })
 
-    it('gives the employee credit back when a salary deduction is voided', async () => {
+    it('voids a salary deduction without touching customer credit', async () => {
         prisma.sdSalesOrder.findFirst.mockResolvedValue(
             order({
                 customerId: 'cust-1',
                 payments: [
                     {
                         id: 'pay-1',
-                        status: 'Paid',
+                        status: 'Unpaid',
                         paymentMethod: 'SALARY_LOAN',
                         amount: 7300,
                     },
@@ -220,10 +226,7 @@ describe('PosVoidService', () => {
             voidedBy: 'cashier-1',
         })
 
-        expect(prisma.sdCustomer.updateMany).toHaveBeenCalledTimes(1)
-        const [credit] = prisma.sdCustomer.updateMany.mock.calls[0]
-        expect(credit.where).toEqual({ id: 'cust-1' })
-        expect(Number(credit.data.availableCredit.increment)).toBe(7300)
+        expect(prisma.sdCustomer.updateMany).not.toHaveBeenCalled()
     })
 
     it('leaves the credit alone for a sale paid in cash', async () => {

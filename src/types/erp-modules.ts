@@ -39,7 +39,7 @@ export type ErpCategory = {
     submodules: ErpSubmodule[]
 }
 
-export type ErpModuleCode = 'sd' | 'mm' | 'fico' | 'crm' | 'scm' | 'hcm'
+export type ErpModuleCode = 'sd' | 'mm' | 'fico' | 'crm' | 'scm' | 'hcm' | 'wpd'
 
 export type ErpModule = {
     code: ErpModuleCode
@@ -56,7 +56,11 @@ export type ErpModule = {
     isExternalLink?: boolean
     /** Submodule codes pinned under this module in the sidebar for one-click access */
     sidebarShortcuts?: string[]
+    /** Sidebar section; defaults to 'modules' (business modules). 'tools' is reserved for setup utilities. */
+    sidebarGroup?: ErpSidebarGroup
 }
+
+export type ErpSidebarGroup = 'modules' | 'tools'
 
 /** Flattened search result for sidebar filtering */
 export type ErpNavSearchResult =

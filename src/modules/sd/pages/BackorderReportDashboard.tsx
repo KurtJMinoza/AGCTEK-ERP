@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -76,7 +76,7 @@ const StatCard = ({
     delayMs?: number
 }) => (
     <Card
-        className={`animate-mm-row-in motion-reduce:animate-none opacity-0 ${delayMs ? `[animation-delay:${delayMs}ms]` : ''}`}
+        className={`animate-mm-row-in motion-reduce:animate-none ${delayMs ? `[animation-delay:${delayMs}ms]` : ''}`}
     >
         <div className="text-sm text-gray-500">{label}</div>
         <div className="mt-1 text-xl font-bold sm:text-2xl">{value}</div>

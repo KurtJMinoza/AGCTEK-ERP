@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import usePermissions from '@/utils/hooks/usePermissions'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
+import StatCard from '@/components/shared/StatCard'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import EllipsisButton from '@/components/shared/EllipsisButton'
 import FormDialog from '@/components/shared/FormDialog'
@@ -14,7 +14,6 @@ import Dropdown from '@/components/ui/Dropdown'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Checkbox from '@/components/ui/Checkbox'
-import Tabs from '@/components/ui/Tabs'
 import { FormItem } from '@/components/ui/Form'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
@@ -48,24 +47,25 @@ import {
     accountTypeLabel,
     ficoStatusTone,
 } from '../components/ficoTableUi'
-import AccountDeterminationPanel from '../components/AccountDeterminationPanel'
-import AccountingEventsPanel from '../components/AccountingEventsPanel'
+import GlAccountCompanySettingsDialog from '../components/GlAccountCompanySettingsDialog'
 import GlAccountImportDialog from '../components/GlAccountImportDialog'
 import GlAccountUsageDialog from '../components/GlAccountUsageDialog'
-import { ficoChartService, ficoGlAccountService } from '../services/ficoService'
-import type { FicoAccountGroup, FicoChart, FicoGlAccount } from '../types'
+import GlAccountViewDialog from '../components/GlAccountViewDialog'
+import {
+    ficoChartService,
+    ficoGlAccountService,
+    type FicoGlAccountListSummary,
+} from '../services/ficoService'
+import type {
+    FicoAccountGroup,
+    FicoChart,
+    FicoGlAccount,
+    FicoGlAccountDependencies,
+} from '../types'
 import { downloadGlAccountsCsv } from '../utils/glAccountCsv'
 
 const ROUTE = '/modules/fico/gl-accounts'
 
-type WorkspaceTab = 'accounts' | 'determination' | 'events'
-
-/** Each tab shows only when the user can read the data behind it. */
-const WORKSPACE_TABS: { value: WorkspaceTab; label: string; permission: string }[] = [
-    { value: 'accounts', label: 'G/L Accounts', permission: 'fico.gl-accounts' },
-    { value: 'determination', label: 'Account Determination', permission: 'fico.account-determination' },
-    { value: 'events', label: 'Transaction - FICO Posting Monitor', permission: 'fico.journal-entries' },
-]
 const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 const RECONCILIATION_TYPES = ['AP', 'AR', 'GRIR', 'BANK', 'ASSET', 'TAX']
 
@@ -124,31 +124,30 @@ const GlAccountsPage = () => {
     const [saving, setSaving] = useState(false)
     const searchParams = useSearchParams()
     const router = useRouter()
-    const { can, loading: permissionsLoading } = usePermissions()
-    const [requestedTab, setRequestedTab] = useState<WorkspaceTab>(() => {
-        const value = searchParams.get('tab')
-        return WORKSPACE_TABS.some((item) => item.value === value)
-            ? (value as WorkspaceTab)
-            : 'accounts'
-    })
-    const visibleTabs = permissionsLoading
-        ? WORKSPACE_TABS
-        : WORKSPACE_TABS.filter((item) => can(item.permission))
-    const workspaceTab = visibleTabs.some((item) => item.value === requestedTab)
-        ? requestedTab
-        : (visibleTabs[0]?.value ?? 'accounts')
-    const changeWorkspaceTab = (value: WorkspaceTab) => {
-        setRequestedTab(value)
-        router.replace(value === 'accounts' ? ROUTE : `${ROUTE}?tab=${value}`, {
-            scroll: false,
-        })
-    }
     const [chartFilter, setChartFilter] = useState(
         () => searchParams.get('chartOfAccountsId') ?? '',
     )
     const [typeFilter, setTypeFilter] = useState('')
     const [statusFilter, setStatusFilter] = useState('')
+    const [searchInput, setSearchInput] = useState('')
     const [search, setSearch] = useState('')
+    const [summary, setSummary] = useState<FicoGlAccountListSummary | null>(null)
+
+    useEffect(() => {
+        const tab = searchParams.get('tab')
+        if (tab === 'determination') {
+            router.replace('/modules/fico/account-determination')
+        } else if (tab === 'events') {
+            router.replace('/modules/fico/accounting-events')
+        }
+    }, [router, searchParams])
+
+    useEffect(() => {
+        const handle = window.setTimeout(() => {
+            setSearch(searchInput.trim())
+        }, 300)
+        return () => window.clearTimeout(handle)
+    }, [searchInput])
 
     /**
      * The company select is the page-wide scope shared by every tab. A chosen
@@ -166,16 +165,14 @@ const GlAccountsPage = () => {
     const [form, setForm] = useState<AccountForm>(emptyAccount)
 
     const [deleting, setDeleting] = useState<FicoGlAccount | null>(null)
+    const [deleteDeps, setDeleteDeps] = useState<
+        Pick<FicoGlAccountDependencies, 'canDelete' | 'reasons'> | null
+    >(null)
     const [usageFor, setUsageFor] = useState<FicoGlAccount | null>(null)
-    const [confirmUnassign, setConfirmUnassign] = useState(false)
-    const [assignmentFor, setAssignmentFor] = useState<FicoGlAccount | null>(null)
-    const [assignmentExists, setAssignmentExists] = useState(false)
-    const [assignmentForm, setAssignmentForm] = useState({
-        postingEnabled: true,
-        manualPostingBlocked: false,
-        effectiveFrom: '',
-        effectiveTo: '',
-    })
+    const [viewFor, setViewFor] = useState<FicoGlAccount | null>(null)
+    const [companySettingsId, setCompanySettingsId] = useState<string | null>(null)
+    const [copyFrom, setCopyFrom] = useState<FicoGlAccount | null>(null)
+    const [copyCode, setCopyCode] = useState('')
 
     useEffect(() => {
         ficoChartService
@@ -184,26 +181,59 @@ const GlAccountsPage = () => {
             .catch((error) => notifyError(error, 'Unable to load charts of accounts.'))
     }, [])
 
+    const listQuery = useMemo(
+        () => ({
+            chartOfAccountsId: chartFilter || undefined,
+            accountType: typeFilter || undefined,
+            status: statusFilter || undefined,
+            search: search || undefined,
+            companyId: chartFilter ? undefined : (companyId || undefined),
+        }),
+        [chartFilter, typeFilter, statusFilter, search, companyId],
+    )
+
+    const filtersActive = Boolean(
+        chartFilter || typeFilter || statusFilter || searchInput.trim(),
+    )
+
+    const clearFilters = () => {
+        setChartFilter('')
+        setTypeFilter('')
+        setStatusFilter('')
+        setSearchInput('')
+    }
+
     const load = useCallback(() => {
         setLoading(true)
-        // When a specific chart is selected, show all its accounts regardless of
-        // company assignment. Company filtering only applies when viewing all charts.
-        ficoGlAccountService
-            .list({
-                chartOfAccountsId: chartFilter || undefined,
-                accountType: typeFilter || undefined,
-                status: statusFilter || undefined,
-                search: search || undefined,
-                companyId: chartFilter ? undefined : (companyId || undefined),
+        void Promise.allSettled([
+            ficoGlAccountService.list(listQuery),
+            ficoGlAccountService.summary(listQuery),
+        ])
+            .then(([listResult, summaryResult]) => {
+                if (listResult.status === 'fulfilled') {
+                    setAccounts(listResult.value)
+                } else {
+                    setAccounts([])
+                    notifyError(listResult.reason, 'Unable to load G/L accounts.')
+                }
+                if (summaryResult.status === 'fulfilled') {
+                    setSummary(summaryResult.value)
+                } else {
+                    setSummary(null)
+                    if (listResult.status === 'fulfilled') {
+                        notifyError(
+                            summaryResult.reason,
+                            'Unable to load the G/L account summary.',
+                        )
+                    }
+                }
             })
-            .then(setAccounts)
-            .catch((error) => notifyError(error, 'Unable to load G/L accounts.'))
             .finally(() => setLoading(false))
-    }, [chartFilter, typeFilter, statusFilter, search, companyId])
+    }, [listQuery])
 
     useEffect(() => {
-        if (workspaceTab === 'accounts') load()
-    }, [load, workspaceTab])
+        load()
+    }, [load])
 
     const loadGroups = useCallback((chartId: string) => {
         if (!chartId) {
@@ -233,23 +263,29 @@ const GlAccountsPage = () => {
         setDialog('create')
     }
 
-    const openEdit = (account: FicoGlAccount) => {
-        setEditing(account)
+    const openEdit = async (account: FicoGlAccount) => {
+        let source = account
+        try {
+            source = await ficoGlAccountService.get(account.id)
+        } catch (error) {
+            notifyError(error, 'Unable to load the latest account record.')
+        }
+        setEditing(source)
         setForm({
-            chartOfAccountsId: account.chartOfAccountsId,
-            accountGroupId: account.accountGroupId,
-            accountCode: account.accountCode,
-            accountName: account.accountName,
-            description: account.description,
-            accountType: account.accountType,
-            normalBalance: account.normalBalance,
-            isPostingAccount: account.isPostingAccount,
-            allowManualPosting: account.allowManualPosting,
-            allowAutomaticPosting: account.allowAutomaticPosting,
-            isReconciliationAccount: account.isReconciliationAccount,
-            reconciliationType: account.reconciliationType ?? '',
-            openItemManagement: account.openItemManagement,
-            currencyRestriction: account.currencyRestriction ?? '',
+            chartOfAccountsId: source.chartOfAccountsId,
+            accountGroupId: source.accountGroupId,
+            accountCode: source.accountCode,
+            accountName: source.accountName,
+            description: source.description,
+            accountType: source.accountType,
+            normalBalance: source.normalBalance,
+            isPostingAccount: source.isPostingAccount,
+            allowManualPosting: source.allowManualPosting,
+            allowAutomaticPosting: source.allowAutomaticPosting,
+            isReconciliationAccount: source.isReconciliationAccount,
+            reconciliationType: source.reconciliationType ?? '',
+            openItemManagement: source.openItemManagement,
+            currencyRestriction: source.currencyRestriction ?? '',
         })
         setDialog('edit')
     }
@@ -278,7 +314,12 @@ const GlAccountsPage = () => {
                 // Switch to the chart that owns this account so it appears immediately.
                 setChartFilter(created.chartOfAccountsId)
             } else if (editing) {
-                await ficoGlAccountService.update(editing.id, payload)
+                await ficoGlAccountService.update(editing.id, {
+                    ...payload,
+                    ...(editing.updatedAt
+                        ? { expectedUpdatedAt: editing.updatedAt }
+                        : {}),
+                })
                 notifySuccess('G/L account updated.')
             }
             setDialog(null)
@@ -292,13 +333,25 @@ const GlAccountsPage = () => {
 
     const toggleStatus = async (account: FicoGlAccount) => {
         try {
-            await ficoGlAccountService.update(account.id, {
-                status: account.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
-            })
+            if (account.status === 'ACTIVE') {
+                await ficoGlAccountService.deactivate(account.id)
+            } else {
+                await ficoGlAccountService.reactivate(account.id)
+            }
             notifySuccess('G/L account status updated.')
             load()
         } catch (error) {
             notifyError(error, 'Unable to change the account status.')
+        }
+    }
+
+    const openDelete = async (account: FicoGlAccount) => {
+        try {
+            const deps = await ficoGlAccountService.deletionEligibility(account.id)
+            setDeleteDeps(deps)
+            setDeleting(account)
+        } catch (error) {
+            notifyError(error, 'Unable to validate delete eligibility.')
         }
     }
 
@@ -309,6 +362,7 @@ const GlAccountsPage = () => {
             await ficoGlAccountService.remove(deleting.id)
             notifySuccess('G/L account deleted.')
             setDeleting(null)
+            setDeleteDeps(null)
             load()
         } catch (error) {
             notifyError(error, 'Unable to delete the G/L account.')
@@ -317,68 +371,17 @@ const GlAccountsPage = () => {
         }
     }
 
-    const openAssignment = async (account: FicoGlAccount) => {
-        if (!companyId) {
-            notifyError(null, 'Select a company first.')
-            return
-        }
-        try {
-            const assignments =
-                await ficoGlAccountService.listCompanyAssignments(companyId)
-            const existing = assignments.find(
-                (row) => row.glAccountId === account.id,
-            )
-            setAssignmentForm({
-                postingEnabled: existing?.postingEnabled ?? true,
-                manualPostingBlocked: existing?.manualPostingBlocked ?? false,
-                effectiveFrom: existing?.effectiveFrom?.slice(0, 10) ?? '',
-                effectiveTo: existing?.effectiveTo?.slice(0, 10) ?? '',
-            })
-            setAssignmentExists(Boolean(existing))
-            setAssignmentFor(account)
-        } catch (error) {
-            notifyError(error, 'Unable to load company assignments.')
-        }
-    }
-
-    const saveAssignment = async () => {
-        if (!assignmentFor || !companyId) return
+    const runCopy = async () => {
+        if (!copyFrom || !copyCode.trim()) return
         setSaving(true)
         try {
-            await ficoGlAccountService.upsertCompanyAssignment(
-                assignmentFor.id,
-                companyId,
-                {
-                    postingEnabled: assignmentForm.postingEnabled,
-                    manualPostingBlocked: assignmentForm.manualPostingBlocked,
-                    effectiveFrom: assignmentForm.effectiveFrom || null,
-                    effectiveTo: assignmentForm.effectiveTo || null,
-                },
-            )
-            notifySuccess('Company account assignment saved.')
-            setAssignmentFor(null)
+            await ficoGlAccountService.duplicate(copyFrom.id, copyCode.trim().toUpperCase())
+            notifySuccess('Account copied as a new master record.')
+            setCopyFrom(null)
+            setCopyCode('')
             load()
         } catch (error) {
-            notifyError(error, 'Unable to save the company assignment.')
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    const removeAssignment = async () => {
-        if (!assignmentFor || !companyId) return
-        setConfirmUnassign(false)
-        setSaving(true)
-        try {
-            await ficoGlAccountService.removeCompanyAssignment(
-                assignmentFor.id,
-                companyId,
-            )
-            notifySuccess('Company account assignment removed.')
-            setAssignmentFor(null)
-            load()
-        } catch (error) {
-            notifyError(error, 'Unable to remove the company assignment.')
+            notifyError(error, 'Unable to copy the account.')
         } finally {
             setSaving(false)
         }
@@ -472,20 +475,34 @@ const GlAccountsPage = () => {
                 size: 52,
                 cell: ({ row }) => (
                     <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
+                        <Dropdown.Item eventKey="view" onClick={() => setViewFor(row.original)}>
+                            <HiOutlineSearchCircle className="text-base" />
+                            <span>View account</span>
+                        </Dropdown.Item>
                         <Dropdown.Item eventKey="edit" onClick={() => openEdit(row.original)}>
                             <HiOutlinePencil className="text-base" />
                             <span>Edit account</span>
+                        </Dropdown.Item>
+                        <Dropdown.Item
+                            eventKey="company"
+                            onClick={() => setCompanySettingsId(row.original.id)}
+                        >
+                            <HiOutlineOfficeBuilding className="text-base" />
+                            <span>Company settings</span>
                         </Dropdown.Item>
                         <Dropdown.Item eventKey="usage" onClick={() => setUsageFor(row.original)}>
                             <HiOutlineSearchCircle className="text-base" />
                             <span>Where used</span>
                         </Dropdown.Item>
                         <Dropdown.Item
-                            eventKey="company"
-                            onClick={() => openAssignment(row.original)}
+                            eventKey="copy"
+                            onClick={() => {
+                                setCopyFrom(row.original)
+                                setCopyCode('')
+                            }}
                         >
-                            <HiOutlineOfficeBuilding className="text-base" />
-                            <span>Company assignment</span>
+                            <HiOutlinePlus className="text-base" />
+                            <span>Copy as new account</span>
                         </Dropdown.Item>
                         <Dropdown.Item eventKey="status" onClick={() => toggleStatus(row.original)}>
                             <HiOutlinePause className="text-base" />
@@ -493,10 +510,15 @@ const GlAccountsPage = () => {
                                 {row.original.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                             </span>
                         </Dropdown.Item>
-                        <Dropdown.Item eventKey="delete" onClick={() => setDeleting(row.original)}>
-                            <HiOutlineTrash className="text-base text-red-500" />
-                            <span className="text-red-500">Delete account</span>
-                        </Dropdown.Item>
+                        {row.original.status === 'INACTIVE' ? (
+                            <Dropdown.Item
+                                eventKey="delete"
+                                onClick={() => void openDelete(row.original)}
+                            >
+                                <HiOutlineTrash className="text-base text-red-500" />
+                                <span className="text-red-500">Delete (if eligible)</span>
+                            </Dropdown.Item>
+                        ) : null}
                     </Dropdown>
                 ),
             },
@@ -555,8 +577,8 @@ const GlAccountsPage = () => {
         <PageContainer>
             <PageHeader
                 title="G/L Accounts"
-                description="Maintain G/L accounts, configure MM transaction-key mappings, and monitor postings from every module reaching FICO."
-                breadcrumbs={buildErpBreadcrumbs(ROUTE).slice(0, -1)}
+                description="Manage financial account master data, company assignments, posting controls, and accounting classifications."
+                breadcrumbs={buildErpBreadcrumbs(ROUTE)}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">
                         <FicoCompanySelect
@@ -565,58 +587,50 @@ const GlAccountsPage = () => {
                             onChange={changeCompany}
                             loading={companyLoading}
                         />
-                        {workspaceTab === 'accounts' ? (
-                            <>
-                                <Button
-                                    size="sm"
-                                    icon={<HiOutlineDownload />}
-                                    disabled={!accounts.length}
-                                    onClick={() => downloadGlAccountsCsv(accounts)}
-                                >
-                                    Export
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    icon={<HiOutlineUpload />}
-                                    onClick={() => setImportOpen(true)}
-                                >
-                                    Import
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="solid"
-                                    icon={<HiOutlinePlus />}
-                                    onClick={openCreate}
-                                >
-                                    New account
-                                </Button>
-                            </>
-                        ) : null}
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineDownload />}
+                            disabled={!accounts.length}
+                            onClick={() => downloadGlAccountsCsv(accounts)}
+                        >
+                            Export
+                        </Button>
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineUpload />}
+                            onClick={() => setImportOpen(true)}
+                        >
+                            Import
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="solid"
+                            icon={<HiOutlinePlus />}
+                            onClick={openCreate}
+                        >
+                            New G/L Account
+                        </Button>
                     </div>
                 }
             />
 
-            <Tabs
-                value={workspaceTab}
-                onChange={(value) => changeWorkspaceTab(value as WorkspaceTab)}
-            >
-                <Tabs.TabList className="mb-4 flex flex-wrap gap-1">
-                    {visibleTabs.map((item) => (
-                        <Tabs.TabNav key={item.value} value={item.value}>
-                            {item.label}
-                        </Tabs.TabNav>
-                    ))}
-                </Tabs.TabList>
-            </Tabs>
-
-            {workspaceTab === 'determination' ? (
-                <AccountDeterminationPanel key={companyId} companyId={companyId} />
-            ) : null}
-            {workspaceTab === 'events' ? (
-                <AccountingEventsPanel key={companyId} companyId={companyId} />
+            {summary ? (
+                <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                    <StatCard label="Total" value={summary.totalAccounts} />
+                    <StatCard label="Active" value={summary.activeAccounts} />
+                    <StatCard label="Inactive" value={summary.inactiveAccounts} />
+                    <StatCard label="Blocked posting" value={summary.blockedAccounts} />
+                    <StatCard
+                        label="Reconciliation"
+                        value={summary.reconciliationAccounts}
+                    />
+                    <StatCard
+                        label="No company assign."
+                        value={summary.withoutCompanyAssignment}
+                    />
+                </div>
             ) : null}
 
-            {workspaceTab === 'accounts' ? (
             <AdaptiveCard>
                 <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,20rem)_minmax(0,12rem)_minmax(0,12rem)_minmax(0,16rem)_auto] xl:items-center">
                     <Select
@@ -673,18 +687,25 @@ const GlAccountsPage = () => {
                         size="sm"
                         prefix={<HiOutlineSearch className="text-lg" />}
                         placeholder="Search code or name"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
+                        value={searchInput}
+                        onChange={(event) => setSearchInput(event.target.value)}
                     />
-                    <Button
-                        size="sm"
-                        variant="plain"
-                        icon={<HiOutlineRefresh />}
-                        loading={loading}
-                        onClick={load}
-                    >
-                        Refresh
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {filtersActive ? (
+                            <Button size="sm" variant="plain" onClick={clearFilters}>
+                                Clear filters
+                            </Button>
+                        ) : null}
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            icon={<HiOutlineRefresh />}
+                            loading={loading}
+                            onClick={load}
+                        >
+                            Refresh
+                        </Button>
+                    </div>
                 </div>
                 <p className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
                     <HiOutlineHashtag />
@@ -718,7 +739,29 @@ const GlAccountsPage = () => {
                     instanceId="fico-gl-accounts"
                 />
             </AdaptiveCard>
-            ) : null}
+
+            <GlAccountViewDialog
+                account={viewFor}
+                onClose={() => setViewFor(null)}
+                onEdit={(row) => {
+                    setViewFor(null)
+                    openEdit(row)
+                }}
+                onCompanySettings={(row) => {
+                    setViewFor(null)
+                    setCompanySettingsId(row.id)
+                }}
+                onWhereUsed={(row) => {
+                    setViewFor(null)
+                    setUsageFor(row)
+                }}
+            />
+
+            <GlAccountCompanySettingsDialog
+                accountId={companySettingsId}
+                onClose={() => setCompanySettingsId(null)}
+                onSaved={load}
+            />
 
             <GlAccountUsageDialog account={usageFor} onClose={() => setUsageFor(null)} />
 
@@ -734,7 +777,7 @@ const GlAccountsPage = () => {
                 isOpen={dialog !== null}
                 onClose={() => setDialog(null)}
                 title={dialog === 'edit' ? 'Edit G/L account' : 'New G/L account'}
-                size="lg"
+                size="xl"
                 onSubmit={save}
                 confirmText="Save account"
                 confirmLoading={saving}
@@ -964,157 +1007,68 @@ const GlAccountsPage = () => {
             </FormDialog>
 
             <FormDialog
-                isOpen={Boolean(assignmentFor)}
-                onClose={() => setAssignmentFor(null)}
-                icon={<HiOutlineOfficeBuilding />}
-                title="Company assignment"
-                description={
-                    <span className="block break-words">
-                        <span className="font-mono font-semibold text-gray-700 dark:text-gray-200">
-                            {assignmentFor?.accountCode}
-                        </span>{' '}
-                        {assignmentFor?.accountName}
-                        {selectedRow?.company.name ? (
-                            <>
-                                {' · '}
-                                {selectedRow.company.name}
-                            </>
-                        ) : null}
-                    </span>
-                }
-                footerClassName={assignmentExists ? '!justify-between' : undefined}
-                footer={
-                    <>
-                        {assignmentExists ? (
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="plain"
-                                icon={<HiOutlineTrash />}
-                                className="text-red-600 hover:text-red-700 dark:text-red-400"
-                                disabled={saving}
-                                onClick={() => setConfirmUnassign(true)}
-                            >
-                                Remove
-                            </Button>
-                        ) : null}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Button type="button" onClick={() => setAssignmentFor(null)}>
-                                Cancel
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="solid"
-                                loading={saving}
-                                onClick={() => void saveAssignment()}
-                            >
-                                {assignmentExists ? 'Save changes' : 'Assign account'}
-                            </Button>
-                        </div>
-                    </>
-                }
+                isOpen={Boolean(copyFrom)}
+                onClose={() => setCopyFrom(null)}
+                title="Copy as new G/L account"
+                size="md"
+                onSubmit={runCopy}
+                confirmText="Create copy"
+                confirmLoading={saving}
             >
-                <div className="space-y-5">
-                    <div className="space-y-3">
-                        {[
-                            {
-                                key: 'postingEnabled' as const,
-                                label: 'Posting enabled',
-                                help: 'The company may post to this account.',
-                            },
-                            {
-                                key: 'manualPostingBlocked' as const,
-                                label: 'Block manual postings',
-                                help: 'Only automatic postings (e.g. from MM) are accepted.',
-                            },
-                        ].map((option) => (
-                            <Checkbox
-                                key={option.key}
-                                className="!flex w-full cursor-pointer !items-start gap-1 rounded-xl border border-gray-200 p-3 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50"
-                                checked={assignmentForm[option.key]}
-                                onChange={(checked) =>
-                                    setAssignmentForm((current) => ({
-                                        ...current,
-                                        [option.key]: checked,
-                                    }))
-                                }
-                            >
-                                <span className="min-w-0">
-                                    <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                                        {option.label}
-                                    </span>
-                                    <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">
-                                        {option.help}
-                                    </span>
-                                </span>
-                            </Checkbox>
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-                        <FormItem label="Effective from" className="mb-0 sm:mb-0">
-                            <Input
-                                type="date"
-                                value={assignmentForm.effectiveFrom}
-                                onChange={(event) =>
-                                    setAssignmentForm((current) => ({
-                                        ...current,
-                                        effectiveFrom: event.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                        <FormItem label="Effective to" className="mb-0">
-                            <Input
-                                type="date"
-                                value={assignmentForm.effectiveTo}
-                                onChange={(event) =>
-                                    setAssignmentForm((current) => ({
-                                        ...current,
-                                        effectiveTo: event.target.value,
-                                    }))
-                                }
-                            />
-                        </FormItem>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Leave the dates blank for an assignment with no start or end.
-                    </p>
-                </div>
+                <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
+                    Copy settings from{' '}
+                    <span className="font-mono font-semibold">{copyFrom?.accountCode}</span>.
+                    Enter a new unique account code. Company assignments and financial history are
+                    not copied.
+                </p>
+                <FormItem label="New account code" asterisk>
+                    <Input
+                        value={copyCode}
+                        placeholder="e.g. 1015"
+                        onChange={(e) => setCopyCode(e.target.value.toUpperCase())}
+                    />
+                </FormItem>
             </FormDialog>
 
             <ConfirmDialog
                 isOpen={Boolean(deleting)}
                 type="danger"
                 title="Delete G/L account?"
-                confirmText="Delete"
-                onRequestClose={() => setDeleting(null)}
-                onCancel={() => setDeleting(null)}
-                onConfirm={remove}
+                confirmText={deleteDeps?.canDelete ? 'Delete' : 'Close'}
+                onRequestClose={() => {
+                    setDeleting(null)
+                    setDeleteDeps(null)
+                }}
+                onCancel={() => {
+                    setDeleting(null)
+                    setDeleteDeps(null)
+                }}
+                onConfirm={deleteDeps?.canDelete ? remove : () => setDeleting(null)}
                 confirmButtonProps={{
                     loading: saving,
-                    customColorClass: () => 'bg-red-500 hover:bg-red-500/90 text-white',
+                    customColorClass: () =>
+                        deleteDeps?.canDelete
+                            ? 'bg-red-500 hover:bg-red-500/90 text-white'
+                            : '',
                 }}
             >
-                <p>
-                    Delete <span className="font-semibold">{deleting?.accountCode}</span>{' '}
-                    {deleting?.accountName}? Accounts used by journals, mappings or company
-                    assignments cannot be deleted — deactivate them instead.
-                </p>
-            </ConfirmDialog>
-
-            <ConfirmDialog
-                isOpen={confirmUnassign}
-                type="warning"
-                title="Remove company assignment?"
-                confirmText="Remove"
-                onRequestClose={() => setConfirmUnassign(false)}
-                onCancel={() => setConfirmUnassign(false)}
-                onConfirm={removeAssignment}
-            >
-                <p>
-                    The selected company will no longer be able to post to{' '}
-                    <span className="font-semibold">{assignmentFor?.accountCode}</span>.
-                </p>
+                <div className="space-y-2 text-sm">
+                    <p>
+                        <span className="font-mono font-semibold">{deleting?.accountCode}</span>{' '}
+                        {deleting?.accountName}
+                    </p>
+                    {deleteDeps?.canDelete ? (
+                        <p>Dependency check passed. This action is recorded in the audit trail.</p>
+                    ) : (
+                        <ul className="list-disc space-y-1 pl-4 text-gray-600 dark:text-gray-300">
+                            {(deleteDeps?.reasons ?? ['Cannot delete this account.']).map(
+                                (reason) => (
+                                    <li key={reason}>{reason}</li>
+                                ),
+                            )}
+                        </ul>
+                    )}
+                </div>
             </ConfirmDialog>
         </PageContainer>
     )

@@ -31,6 +31,10 @@ import { ProductService } from './product.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { GoodsIssueService } from '../mm/stock-ops/goods-issue.service'
 import { SD_MM_ERROR, SdMmIntegrationException } from './sd-integration.errors'
+import {
+    ensureMaterialBatch,
+    resolveMaterialLineTracking,
+} from '../mm/batches/line-tracking.util'
 
 const Decimal = Prisma.Decimal
 
@@ -41,6 +45,8 @@ type CatalogLink = {
     productName: string
     variantName: string | null
     materialId: string
+    /** Barcode of the sold variant (else the product's default variant), if it has one. */
+    variantBarcode: string | null
 }
 type LinkSuccess = { lineNumber: number; link: CatalogLink }
 type LinkFailure = { lineNumber: number; error: string }
@@ -50,6 +56,10 @@ type StockRow = {
     variantId: string | null
     availableQuantity: number
     state: string
+    primaryBatchNumber: string | null
+    primaryLotNumber: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode: string | null
 }
 /** MM goods-issue source type for approved company-owned external platform sales. */
 const EXT_GI_SOURCE = 'EXT_PLATFORM_SALE'
@@ -406,9 +416,9 @@ export class ExtPlatformTransactionService {
         if (!existing) throw new NotFoundException('Transaction not found.')
 
         const VALID_TRANSITIONS: Record<string, string[]> = {
-            DRAFT: ['CONFIRMED', 'CANCELLED'],
-            CONFIRMED: ['APPROVED', 'CANCELLED'],
-            APPROVED: ['CANCELLED'],
+            // Cancelling is a void (reason + audit): see voidTransaction.
+            DRAFT: ['CONFIRMED'],
+            CONFIRMED: ['APPROVED'],
         }
 
         const allowed = VALID_TRANSITIONS[existing.status] ?? []
@@ -437,12 +447,9 @@ export class ExtPlatformTransactionService {
 
         try {
             // Company-owned stock leaves MM only when the sale is approved;
-            // cancelling an approved sale returns it.
+            // voiding an approved sale returns it.
             if (dto.status === 'APPROVED' && existing.isCompanyInventory) {
                 await this.issueStock(existing, actor)
-            }
-            if (dto.status === 'CANCELLED' && existing.status === 'APPROVED') {
-                await this.reverseStock(existing.id, actor)
             }
         } catch (err) {
             await this.prisma.sdExtPlatformTransaction.update({
@@ -452,6 +459,55 @@ export class ExtPlatformTransactionService {
                     approvedBy: existing.approvedBy,
                     approvedAt: existing.approvedAt,
                 },
+            })
+            throw err
+        }
+
+        return this.findById(id)
+    }
+
+    /**
+     * Voids a confirmed or approved sale (same idea as the POS void): a reason
+     * is required and kept on the sale; an approved company-owned sale returns
+     * its stock by reversing the MM goods issue (InventoryPostingService, and
+     * the FICO bridge reverses its accounting). The sale becomes CANCELLED and
+     * drops out of sales totals. Safe to repeat: a voided sale is returned as is.
+     * Drafts have nothing to reverse — delete them instead.
+     */
+    async voidTransaction(id: string, dto: { reason: string }, userId?: string) {
+        const reason = dto.reason?.trim()
+        if (!reason) throw new BadRequestException('Enter why the sale is voided.')
+        if (reason.length > 500) {
+            throw new BadRequestException('The reason is too long (500 characters max).')
+        }
+
+        const existing = await this.prisma.sdExtPlatformTransaction.findUnique({ where: { id } })
+        if (!existing) throw new NotFoundException('Transaction not found.')
+        if (existing.status === 'CANCELLED') return this.findById(id)
+        if (existing.status !== 'CONFIRMED' && existing.status !== 'APPROVED') {
+            throw new BadRequestException(
+                'Only confirmed or approved sales can be voided. Delete a draft instead.',
+            )
+        }
+
+        const actor = userId || null
+        // Claim the void first so a double click cannot reverse stock twice.
+        const claimed = await this.prisma.sdExtPlatformTransaction.updateMany({
+            where: { id, status: existing.status },
+            data: { status: 'CANCELLED', voidedAt: new Date(), voidedBy: actor, voidReason: reason },
+        })
+        if (claimed.count === 0) {
+            throw new ConflictException(
+                'This transaction was just changed by someone else. Refresh and try again.',
+            )
+        }
+
+        try {
+            if (existing.status === 'APPROVED') await this.reverseStock(existing.id, actor)
+        } catch (err) {
+            await this.prisma.sdExtPlatformTransaction.update({
+                where: { id },
+                data: { status: existing.status, voidedAt: null, voidedBy: null, voidReason: null },
             })
             throw err
         }
@@ -823,6 +879,9 @@ export class ExtPlatformTransactionService {
             variantId: i.variantId ?? null,
             availableQuantity: 0,
             state: 'OUT_OF_STOCK',
+            primaryBatchNumber: null,
+            primaryLotNumber: null,
+            barcode: null,
         }))
 
         const indexesByDivision = new Map<string, number[]>()
@@ -847,6 +906,9 @@ export class ExtPlatformTransactionService {
                 rows.forEach((row, k) => {
                     result[chunk[k]].availableQuantity = row.availableQuantity
                     result[chunk[k]].state = row.state
+                    result[chunk[k]].primaryBatchNumber = row.primaryBatchNumber ?? null
+                    result[chunk[k]].primaryLotNumber = row.primaryLotNumber ?? null
+                    result[chunk[k]].barcode = row.barcode ?? null
                 })
             }
         }
@@ -917,7 +979,7 @@ export class ExtPlatformTransactionService {
         const variants = variantIds.length
             ? await this.prisma.sdProductVariant.findMany({
                   where: { id: { in: variantIds } },
-                  select: { id: true, productId: true, variantName: true, sku: true, materialId: true },
+                  select: { id: true, productId: true, variantName: true, sku: true, materialId: true, barcode: true },
               })
             : []
         const variantById = new Map(variants.map((v) => [v.id, v]))
@@ -974,6 +1036,8 @@ export class ExtPlatformTransactionService {
                         productName: product.name,
                         variantName: variant?.variantName ?? null,
                         materialId,
+                        variantBarcode:
+                            variant?.barcode?.trim() || defaultVariant?.barcode?.trim() || null,
                     },
                 }
             }),
@@ -1023,11 +1087,17 @@ export class ExtPlatformTransactionService {
             },
         })
         const materialMap = Object.fromEntries(materials.map((m) => [m.id, m]))
+        // Barcode snapshot: the sold variant's barcode, else the material's primary MM barcode.
+        const mmBarcodes = await this.products.primaryMaterialBarcodes(
+            dtoLines.filter((l) => !l.variantBarcode).map((l) => l.materialId),
+            companyId,
+        )
 
         // The FICO rate in force on the sale date applies, so backdated entries keep historical rates.
         const rateDate = taxDateOnly(transactionDate) ?? taxTodayUtc()
 
-        return dtoLines.map((line) => {
+        return Promise.all(
+            dtoLines.map(async (line) => {
             const mat = materialMap[line.materialId]
             if (!mat) {
                 throw new BadRequestException(
@@ -1136,6 +1206,19 @@ export class ExtPlatformTransactionService {
 
             const uomId = line.uomId || mat.salesUom?.id || mat.baseUomId
 
+            const tracking =
+                (await ensureMaterialBatch(
+                    this.prisma,
+                    mat.id,
+                    line.batchNumber,
+                    line.lotNumber,
+                )) ??
+                (await resolveMaterialLineTracking(
+                    this.prisma,
+                    mat.id,
+                    companyId,
+                ))
+
             return {
                 lineNumber: line.lineNumber,
                 productId: line.productId,
@@ -1165,8 +1248,13 @@ export class ExtPlatformTransactionService {
                 zeroRatedAmount,
                 netAmount,
                 grossAmount,
+                batchId: tracking.batchId,
+                batchNumber: tracking.batchNumber,
+                lotNumber: tracking.lotNumber,
+                barcode: line.variantBarcode ?? mmBarcodes.get(mat.id) ?? null,
             }
-        })
+            }),
+        )
     }
 
     private async nextTransactionNumber(): Promise<string> {

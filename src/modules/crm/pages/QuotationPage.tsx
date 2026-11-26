@@ -323,6 +323,11 @@ const HISTORY_LABELS: Record<string, string> = {
     CANCELLED: 'Cancelled',
     EXPIRED: 'Expired',
     CONVERTED: 'Converted to the SD sales order',
+    PDF_STORED: 'Quotation PDF stored',
+    EMAIL_SENT: 'Emailed to the customer',
+    EMAIL_RESENT: 'Quotation email resent',
+    EMAIL_FAILED: 'Quotation email failed',
+    EMAIL_SKIPPED: 'Quotation email skipped',
 }
 
 /** SD quotation history as audit-trail rows (who / what / when). */
@@ -361,6 +366,17 @@ function QuotationBody({ quotation }: { quotation: Quotation }) {
             ) : null}
             {quotation.sentAt ? (
                 <p className="mb-2 text-xs text-gray-500">Sent {formatDate(quotation.sentAt)}.</p>
+            ) : null}
+            {quotation.paymentTerms ? (
+                <p className="mb-2 text-sm">
+                    <span className="text-gray-500">Payment terms: </span>
+                    {quotation.paymentTerms}
+                </p>
+            ) : null}
+            {quotation.lastEmailedAt ? (
+                <p className="mb-2 text-xs text-gray-500">
+                    Last emailed {new Date(quotation.lastEmailedAt).toLocaleString()}.
+                </p>
             ) : null}
             {quotation.decisionReason ? (
                 <p className="mb-2 text-xs text-gray-500">

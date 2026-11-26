@@ -104,6 +104,7 @@ describe('ProductBarcodeService', () => {
                         price: 150,
                         isActive: true,
                         status: 'ACTIVE',
+                        divisionId: 'DIV_RETAIL',
                     },
                 }),
             },
@@ -115,6 +116,92 @@ describe('ProductBarcodeService', () => {
         expect(result.action).toBe('OPEN_IN_CATALOG')
         expect(result.listing?.productId).toBe('p1')
         expect(productFamily.createProductFamily).not.toHaveBeenCalled()
+    })
+
+    it('hides barcodes that belong to another company', async () => {
+        resolver.resolve.mockRejectedValue(new Error('not found'))
+        const prisma = makePrisma({
+            mmMaterial: {
+                findFirst: jest.fn().mockResolvedValue({
+                    ...MATERIAL,
+                    companyId: 'other-company',
+                }),
+            },
+            sdProductVariant: {
+                findFirst: jest.fn().mockResolvedValue({ materialId: 'm1' }),
+            },
+        })
+        const service = build(prisma)
+
+        const result = await service.lookup('4809999999999', 'c1')
+
+        expect(result.found).toBe(false)
+        expect(result.message).toContain('another company')
+    })
+
+    it('resolves an SD-only variant barcode when MM registry misses', async () => {
+        resolver.resolve.mockRejectedValue(new Error('not found'))
+        const prisma = makePrisma({
+            sdProductVariant: {
+                findFirst: jest
+                    .fn()
+                    .mockResolvedValueOnce({ materialId: 'm1' })
+                    .mockResolvedValueOnce({
+                        id: 'v1',
+                        sku: 'SKU-1-V01',
+                        variantName: 'Default',
+                        price: 150,
+                        product: {
+                            id: 'p1',
+                            name: 'Kirkland Vitamin E',
+                            sku: 'RET-1',
+                            price: 150,
+                            isActive: true,
+                            status: 'ACTIVE',
+                            divisionId: 'DIV_RETAIL',
+                        },
+                    }),
+            },
+        })
+        const service = build(prisma)
+
+        const result = await service.lookup('4805555555555', 'c1')
+
+        expect(result.found).toBe(true)
+        expect(result.source).toBe('SD')
+        expect(result.listing?.productId).toBe('p1')
+    })
+
+    it('finds a variant when the scanner reads the leading zero the stored barcode lost', async () => {
+        resolver.resolve.mockRejectedValue(new Error('not found'))
+        const listing = {
+            id: 'v1',
+            sku: 'SKU-1-V01',
+            variantName: 'Default',
+            price: 150,
+            product: {
+                id: 'p1',
+                name: 'Aveeno Body Wash',
+                sku: 'RET-1',
+                price: 150,
+                isActive: true,
+                status: 'ACTIVE',
+                divisionId: 'DIV_RETAIL',
+            },
+        }
+        const findFirst = jest
+            .fn()
+            .mockResolvedValueOnce(null) // exact 062600061546: not stored
+            .mockResolvedValueOnce({ materialId: 'm1' }) // stored as 62600061546
+            .mockResolvedValue(listing)
+        const service = build(makePrisma({ sdProductVariant: { findFirst } }))
+
+        const result = await service.lookup('062600061546', 'c1')
+
+        expect(result.found).toBe(true)
+        expect(result.listing?.productId).toBe('p1')
+        const alternate = findFirst.mock.calls[1][0].where.barcode as { in: string[] }
+        expect(alternate.in).toContain('62600061546')
     })
 
     it('quick-add creates the MM material first, then the SD listing', async () => {

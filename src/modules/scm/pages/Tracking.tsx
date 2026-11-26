@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
@@ -37,10 +38,21 @@ const statusOptions: Option[] = [
     { value: 'INACTIVE', label: 'Inactive' },
 ]
 
+const purposeOptions: Option[] = [
+    { value: '', label: 'All purposes' },
+    { value: 'OCULAR', label: 'Ocular only' },
+    { value: 'DELIVERY', label: 'Delivery only' },
+]
+
 /**
  * GPS Fleet Map + Tile38 geofencing (SCM telematics / last-mile visibility).
  */
 export default function TrackingPage() {
+    const searchParams = useSearchParams()
+    const initialPurpose = searchParams.get('purpose') ?? ''
+    const initialTripId = searchParams.get('tripId') ?? ''
+    const initialVehicleId = searchParams.get('vehicleId')
+
     const {
         items,
         selected,
@@ -55,7 +67,15 @@ export default function TrackingPage() {
         liveStatus,
         liveTransport,
         liveTrail,
-    } = useFleetTracking()
+    } = useFleetTracking({
+        purpose: initialPurpose || undefined,
+        tripId: initialTripId || undefined,
+    })
+
+    // Deep-link from CRM Track: prefer vehicleId query when present.
+    useEffect(() => {
+        if (initialVehicleId) setSelectedVehicleId(initialVehicleId)
+    }, [initialVehicleId, setSelectedVehicleId])
 
     const geofences = useGeofences()
     const { canCreate, canUpdate, canDelete } = useResourceAccess()
@@ -178,6 +198,33 @@ export default function TrackingPage() {
                             }))
                         }
                     />
+                    <Select
+                        className="md:w-48"
+                        options={purposeOptions}
+                        menuPosition="fixed"
+                        styles={{
+                            menuPortal: (base) => ({ ...base, zIndex: 60 }),
+                            menu: (base) => ({ ...base, zIndex: 60 }),
+                        }}
+                        value={
+                            purposeOptions.find(
+                                (option) =>
+                                    option.value === (filters.purpose ?? ''),
+                            ) ?? purposeOptions[0]
+                        }
+                        onChange={(option) =>
+                            setFilters((current) => ({
+                                ...current,
+                                purpose: option?.value || undefined,
+                                tripId: undefined,
+                            }))
+                        }
+                    />
+                    {filters.purpose === 'OCULAR' || filters.tripId ? (
+                        <StatusBadge tone="info">
+                            {filters.tripId ? 'Trip-scoped' : 'Ocular filter'}
+                        </StatusBadge>
+                    ) : null}
                     <div className="lg:ml-auto">
                         <TrackingStatusChips
                             plateNumber={selected?.vehicle.plateNumber}

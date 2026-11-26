@@ -380,5 +380,7 @@ Before reporting completion, verify applicable items:
 | [.cursor/skills/mrp/SKILL.md](.cursor/skills/mrp/SKILL.md) | Planning / MRP |
 | [.cursor/skills/integration/SKILL.md](.cursor/skills/integration/SKILL.md) | Cross-module events |
 | [.cursor/skills/implement-iso9001-inventory-control/SKILL.md](.cursor/skills/implement-iso9001-inventory-control/SKILL.md) | ISO 9001 inventory control (counts, variance, adjustments) |
+| [.cursor/skills/ai-browser-qa/SKILL.md](.cursor/skills/ai-browser-qa/SKILL.md) | AI browser QA (Playwright MCP / T3 preview + e2e regression) |
+| [docs/AI_BROWSER_QA.md](docs/AI_BROWSER_QA.md) | AI QA modes, MCP caps, e2e commands |
 
 **UI catalog:** `docs/COMPONENT_CATALOG.md`

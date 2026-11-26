@@ -48,10 +48,12 @@ describe('FicoAccountDeterminationService', () => {
         )
     })
 
-    it('keeps the documented legacy bridge for companies without FICO settings', async () => {
+    it('blocks MM posting when company accounting settings are missing', async () => {
         prisma.ficoCompanyAccountingSettings.findUnique.mockResolvedValue(null)
 
-        await expect(service.resolveMmPosting(payload)).resolves.toBeNull()
+        await expect(service.resolveMmPosting(payload)).rejects.toBeInstanceOf(
+            BadRequestException,
+        )
         expect(prisma.ficoMmAccountMapping.findMany).not.toHaveBeenCalled()
     })
 
@@ -62,6 +64,8 @@ describe('FicoAccountDeterminationService', () => {
             chartOfAccounts: { id: 'coa-1', status: 'ACTIVE' },
             accountDeterminationProfileId: 'profile-1',
             accountDeterminationProfile: { id: 'profile-1', status: 'ACTIVE' },
+            mmResolutionMode: 'CENTRAL_WITH_LEGACY_FALLBACK',
+            mmLegacyFallbackUntil: null,
         })
 
         await expect(service.resolveMmPosting(payload)).rejects.toBeInstanceOf(
@@ -76,6 +80,8 @@ describe('FicoAccountDeterminationService', () => {
             chartOfAccounts: { id: 'coa-1', status: 'ACTIVE' },
             accountDeterminationProfileId: 'profile-1',
             accountDeterminationProfile: { id: 'profile-1', status: 'ACTIVE' },
+            mmResolutionMode: 'CENTRAL_WITH_LEGACY_FALLBACK',
+            mmLegacyFallbackUntil: null,
         })
         prisma.ficoMmAccountMapping.findMany.mockResolvedValue([
             {
@@ -92,15 +98,58 @@ describe('FicoAccountDeterminationService', () => {
             },
         ])
 
-        await expect(service.resolveMmPosting(payload)).resolves.toMatchObject([
-            {
-                debitAccountId: 'specific-inventory',
-                creditAccountId: 'specific-grir',
-                transactionKey: 'GR_IR',
-            },
-        ])
+        const resolved = await service.resolveMmPosting(payload)
+        expect(resolved).toHaveLength(2)
+        expect(resolved).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    glAccountId: 'specific-inventory',
+                    transactionKey: 'GR_IR',
+                    resolutionSource: 'LEGACY_MAPPING',
+                }),
+                expect.objectContaining({
+                    glAccountId: 'specific-grir',
+                    transactionKey: 'GR_IR',
+                    resolutionSource: 'LEGACY_MAPPING',
+                }),
+            ]),
+        )
         expect(postingValidation.validate).toHaveBeenCalledWith(
             expect.objectContaining({ source: 'AUTOMATIC', companyId: 'company-1' }),
         )
+    })
+
+    it('rejects MM posting when CENTRAL_ONLY and no central rule exists', async () => {
+        prisma.ficoCompanyAccountingSettings.findUnique.mockResolvedValue({
+            status: 'ACTIVE',
+            chartOfAccountsId: 'coa-1',
+            chartOfAccounts: { id: 'coa-1', status: 'ACTIVE' },
+            accountDeterminationProfileId: 'profile-1',
+            accountDeterminationProfile: { id: 'profile-1', status: 'ACTIVE' },
+            mmResolutionMode: 'CENTRAL_ONLY',
+            mmLegacyFallbackUntil: null,
+        })
+        prisma.ficoMmAccountMapping.findMany.mockResolvedValue([
+            {
+                valuationClassId: 'valuation-1',
+                valuationScopeKey: 'TRADING',
+                debitAccountId: 'specific-inventory',
+                creditAccountId: 'specific-grir',
+            },
+        ])
+        const resolution = {
+            resolve: jest
+                .fn()
+                .mockRejectedValue(new Error('No approved, active and effective')),
+        }
+        const serviceWithResolver = new FicoAccountDeterminationService(
+            prisma as never,
+            postingValidation as never,
+            resolution as never,
+        )
+
+        await expect(serviceWithResolver.resolveMmPosting(payload)).rejects.toMatchObject({
+            message: expect.stringContaining('CENTRAL_ONLY'),
+        })
     })
 })

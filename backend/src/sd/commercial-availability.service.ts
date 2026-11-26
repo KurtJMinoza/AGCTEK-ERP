@@ -201,11 +201,6 @@ export class CommercialAvailabilityService {
                         `Selected variant for ${product.name} is no longer available. Please refresh your cart.`,
                     )
                 }
-                if (variant.companyId && variant.companyId !== args.companyId) {
-                    throw new BadRequestException(
-                        `Selected variant for ${product.name} is unavailable for this store.`,
-                    )
-                }
                 if (!variant.materialId) {
                     // The variant owns its material and has none linked: the
                     // parent product holds no stock, so this combination cannot
@@ -215,6 +210,10 @@ export class CommercialAvailabilityService {
                     )
                 }
                 materialId = variant.materialId
+                // Marketplace checkout defaults to AGCTEK, while catalog stock
+                // often sits on AWIC / M.CONPINCO. Use the variant's owning
+                // company for ATP — never reject a sellable AWIC SKU just
+                // because the storefront resolved a different default company.
                 resolvedCompanyId = variant.companyId ?? args.companyId
                 salesUomId = variant.salesUomId ?? variant.materialUomId
             } else if (!materialId) {

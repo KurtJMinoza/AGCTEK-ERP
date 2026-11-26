@@ -4,6 +4,9 @@ export const VALUATION_METHODS = [
     'STANDARD_COST',
 ] as const
 
+/** Enterprise default for material master, imports, and warehouse valuation rows. */
+export const DEFAULT_MATERIAL_VALUATION_METHOD = 'STANDARD_COST' as const
+
 export type ValuationMethod = (typeof VALUATION_METHODS)[number]
 
 export const LANDED_COST_TYPES = [

@@ -177,7 +177,7 @@ export async function updateExtPlatformTransaction(
 
 export async function updateExtPlatformTransactionStatus(
     id: string,
-    status: 'CONFIRMED' | 'APPROVED' | 'CANCELLED',
+    status: 'CONFIRMED' | 'APPROVED',
 ): Promise<ExtPlatformTransaction> {
     try {
         const { data } = await ErpAxiosBase.patch<ExtPlatformTransaction>(
@@ -187,6 +187,22 @@ export async function updateExtPlatformTransactionStatus(
         return data
     } catch (error) {
         throw toApiError(error, 'Unable to update transaction status')
+    }
+}
+
+/** Voids a confirmed / approved sale; an approved company-owned sale returns its stock. */
+export async function voidExtPlatformTransaction(
+    id: string,
+    reason: string,
+): Promise<ExtPlatformTransaction> {
+    try {
+        const { data } = await ErpAxiosBase.post<ExtPlatformTransaction>(
+            `${BASE}/transactions/${id}/void`,
+            { reason },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to void the sale')
     }
 }
 

@@ -40,6 +40,7 @@ import type {
     SalesSource,
 } from '../types/extPlatform'
 import { formatSdMoney } from './SdDataTableCells'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
 import {
     PAYMENT_METHODS,
     SourceBadge,
@@ -61,6 +62,10 @@ type CatalogOption = Option & {
     /** MM available quantity; null until loaded. */
     available: number | null
     stockState: string | null
+    primaryBatchNumber: string | null
+    primaryLotNumber: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode: string | null
 }
 
 /** Max catalog items per stock request (backend limit). */
@@ -81,6 +86,10 @@ type DraftLine = {
     quantity: string
     unitPrice: string
     discount: string
+    batchNumber: string
+    lotNumber: string
+    /** Read-only: filled from the chosen product (saved lines show what was recorded). */
+    barcode: string
 }
 
 const catalogKey = (productId: string, variantId: string) => `${productId}:${variantId}`
@@ -99,10 +108,28 @@ const blankLine = (): DraftLine => ({
     quantity: '1',
     unitPrice: '',
     discount: '',
+    batchNumber: '',
+    lotNumber: '',
+    barcode: '',
 })
 
 const num = (value: string) => (value.trim() === '' ? 0 : Number(value))
 const money = (value: number) => formatSdMoney(value)
+
+/** Identifies the inputs a tax-preview result was calculated for, so a stale result is never shown for edited values. */
+const lineSignature = (l: DraftLine) =>
+    [l.productId, l.variantId, num(l.quantity), num(l.unitPrice), num(l.discount)].join('|')
+
+/**
+ * Provisional line amount (qty × price − discount) shown until SD tax determination
+ * answers for the current values. Display only; the saved amounts come from the backend.
+ */
+const provisionalAmount = (l: DraftLine): number | null => {
+    const qty = num(l.quantity)
+    const price = num(l.unitPrice)
+    if (!(qty > 0) || l.unitPrice.trim() === '' || !Number.isFinite(price)) return null
+    return Math.max(0, Math.round((qty * price - num(l.discount)) * 100) / 100)
+}
 
 /** Helper text under a control; FormItem's `extra` renders inside the label and breaks row alignment. */
 const Hint = ({ children }: { children: ReactNode }) => (
@@ -242,6 +269,7 @@ export default function ExtPlatformTransactionDialog({
     const [preview, setPreview] = useState<{
         data: ExtPlatformTaxPreview
         keys: string[]
+        sigs: string[]
     } | null>(null)
     const [previewing, setPreviewing] = useState(false)
     const [previewError, setPreviewError] = useState('')
@@ -281,6 +309,9 @@ export default function ExtPlatformTransactionDialog({
                     quantity: String(Number(l.quantity)),
                     unitPrice: String(Number(l.unitPrice)),
                     discount: Number(l.discount) ? String(Number(l.discount)) : '',
+                    batchNumber: l.batchNumber ?? '',
+                    lotNumber: l.lotNumber ?? '',
+                    barcode: l.barcode ?? '',
                 })),
             )
         } else {
@@ -319,6 +350,9 @@ export default function ExtPlatformTransactionDialog({
                         price: variant?.price ?? p.price,
                         available: null,
                         stockState: null,
+                        primaryBatchNumber: null,
+                        primaryLotNumber: null,
+                        barcode: null,
                     })
                     return p.productConfig === 'VARIABLE' && p.variants?.length
                         ? p.variants.map(entry)
@@ -339,7 +373,16 @@ export default function ExtPlatformTransactionDialog({
                 setCatalog(
                     options.map((o) => {
                         const row = stock.get(o.value)
-                        return row ? { ...o, available: row.availableQuantity, stockState: row.state } : o
+                        return row
+                            ? {
+                                  ...o,
+                                  available: row.availableQuantity,
+                                  stockState: row.state,
+                                  primaryBatchNumber: row.primaryBatchNumber ?? null,
+                                  primaryLotNumber: row.primaryLotNumber ?? null,
+                                  barcode: row.barcode ?? null,
+                              }
+                            : o
                     }),
                 )
             })
@@ -383,6 +426,7 @@ export default function ExtPlatformTransactionDialog({
         )
         return {
             keys: ready.map((l) => l.key),
+            sigs: ready.map(lineSignature),
             body: {
                 companyId,
                 transactionDate: ymd,
@@ -413,7 +457,7 @@ export default function ExtPlatformTransactionDialog({
             previewExtPlatformTransaction(previewInput.body)
                 .then((data) => {
                     if (cancelled) return
-                    setPreview({ data, keys: previewInput.keys })
+                    setPreview({ data, keys: previewInput.keys, sigs: previewInput.sigs })
                     setPreviewError('')
                 })
                 .catch((err) => {
@@ -433,12 +477,14 @@ export default function ExtPlatformTransactionDialog({
 
     const previewByKey = useMemo(() => {
         const map = new Map<string, ExtPlatformTaxPreviewLine>()
+        const currentSig = new Map(lines.map((l) => [l.key, lineSignature(l)]))
         preview?.keys.forEach((key, i) => {
             const line = preview.data.lines[i]
-            if (line) map.set(key, line)
+            // Only keep results that were calculated for the line's current values.
+            if (line && currentSig.get(key) === preview.sigs[i]) map.set(key, line)
         })
         return map
-    }, [preview])
+    }, [preview, lines])
 
     const updateLine = (key: string, patch: Partial<DraftLine>) => {
         setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
@@ -488,6 +534,8 @@ export default function ExtPlatformTransactionDialog({
             quantity: num(l.quantity),
             unitPrice: num(l.unitPrice),
             discount: num(l.discount),
+            ...(l.batchNumber.trim() ? { batchNumber: l.batchNumber.trim() } : {}),
+            ...(l.lotNumber.trim() ? { lotNumber: l.lotNumber.trim() } : {}),
         }))
         const common = {
             salesSourceId,
@@ -775,6 +823,7 @@ export default function ExtPlatformTransactionDialog({
                                 const item = catalogByKey.get(catalogKey(line.productId, line.variantId))
                                 const result = previewByKey.get(line.key)
                                 const tax = result?.error === undefined ? result : undefined
+                                const estimate = provisionalAmount(line)
                                 const error = lineErrors[line.key] ?? result?.error
                                 return (
                                     <div
@@ -819,6 +868,9 @@ export default function ExtPlatformTransactionDialog({
                                                             variantId: o?.variantId ?? '',
                                                             // Catalog price is the starting point; overwrite with what the buyer paid on the platform.
                                                             unitPrice: o ? String(o.price) : line.unitPrice,
+                                                            batchNumber: o?.primaryBatchNumber ?? '',
+                                                            lotNumber: o?.primaryLotNumber ?? '',
+                                                            barcode: o?.barcode ?? '',
                                                         })
                                                     }
                                                 />
@@ -863,7 +915,18 @@ export default function ExtPlatformTransactionDialog({
                                             <div className="col-span-12 flex items-center justify-end gap-1 md:col-span-2">
                                                 <div className="min-w-0 text-right">
                                                     <div className="text-sm font-semibold tabular-nums heading-text">
-                                                        {tax ? money(tax.grossAmount) : '—'}
+                                                        {tax ? (
+                                                            money(tax.grossAmount)
+                                                        ) : estimate !== null ? (
+                                                            <span
+                                                                className="font-medium text-gray-500 dark:text-gray-400"
+                                                                title="Estimate: qty × price − discount. Tax is applied once it has been calculated."
+                                                            >
+                                                                {money(estimate)}
+                                                            </span>
+                                                        ) : (
+                                                            '—'
+                                                        )}
                                                     </div>
                                                     {tax ? (
                                                         <div className="mt-0.5 flex justify-end">
@@ -886,6 +949,37 @@ export default function ExtPlatformTransactionDialog({
                                                     onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                                                 />
                                             </div>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                            <FormItem label="Barcode (from product)">
+                                                <Input
+                                                    size="sm"
+                                                    readOnly
+                                                    className="font-mono"
+                                                    value={line.barcode}
+                                                    placeholder={line.productId ? 'No barcode on file' : 'Choose a product'}
+                                                />
+                                            </FormItem>
+                                            <FormItem label="Batch # (optional)">
+                                                <TrackingNumberInput
+                                                    size="sm"
+                                                    value={line.batchNumber}
+                                                    placeholder="Auto if blank"
+                                                    onChange={(value) =>
+                                                        updateLine(line.key, { batchNumber: value })
+                                                    }
+                                                />
+                                            </FormItem>
+                                            <FormItem label="Lot # (optional)">
+                                                <TrackingNumberInput
+                                                    size="sm"
+                                                    value={line.lotNumber}
+                                                    placeholder="Optional"
+                                                    onChange={(value) =>
+                                                        updateLine(line.key, { lotNumber: value })
+                                                    }
+                                                />
+                                            </FormItem>
                                         </div>
                                         {tax ? (
                                             <p className="mt-1 flex flex-wrap justify-between gap-x-3 px-1 text-[11px] text-gray-500 tabular-nums">
@@ -1000,7 +1094,10 @@ export default function ExtPlatformTransactionDialog({
                             </div>
 
                             {totals ? (
-                                <>
+                                <div
+                                    className={`transition-opacity ${previewing ? 'opacity-50' : ''}`}
+                                    aria-busy={previewing}
+                                >
                                     <SummaryRow label="Gross sales" value={totals.grossSales} />
                                     <SummaryRow label="Discounts" value={totals.discount} negative muted />
                                     <div className="my-2 border-t border-dashed border-gray-200 dark:border-gray-700" />
@@ -1023,7 +1120,7 @@ export default function ExtPlatformTransactionDialog({
                                         <SummaryRow label="Platform fees" value={totals.platformFees} negative muted />
                                         <SummaryRow label="Expected settlement" value={totals.netSettlement} strong />
                                     </div>
-                                </>
+                                </div>
                             ) : (
                                 <div className="rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-xs text-gray-400 dark:border-gray-700">
                                     {companyId

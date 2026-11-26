@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FilterChip, FilterField } from '@/components/shared/FilterBar'
 import {
     salesChannelLabel,
+    salesPaymentMethodLabel,
     type SalesLineReportRow,
 } from '../services/salesAnalyticsService'
 
@@ -10,6 +11,7 @@ export type SalesLineReportFilterState = {
     channel: string
     location: string
     salesType: string
+    paymentMethod: string
 }
 
 export function filterSalesLineReport(
@@ -36,6 +38,15 @@ export function filterSalesLineReport(
         ) {
             return false
         }
+        if (
+            filters.paymentMethod !== 'ALL' &&
+            row.paymentMethod !== filters.paymentMethod &&
+            !row.payments.some(
+                (payment) => payment.method === filters.paymentMethod,
+            )
+        ) {
+            return false
+        }
         if (!q) return true
         return (
             row.customerName.toLowerCase().includes(q) ||
@@ -52,6 +63,7 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
     const [channel, setChannel] = useState('ALL')
     const [location, setLocation] = useState('ALL')
     const [salesType, setSalesType] = useState('ALL')
+    const [paymentMethod, setPaymentMethod] = useState('ALL')
 
     const channelOptions = useMemo(() => {
         const values = [
@@ -73,12 +85,36 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
         ]
     }, [rows])
 
-    const state: SalesLineReportFilterState = { search, channel, location, salesType }
+    const paymentMethodOptions = useMemo(() => {
+        const codes = new Set<string>()
+        rows.forEach((row) => {
+            if (row.paymentMethod) codes.add(row.paymentMethod)
+            row.payments.forEach((payment) => codes.add(payment.method))
+        })
+        const values = [...codes].sort((a, b) =>
+            salesPaymentMethodLabel(a).localeCompare(salesPaymentMethodLabel(b)),
+        )
+        return [
+            { value: 'ALL', label: 'All payment methods' },
+            ...values.map((value) => ({
+                value,
+                label: salesPaymentMethodLabel(value),
+            })),
+        ]
+    }, [rows])
+
+    const state: SalesLineReportFilterState = {
+        search,
+        channel,
+        location,
+        salesType,
+        paymentMethod,
+    }
 
     const filteredRows = useMemo(
         () => filterSalesLineReport(rows, state),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [rows, search, channel, location, salesType],
+        [rows, search, channel, location, salesType, paymentMethod],
     )
 
     const fields: FilterField[] = useMemo(
@@ -121,12 +157,31 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
                     { value: 'ALL', label: 'All sales types' },
                     { value: 'CASH', label: 'Cash' },
                     { value: 'CREDIT', label: 'Credit' },
+                    { value: 'CHARGE', label: 'Charge (pay later)' },
                 ],
                 className: 'w-full sm:w-36',
                 onChange: setSalesType,
             },
+            {
+                key: 'paymentMethod',
+                label: 'Payment method',
+                kind: 'select',
+                value: paymentMethod,
+                options: paymentMethodOptions,
+                className: 'w-full sm:w-44',
+                onChange: setPaymentMethod,
+            },
         ],
-        [search, channel, location, salesType, channelOptions, locationOptions],
+        [
+            search,
+            channel,
+            location,
+            salesType,
+            paymentMethod,
+            channelOptions,
+            locationOptions,
+            paymentMethodOptions,
+        ],
     )
 
     const chips: FilterChip[] = useMemo(() => {
@@ -152,6 +207,13 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
                 onRemove: () => setSalesType('ALL'),
             })
         }
+        if (paymentMethod !== 'ALL') {
+            active.push({
+                key: 'paymentMethod',
+                label: `Payment: ${salesPaymentMethodLabel(paymentMethod)}`,
+                onRemove: () => setPaymentMethod('ALL'),
+            })
+        }
         if (search.trim()) {
             active.push({
                 key: 'search',
@@ -160,13 +222,14 @@ export function useSalesLineReportFilters(rows: SalesLineReportRow[]) {
             })
         }
         return active
-    }, [channel, location, salesType, search])
+    }, [channel, location, salesType, paymentMethod, search])
 
     const clearFilters = () => {
         setSearch('')
         setChannel('ALL')
         setLocation('ALL')
         setSalesType('ALL')
+        setPaymentMethod('ALL')
     }
 
     return {

@@ -55,6 +55,11 @@ export type MmAccountingEventPayloadV2 = {
     transferToWarehouseId?: string
     correlationId?: string
     totalValue?: number
+    /** Detect idempotency key reuse with different financial payload. */
+    financialFingerprint?: string
+    reversalOfJournalId?: string
+    reversalReason?: string
+    salesOrderId?: string
     [key: string]: unknown
 }
 

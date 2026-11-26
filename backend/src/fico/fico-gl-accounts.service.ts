@@ -15,6 +15,7 @@ import {
     normalizeAccountCode,
 } from './fico-coa-rules'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import { ledgerCommittedJournalEntryRelationWhere } from './fico-ledger-policy'
 import {
     FICO_ACCOUNT_TYPES,
     FICO_AUDIT_ACTIONS,
@@ -29,6 +30,10 @@ export type GlAccountListQuery = {
     status?: string
     search?: string
     companyId?: string
+    page?: number
+    pageSize?: number
+    sortBy?: 'accountCode' | 'accountName' | 'status' | 'updatedAt'
+    sortDir?: 'asc' | 'desc'
 }
 
 export type CreateGlAccountInput = {
@@ -50,6 +55,8 @@ export type CreateGlAccountInput = {
 
 export type UpdateGlAccountInput = Partial<Omit<CreateGlAccountInput, 'chartOfAccountsId' | 'accountCode'>> & {
     status?: string
+    /** Optimistic concurrency — ISO timestamp from the loaded account row. */
+    expectedUpdatedAt?: string
 }
 
 export type CompanyAssignmentInput = {
@@ -134,6 +141,41 @@ function toDate(value: string | null | undefined) {
     return date
 }
 
+export type GlAccountListSummary = {
+    totalAccounts: number
+    activeAccounts: number
+    inactiveAccounts: number
+    draftAccounts: number
+    blockedAccounts: number
+    reconciliationAccounts: number
+    withoutCompanyAssignment: number
+}
+
+export type GlAccountDependencyCategory = {
+    type: string
+    label: string
+    count: number
+    blocksDeletion: boolean
+    hiddenByScope?: number
+}
+
+export type GlAccountDeletionEligibility = {
+    canDelete: boolean
+    reasons: string[]
+    categories: GlAccountDependencyCategory[]
+    hasPostedHistory: boolean
+    editLocks: {
+        accountCode: boolean
+        chartOfAccounts: boolean
+        accountType: boolean
+        accountGroup: boolean
+        normalBalance: boolean
+        currencyRestriction: boolean
+        reconciliation: boolean
+        openItemManagement: boolean
+    }
+}
+
 @Injectable()
 export class FicoGlAccountsService {
     constructor(
@@ -142,62 +184,105 @@ export class FicoGlAccountsService {
         private readonly audit: FicoAuditService,
     ) {}
 
-    async list(query: GlAccountListQuery = {}) {
+    private buildListWhere(
+        query: GlAccountListQuery = {},
+    ): Prisma.FicoGlAccountWhereInput {
         const search = query.search?.trim()
-        const accounts = await this.prisma.ficoGlAccount.findMany({
-            where: {
-                ...(query.chartOfAccountsId
-                    ? { chartOfAccountsId: query.chartOfAccountsId }
-                    : {}),
-                ...(query.accountType
-                    ? { accountType: query.accountType }
-                    : {}),
-                ...(query.status ? { status: query.status } : {}),
-                ...(search
-                    ? {
-                          OR: [
-                              {
-                                  accountCode: {
-                                      contains: search,
-                                      mode: 'insensitive',
-                                  },
+        return {
+            ...(query.chartOfAccountsId
+                ? { chartOfAccountsId: query.chartOfAccountsId }
+                : {}),
+            ...(query.accountType ? { accountType: query.accountType } : {}),
+            ...(query.status ? { status: query.status } : {}),
+            ...(search
+                ? {
+                      OR: [
+                          {
+                              accountCode: {
+                                  contains: search,
+                                  mode: 'insensitive',
                               },
-                              {
-                                  accountName: {
-                                      contains: search,
-                                      mode: 'insensitive',
-                                  },
-                              },
-                          ],
-                      }
-                    : {}),
-                ...(query.companyId
-                    ? {
-                          companyAssignments: {
-                              some: { companyId: query.companyId },
                           },
-                      }
-                    : {}),
-            },
-            include: {
-                chartOfAccounts: {
-                    select: { id: true, code: true, name: true },
+                          {
+                              accountName: {
+                                  contains: search,
+                                  mode: 'insensitive',
+                              },
+                          },
+                      ],
+                  }
+                : {}),
+            ...(query.companyId
+                ? {
+                      companyAssignments: {
+                          some: { companyId: query.companyId },
+                      },
+                  }
+                : {}),
+        }
+    }
+
+    async summary(query: GlAccountListQuery = {}): Promise<GlAccountListSummary> {
+        const where = this.buildListWhere(query)
+        const [
+            totalAccounts,
+            activeAccounts,
+            inactiveAccounts,
+            reconciliationAccounts,
+            withoutCompanyAssignment,
+            blockedAccounts,
+        ] = await Promise.all([
+            this.prisma.ficoGlAccount.count({ where }),
+            this.prisma.ficoGlAccount.count({
+                where: { ...where, status: 'ACTIVE' },
+            }),
+            this.prisma.ficoGlAccount.count({
+                where: { ...where, status: 'INACTIVE' },
+            }),
+            this.prisma.ficoGlAccount.count({
+                where: { ...where, isReconciliationAccount: true },
+            }),
+            this.prisma.ficoGlAccount.count({
+                where: {
+                    ...where,
+                    companyAssignments: { none: {} },
                 },
-                accountGroup: {
-                    select: { id: true, code: true, name: true, category: true },
+            }),
+            this.prisma.ficoGlAccount.count({
+                where: {
+                    ...where,
+                    OR: [
+                        { isPostingAccount: false },
+                        {
+                            allowManualPosting: false,
+                            allowAutomaticPosting: false,
+                        },
+                    ],
                 },
-                _count: {
-                    select: {
-                        journalLines: true,
-                        debitMappings: true,
-                        creditMappings: true,
-                        companyAssignments: true,
-                    },
-                },
-            },
-            orderBy: [{ accountCode: 'asc' }],
-        })
-        return accounts.map((account) => ({
+            }),
+        ])
+        return {
+            totalAccounts,
+            activeAccounts,
+            inactiveAccounts,
+            draftAccounts: 0,
+            blockedAccounts,
+            reconciliationAccounts,
+            withoutCompanyAssignment,
+        }
+    }
+
+    private mapListRow(
+        account: {
+            _count: {
+                journalLines: number
+                debitMappings: number
+                creditMappings: number
+                companyAssignments: number
+            }
+        } & Record<string, unknown>,
+    ) {
+        return {
             ...account,
             usage: {
                 journalLines: account._count.journalLines,
@@ -209,7 +294,65 @@ export class FicoGlAccountsService {
                     account._count.debitMappings +
                     account._count.creditMappings,
             },
-        }))
+        }
+    }
+
+    async list(query: GlAccountListQuery = {}) {
+        const where = this.buildListWhere(query)
+        const sortBy = query.sortBy ?? 'accountCode'
+        const sortDir = query.sortDir ?? 'asc'
+        const orderBy =
+            sortBy === 'accountCode'
+                ? [{ accountCode: sortDir }]
+                : sortBy === 'accountName'
+                  ? [{ accountName: sortDir }]
+                  : sortBy === 'status'
+                    ? [{ status: sortDir }]
+                    : [{ updatedAt: sortDir }]
+        const include = {
+            chartOfAccounts: {
+                select: { id: true, code: true, name: true },
+            },
+            accountGroup: {
+                select: { id: true, code: true, name: true, category: true },
+            },
+            _count: {
+                select: {
+                    journalLines: true,
+                    debitMappings: true,
+                    creditMappings: true,
+                    companyAssignments: true,
+                },
+            },
+        }
+
+        if (query.page) {
+            const page = Math.max(1, query.page)
+            const pageSize = Math.min(500, Math.max(1, query.pageSize ?? 50))
+            const [accounts, total] = await Promise.all([
+                this.prisma.ficoGlAccount.findMany({
+                    where,
+                    include,
+                    orderBy,
+                    skip: (page - 1) * pageSize,
+                    take: pageSize,
+                }),
+                this.prisma.ficoGlAccount.count({ where }),
+            ])
+            return {
+                items: accounts.map((row) => this.mapListRow(row)),
+                total,
+                page,
+                pageSize,
+            }
+        }
+
+        const accounts = await this.prisma.ficoGlAccount.findMany({
+            where,
+            include,
+            orderBy,
+        })
+        return accounts.map((account) => this.mapListRow(account))
     }
 
     async get(id: string) {
@@ -546,6 +689,63 @@ export class FicoGlAccountsService {
         user: AuthRequestUser,
     ) {
         const current = await this.get(id)
+        if (input.expectedUpdatedAt) {
+            const expected = new Date(input.expectedUpdatedAt)
+            if (
+                Number.isNaN(expected.getTime()) ||
+                current.updatedAt.getTime() !== expected.getTime()
+            ) {
+                throw new ConflictException(
+                    'This account was updated by another user. Refresh the page and try again.',
+                )
+            }
+        }
+        const hasPostedHistory = await this.prisma.ficoJournalEntryLine.count({
+            where: {
+                glAccountId: id,
+                journalEntry: ledgerCommittedJournalEntryRelationWhere(),
+            },
+        })
+        if (
+            hasPostedHistory > 0 &&
+            input.normalBalance !== undefined &&
+            input.normalBalance !== current.normalBalance
+        ) {
+            throw new BadRequestException(
+                'Normal balance cannot change after posted journal entries exist for this account.',
+            )
+        }
+        if (
+            hasPostedHistory > 0 &&
+            (input.currencyRestriction !== undefined ||
+                input.isReconciliationAccount !== undefined ||
+                input.reconciliationType !== undefined ||
+                input.openItemManagement !== undefined)
+        ) {
+            const reconcileChange =
+                input.isReconciliationAccount !== undefined &&
+                input.isReconciliationAccount !== current.isReconciliationAccount
+            const reconTypeChange =
+                input.reconciliationType !== undefined &&
+                input.reconciliationType !== current.reconciliationType
+            const currencyChange =
+                input.currencyRestriction !== undefined &&
+                normalizeCurrency(input.currencyRestriction) !==
+                    current.currencyRestriction
+            const openItemChange =
+                input.openItemManagement !== undefined &&
+                input.openItemManagement !== current.openItemManagement
+            if (
+                reconcileChange ||
+                reconTypeChange ||
+                currencyChange ||
+                openItemChange
+            ) {
+                throw new BadRequestException(
+                    'Reconciliation, currency policy, and open-item settings cannot change after posted journal entries exist. Use a controlled migration if required.',
+                )
+            }
+        }
         const nextType = input.accountType ?? current.accountType
         if (!isFicoAccountType(nextType)) {
             throw new BadRequestException('Invalid G/L account type.')
@@ -682,12 +882,11 @@ export class FicoGlAccountsService {
     }
 
     async remove(id: string, user: AuthRequestUser) {
-        const account = await this.get(id)
-        if (account.usage.total > 0 || account.companyAssignments.length > 0) {
-            throw new ConflictException(
-                'This account is used by journals, mappings or company assignments. Deactivate it instead of deleting it.',
-            )
+        const eligibility = await this.deletionEligibility(id, user)
+        if (!eligibility.canDelete) {
+            throw new ConflictException(eligibility.reasons.join(' '))
         }
+        const account = await this.get(id)
         await this.prisma.ficoGlAccount.delete({ where: { id } })
         await this.audit.log({
             actorId: user.id,
@@ -804,6 +1003,18 @@ export class FicoGlAccountsService {
         if (!existing) {
             throw new NotFoundException('Company account assignment not found')
         }
+        const postedLines = await this.prisma.ficoJournalEntryLine.count({
+            where: {
+                glAccountId,
+                companyId,
+                journalEntry: ledgerCommittedJournalEntryRelationWhere(),
+            },
+        })
+        if (postedLines > 0) {
+            throw new BadRequestException(
+                'This assignment has posted journal history and cannot be removed. Disable posting for this company instead.',
+            )
+        }
         await this.prisma.ficoCompanyGlAccount.delete({
             where: { id: existing.id },
         })
@@ -816,6 +1027,617 @@ export class FicoGlAccountsService {
             previousValues: existing as unknown as Record<string, unknown>,
         })
         return { id: existing.id, deleted: true }
+    }
+
+    async deletionEligibility(
+        id: string,
+        user: AuthRequestUser,
+    ): Promise<GlAccountDeletionEligibility> {
+        return this.buildDeletionEligibility(id, user)
+    }
+
+    async dependencies(id: string, user: AuthRequestUser) {
+        const eligibility = await this.buildDeletionEligibility(id, user)
+        const account = await this.get(id)
+        return { account, ...eligibility }
+    }
+
+    /** Combined where-used payload (journal lines, mappings, dependency categories). */
+    async whereUsed(id: string, user: AuthRequestUser) {
+        const [usage, eligibility] = await Promise.all([
+            this.usage(id, user),
+            this.buildDeletionEligibility(id, user),
+        ])
+        return { usage, eligibility }
+    }
+
+    async changeHistory(
+        id: string,
+        user: AuthRequestUser,
+        query: { page?: number; pageSize?: number } = {},
+    ) {
+        await this.get(id)
+        const page = Math.max(1, query.page ?? 1)
+        const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50))
+        const accountActions = [
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_CREATE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_UPDATE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_STATUS_CHANGE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_DELETE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_IMPORT,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_ACTIVATE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_DEACTIVATE,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_REACTIVATE,
+        ]
+        const where = {
+            entityType: 'FicoGlAccount',
+            entityId: id,
+            action: { in: accountActions },
+        }
+        const [items, total] = await Promise.all([
+            this.prisma.ficoAccountingAuditLog.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+            }),
+            this.prisma.ficoAccountingAuditLog.count({ where }),
+        ])
+        return { items, total, page, pageSize }
+    }
+
+    async lineItems(
+        id: string,
+        user: AuthRequestUser,
+        query: {
+            companyId?: string
+            dateFrom?: string
+            dateTo?: string
+            page?: number
+            pageSize?: number
+        } = {},
+    ) {
+        if (query.companyId) {
+            await this.access.assertAccess(user, query.companyId)
+        }
+        const account = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+            select: { id: true, accountCode: true, accountName: true },
+        })
+        if (!account) throw new NotFoundException('G/L account not found')
+        const companyIds = await this.access.accessibleCompanyIds(user)
+        const page = Math.max(1, query.page ?? 1)
+        const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50))
+        const postingDateFilter: Prisma.DateTimeFilter | undefined =
+            query.dateFrom || query.dateTo
+                ? {
+                      ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+                      ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+                  }
+                : undefined
+        const lineWhere: Prisma.FicoJournalEntryLineWhereInput = {
+            glAccountId: id,
+            journalEntry: ledgerCommittedJournalEntryRelationWhere(
+                postingDateFilter ? { postingDate: postingDateFilter } : undefined,
+            ),
+            ...(query.companyId ? { companyId: query.companyId } : {}),
+            ...(companyIds === null ? {} : { companyId: { in: companyIds } }),
+        }
+        const [items, total] = await Promise.all([
+            this.prisma.ficoJournalEntryLine.findMany({
+                where: lineWhere,
+                orderBy: [
+                    { journalEntry: { postingDate: 'desc' } },
+                    { lineNumber: 'asc' },
+                ],
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+                select: {
+                    id: true,
+                    lineNumber: true,
+                    debitAmount: true,
+                    creditAmount: true,
+                    currency: true,
+                    description: true,
+                    company: { select: { id: true, code: true, name: true } },
+                    journalEntry: {
+                        select: {
+                            id: true,
+                            documentNumber: true,
+                            documentType: true,
+                            postingDate: true,
+                            documentDate: true,
+                            status: true,
+                            sourceModule: true,
+                            sourceDocumentType: true,
+                            sourceDocumentId: true,
+                            reversalOfId: true,
+                            reversedBy: true,
+                        },
+                    },
+                },
+            }),
+            this.prisma.ficoJournalEntryLine.count({ where: lineWhere }),
+        ])
+        return { account, items, total, page, pageSize }
+    }
+
+    async activate(id: string, user: AuthRequestUser) {
+        return this.setStatus(id, 'ACTIVE', user, FICO_AUDIT_ACTIONS.GL_ACCOUNT_ACTIVATE)
+    }
+
+    async deactivate(id: string, user: AuthRequestUser, reason?: string) {
+        return this.setStatus(
+            id,
+            'INACTIVE',
+            user,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_DEACTIVATE,
+            reason,
+        )
+    }
+
+    async reactivate(id: string, user: AuthRequestUser, reason?: string) {
+        return this.setStatus(
+            id,
+            'ACTIVE',
+            user,
+            FICO_AUDIT_ACTIONS.GL_ACCOUNT_REACTIVATE,
+            reason,
+        )
+    }
+
+    private async setStatus(
+        id: string,
+        status: string,
+        user: AuthRequestUser,
+        action: string,
+        reason?: string,
+    ) {
+        const current = await this.get(id)
+        if (current.status === status) {
+            return current
+        }
+        const updated = await this.prisma.ficoGlAccount.update({
+            where: { id },
+            data: { status, updatedBy: user.id },
+        })
+        await this.audit.log({
+            actorId: user.id,
+            action,
+            entityType: 'FicoGlAccount',
+            entityId: id,
+            reason: reason ?? null,
+            metadata: { accountCode: current.accountCode },
+            previousValues: { status: current.status },
+            newValues: { status },
+        })
+        return updated
+    }
+
+    async blockCompanyPosting(
+        glAccountId: string,
+        companyId: string,
+        user: AuthRequestUser,
+        reason?: string,
+    ) {
+        await this.access.assertAccess(user, companyId)
+        const saved = await this.upsertCompanyAssignment(
+            glAccountId,
+            companyId,
+            { postingEnabled: false, manualPostingBlocked: false },
+            user,
+        )
+        await this.audit.log({
+            companyId,
+            actorId: user.id,
+            action: FICO_AUDIT_ACTIONS.COMPANY_GL_POSTING_BLOCKED,
+            entityType: 'FicoCompanyGlAccount',
+            entityId: saved.id,
+            reason: reason ?? null,
+            metadata: { glAccountId },
+            newValues: { postingEnabled: false },
+        })
+        return saved
+    }
+
+    async unblockCompanyPosting(
+        glAccountId: string,
+        companyId: string,
+        user: AuthRequestUser,
+        reason?: string,
+    ) {
+        await this.access.assertAccess(user, companyId)
+        const saved = await this.upsertCompanyAssignment(
+            glAccountId,
+            companyId,
+            { postingEnabled: true },
+            user,
+        )
+        await this.audit.log({
+            companyId,
+            actorId: user.id,
+            action: FICO_AUDIT_ACTIONS.COMPANY_GL_POSTING_UNBLOCKED,
+            entityType: 'FicoCompanyGlAccount',
+            entityId: saved.id,
+            reason: reason ?? null,
+            metadata: { glAccountId },
+            newValues: { postingEnabled: true },
+        })
+        return saved
+    }
+
+    async companyAssignmentContext(id: string, user: AuthRequestUser) {
+        const account = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+            include: {
+                chartOfAccounts: {
+                    select: { id: true, code: true, name: true, status: true },
+                },
+                accountGroup: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        category: true,
+                        rangeFrom: true,
+                        rangeTo: true,
+                    },
+                },
+                companyAssignments: {
+                    include: {
+                        company: {
+                            select: { id: true, code: true, name: true },
+                        },
+                    },
+                    orderBy: { company: { code: 'asc' } },
+                },
+            },
+        })
+        if (!account) throw new NotFoundException('G/L account not found')
+
+        const companyIds = await this.access.accessibleCompanyIds(user)
+        const settingsWhere =
+            companyIds === null
+                ? { chartOfAccountsId: account.chartOfAccountsId, status: 'ACTIVE' as const }
+                : {
+                      chartOfAccountsId: account.chartOfAccountsId,
+                      status: 'ACTIVE' as const,
+                      companyId: { in: companyIds },
+                  }
+        const eligibleSettings =
+            await this.prisma.ficoCompanyAccountingSettings.findMany({
+                where: settingsWhere,
+                select: {
+                    companyId: true,
+                    status: true,
+                    baseCurrency: true,
+                    company: {
+                        select: { id: true, code: true, name: true },
+                    },
+                },
+                orderBy: { company: { code: 'asc' } },
+            })
+        const assignedIds = new Set(
+            account.companyAssignments.map((row) => row.companyId),
+        )
+        const unassignedEligible = eligibleSettings.filter(
+            (row) => !assignedIds.has(row.companyId),
+        )
+        const assignmentIds = account.companyAssignments.map((row) => row.id)
+        const history =
+            assignmentIds.length === 0
+                ? []
+                : await this.prisma.ficoAccountingAuditLog.findMany({
+                      where: {
+                          entityType: 'FicoCompanyGlAccount',
+                          entityId: { in: assignmentIds },
+                      },
+                      orderBy: { createdAt: 'desc' },
+                      take: 50,
+                      select: {
+                          id: true,
+                          action: true,
+                          actorId: true,
+                          createdAt: true,
+                          companyId: true,
+                          reason: true,
+                      },
+                  })
+
+        return {
+            account: {
+                id: account.id,
+                accountCode: account.accountCode,
+                accountName: account.accountName,
+                accountType: account.accountType,
+                normalBalance: account.normalBalance,
+                status: account.status,
+                isPostingAccount: account.isPostingAccount,
+                allowManualPosting: account.allowManualPosting,
+                allowAutomaticPosting: account.allowAutomaticPosting,
+                isReconciliationAccount: account.isReconciliationAccount,
+                reconciliationType: account.reconciliationType,
+                openItemManagement: account.openItemManagement,
+                currencyRestriction: account.currencyRestriction,
+                chartOfAccounts: account.chartOfAccounts,
+                accountGroup: account.accountGroup,
+            },
+            assignments: account.companyAssignments,
+            eligibleCompanies: unassignedEligible.map((row) => ({
+                company: row.company,
+                accountingStatus: row.status,
+                baseCurrency: row.baseCurrency,
+            })),
+            assignmentHistory: history,
+        }
+    }
+
+    async duplicate(
+        id: string,
+        accountCode: string,
+        user: AuthRequestUser,
+    ) {
+        const source = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+        })
+        if (!source) throw new NotFoundException('G/L account not found')
+        return this.create(
+            {
+                chartOfAccountsId: source.chartOfAccountsId,
+                accountGroupId: source.accountGroupId,
+                accountCode,
+                accountName: `${source.accountName} (copy)`,
+                description: source.description,
+                accountType: source.accountType,
+                normalBalance: source.normalBalance,
+                isPostingAccount: source.isPostingAccount,
+                allowManualPosting: source.allowManualPosting,
+                allowAutomaticPosting: source.allowAutomaticPosting,
+                isReconciliationAccount: source.isReconciliationAccount,
+                reconciliationType: source.reconciliationType,
+                openItemManagement: source.openItemManagement,
+                currencyRestriction: source.currencyRestriction,
+            },
+            user,
+        )
+    }
+
+    async balances(
+        id: string,
+        user: AuthRequestUser,
+        query: { companyId?: string },
+    ) {
+        const account = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                accountCode: true,
+                accountName: true,
+                normalBalance: true,
+            },
+        })
+        if (!account) throw new NotFoundException('G/L account not found')
+        const companyIds = await this.access.accessibleCompanyIds(user)
+        if (query.companyId) {
+            await this.access.assertAccess(user, query.companyId)
+        }
+        const lineWhere: Prisma.FicoJournalEntryLineWhereInput = {
+            glAccountId: id,
+            journalEntry: ledgerCommittedJournalEntryRelationWhere(),
+            ...(query.companyId ? { companyId: query.companyId } : {}),
+            ...(companyIds === null
+                ? {}
+                : { companyId: { in: companyIds } }),
+        }
+        const [aggregate, byCompany] = await Promise.all([
+            this.prisma.ficoJournalEntryLine.aggregate({
+                where: lineWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+                _count: true,
+            }),
+            this.prisma.ficoJournalEntryLine.groupBy({
+                by: ['companyId'],
+                where: lineWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+                _count: true,
+            }),
+        ])
+        const companies = await this.prisma.company.findMany({
+            where: {
+                id: {
+                    in: byCompany.map((row) => row.companyId),
+                },
+            },
+            select: { id: true, code: true, name: true },
+        })
+        const companyById = new Map(companies.map((row) => [row.id, row]))
+        return {
+            account,
+            totals: {
+                debit: (aggregate._sum.debitAmount ?? new Prisma.Decimal(0)).toString(),
+                credit: (aggregate._sum.creditAmount ?? new Prisma.Decimal(0)).toString(),
+                lineCount: aggregate._count,
+            },
+            byCompany: byCompany.map((row) => ({
+                company: companyById.get(row.companyId) ?? { id: row.companyId },
+                debit: (row._sum.debitAmount ?? new Prisma.Decimal(0)).toString(),
+                credit: (row._sum.creditAmount ?? new Prisma.Decimal(0)).toString(),
+                lineCount: row._count,
+            })),
+        }
+    }
+
+    private async buildDeletionEligibility(
+        id: string,
+        user: AuthRequestUser,
+    ): Promise<GlAccountDeletionEligibility> {
+        const account = await this.prisma.ficoGlAccount.findUnique({
+            where: { id },
+            select: { id: true, status: true },
+        })
+        if (!account) throw new NotFoundException('G/L account not found')
+
+        const companyIds = await this.access.accessibleCompanyIds(user)
+        const companyScope =
+            companyIds === null ? {} : { companyId: { in: companyIds } }
+        const lineScope = { glAccountId: id, ...companyScope }
+
+        const [
+            postedJournalLines,
+            draftJournalLines,
+            totalJournalLines,
+            hiddenJournalLines,
+            debitMappings,
+            creditMappings,
+            determinationLines,
+            taxCodes,
+            companyDefaults,
+            companyAssignments,
+        ] = await Promise.all([
+            this.prisma.ficoJournalEntryLine.count({
+                where: {
+                    ...lineScope,
+                    journalEntry: ledgerCommittedJournalEntryRelationWhere(),
+                },
+            }),
+            this.prisma.ficoJournalEntryLine.count({
+                where: {
+                    ...lineScope,
+                    journalEntry: { status: { in: ['DRAFT', 'LEGACY'] } },
+                },
+            }),
+            this.prisma.ficoJournalEntryLine.count({ where: lineScope }),
+            this.prisma.ficoJournalEntryLine.count({
+                where: { glAccountId: id },
+            }),
+            this.prisma.ficoMmAccountMapping.count({
+                where: { debitAccountId: id, ...companyScope },
+            }),
+            this.prisma.ficoMmAccountMapping.count({
+                where: { creditAccountId: id, ...companyScope },
+            }),
+            this.prisma.ficoAccountDeterminationLine.count({
+                where: { glAccountId: id },
+            }),
+            this.prisma.ficoTaxCode.count({
+                where: {
+                    OR: [
+                        { inputTaxGlAccountId: id },
+                        { outputTaxGlAccountId: id },
+                        { withholdingPayableGlAccountId: id },
+                        { withholdingReceivableGlAccountId: id },
+                        { nonRecoverableTaxGlAccountId: id },
+                    ],
+                    ...companyScope,
+                },
+            }),
+            this.prisma.ficoCompanyAccountingSettings.count({
+                where: {
+                    OR: [
+                        { defaultCashAccountId: id },
+                        { defaultReceivableAccountId: id },
+                        { defaultPayableAccountId: id },
+                        { defaultInventoryAccountId: id },
+                        { defaultSalesRevenueAccountId: id },
+                        { defaultCostOfGoodsSoldAccountId: id },
+                        { defaultTaxInputAccountId: id },
+                        { defaultTaxOutputAccountId: id },
+                        { defaultRetainedEarningsAccountId: id },
+                    ],
+                    ...companyScope,
+                },
+            }),
+            this.prisma.ficoCompanyGlAccount.count({ where: { glAccountId: id } }),
+        ])
+
+        const categories: GlAccountDependencyCategory[] = [
+            {
+                type: 'POSTED_JOURNAL_LINES',
+                label: 'Posted journal lines',
+                count: postedJournalLines,
+                blocksDeletion: true,
+            },
+            {
+                type: 'DRAFT_JOURNAL_LINES',
+                label: 'Draft or pending journal lines',
+                count: draftJournalLines,
+                blocksDeletion: true,
+            },
+            {
+                type: 'MM_MAPPINGS',
+                label: 'MM account mappings',
+                count: debitMappings + creditMappings,
+                blocksDeletion: true,
+            },
+            {
+                type: 'DETERMINATION_RULES',
+                label: 'Account determination rule lines',
+                count: determinationLines,
+                blocksDeletion: true,
+            },
+            {
+                type: 'TAX_CODES',
+                label: 'Tax code mappings',
+                count: taxCodes,
+                blocksDeletion: true,
+            },
+            {
+                type: 'COMPANY_DEFAULTS',
+                label: 'Company default account settings',
+                count: companyDefaults,
+                blocksDeletion: true,
+            },
+            {
+                type: 'COMPANY_ASSIGNMENTS',
+                label: 'Company assignments',
+                count: companyAssignments,
+                blocksDeletion: true,
+            },
+        ]
+
+        const hiddenByScope = hiddenJournalLines - totalJournalLines
+        if (hiddenByScope > 0) {
+            categories[0] = {
+                ...categories[0],
+                hiddenByScope,
+            }
+        }
+
+        const blocking = categories.filter(
+            (row) => row.blocksDeletion && row.count > 0,
+        )
+        const reasons = blocking.map(
+            (row) =>
+                `${row.label} (${row.count}${row.hiddenByScope ? `; ${row.hiddenByScope} more in other companies` : ''}).`,
+        )
+        const canDelete = blocking.length === 0 && account.status === 'INACTIVE'
+        if (account.status === 'ACTIVE' && blocking.length === 0) {
+            reasons.push(
+                'Only inactive accounts with no dependencies may be permanently deleted. Deactivate the account first.',
+            )
+        }
+
+        const hasPostedHistory = postedJournalLines > 0
+        return {
+            canDelete,
+            reasons: canDelete
+                ? []
+                : reasons.length
+                  ? reasons
+                  : ['This account cannot be deleted.'],
+            categories,
+            hasPostedHistory,
+            editLocks: {
+                accountCode: true,
+                chartOfAccounts: true,
+                accountType: hasPostedHistory,
+                accountGroup: hasPostedHistory,
+                normalBalance: hasPostedHistory,
+                currencyRestriction: hasPostedHistory,
+                reconciliation: hasPostedHistory,
+                openItemManagement: hasPostedHistory,
+            },
+        }
     }
 
     private async loadChart(chartOfAccountsId: string): Promise<ChartForAccount> {

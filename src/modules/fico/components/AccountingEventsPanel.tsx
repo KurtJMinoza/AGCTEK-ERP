@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import FormDialog from '@/components/shared/FormDialog'
@@ -46,13 +47,20 @@ const MODULE_OPTIONS: Array<{ value: ModuleFilter; label: string }> = [
 const STATUS_LABEL: Record<FicoAccountingEventStatus, string> = {
     CONSUMED: 'Posted',
     PENDING: 'Pending',
+    PROCESSING: 'Processing',
     FAILED: 'Failed',
+    SKIPPED: 'No posting',
 }
 
-const STATUS_TONE: Record<FicoAccountingEventStatus, 'success' | 'warning' | 'danger'> = {
+const STATUS_TONE: Record<
+    FicoAccountingEventStatus,
+    'success' | 'warning' | 'danger' | 'info' | 'default'
+> = {
     CONSUMED: 'success',
     PENDING: 'warning',
+    PROCESSING: 'info',
     FAILED: 'danger',
+    SKIPPED: 'default',
 }
 
 /** "InventoryValuationUpdated" → "Inventory valuation updated". */
@@ -93,6 +101,16 @@ function ResultCell({ event }: { event: FicoAccountingEvent }) {
                 {event.errorSummary ?? 'Failed without an error message.'}
             </p>
         )
+    }
+    if (event.status === 'SKIPPED') {
+        return (
+            <span className="text-xs text-gray-500">
+                {event.outcomeReason ?? 'No financial posting required'}
+            </span>
+        )
+    }
+    if (event.status === 'PROCESSING') {
+        return <span className="text-xs text-blue-600">Processing…</span>
     }
     return <span className="text-xs text-gray-500">Waiting for FICO to post</span>
 }
@@ -169,7 +187,10 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     }, [detailId])
 
     const counts = data?.summary.byStatus ?? {}
-    const totalCount = (counts.CONSUMED ?? 0) + (counts.PENDING ?? 0) + (counts.FAILED ?? 0)
+    const totalCount = Object.values(counts).reduce(
+        (sum, value) => sum + (value ?? 0),
+        0,
+    )
 
     const moduleOptions = useMemo(
         () =>
@@ -237,6 +258,13 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                     <StatusBadge tone={STATUS_TONE[row.original.status]}>
                         {STATUS_LABEL[row.original.status]}
                     </StatusBadge>
+                ),
+            },
+            {
+                header: 'Attempts',
+                id: 'attempts',
+                cell: ({ row }) => (
+                    <span className="tabular-nums text-sm">{row.original.attemptCount ?? 0}</span>
                 ),
             },
             {
@@ -319,6 +347,13 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                     }
                 />
                 <StatCard
+                    label="Processing"
+                    value={data ? counts.PROCESSING ?? 0 : '—'}
+                    icon={<HiOutlineLightningBolt />}
+                    tone="info"
+                    loading={loading && !data}
+                />
+                <StatCard
                     label="Failed"
                     value={data ? counts.FAILED ?? 0 : '—'}
                     icon={<HiOutlineExclamationCircle />}
@@ -336,7 +371,9 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
             <AdaptiveCard>
                 <Tabs value={status} onChange={(value) => changeTab(value as StatusTab)}>
                     <Tabs.TabList className="flex flex-wrap gap-1">
-                        {(['FAILED', 'PENDING', 'CONSUMED', ''] as StatusTab[]).map((value) => (
+                        {(
+                            ['FAILED', 'PENDING', 'PROCESSING', 'CONSUMED', 'SKIPPED', ''] as StatusTab[]
+                        ).map((value) => (
                             <Tabs.TabNav key={value || 'all'} value={value}>
                                 {value ? STATUS_LABEL[value] : 'All'}
                                 <span
@@ -389,8 +426,8 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                 </div>
 
                 <p className="mb-3 text-xs text-gray-500">
-                    Read-only. Each module records an event for every financially relevant document;
-                    FICO turns it into a journal. Failed events are not retried from here.
+                    Each module records a durable event; FICO posts through the centralized engine.
+                    Authorized users may retry failed or pending events from the detail view.
                 </p>
 
                 <FicoResponsiveTable<FicoAccountingEvent>
@@ -432,9 +469,37 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                         : undefined
                 }
                 footer={
-                    <Button size="sm" onClick={() => setDetailId(null)}>
-                        Close
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                        {detail &&
+                        (detail.status === 'FAILED' || detail.status === 'PENDING') ? (
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                onClick={() => {
+                                    if (!detailId) return
+                                    ficoAccountingEventService
+                                        .retry(detailId)
+                                        .then(() => {
+                                            load()
+                                            openDetail(detailId)
+                                        })
+                                        .catch((error) =>
+                                            notifyError(error, 'Retry failed.'),
+                                        )
+                                }}
+                            >
+                                Retry posting
+                            </Button>
+                        ) : null}
+                        {detail?.journal?.id ? (
+                            <Link href={`/modules/fico/journal-entries/${detail.journal.id}`}>
+                                <Button size="sm">View journal</Button>
+                            </Link>
+                        ) : null}
+                        <Button size="sm" onClick={() => setDetailId(null)}>
+                            Close
+                        </Button>
+                    </div>
                 }
             >
                 {detailLoading || !detail ? (
@@ -470,6 +535,10 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                                 {detail.journal
                                     ? `${detail.journal.documentNumber ?? detail.journal.id} (${detail.journal.status.toLowerCase()})`
                                     : '—'}
+                            </DetailItem>
+                            <DetailItem label="Attempts">
+                                {detail.attemptCount ?? 0}
+                                {detail.lastErrorCode ? ` · ${detail.lastErrorCode}` : ''}
                             </DetailItem>
                             <DetailItem label="Accounting effects">
                                 {detail.accountingEffects?.length

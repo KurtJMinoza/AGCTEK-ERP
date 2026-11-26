@@ -41,6 +41,8 @@ export default function SalesOrderCard({ order }: { order: Customer360Order }) {
                     <p className="mt-1 truncate text-xs text-gray-500">
                         {order.company.code} · {order.company.name}
                     </p>
+                ) : order.companyName ? (
+                    <p className="mt-1 truncate text-xs text-gray-500">{order.companyName}</p>
                 ) : null}
                 {order.opportunity ? (
                     <p className="mt-1 truncate text-xs text-gray-500">From {order.opportunity.name}</p>
@@ -60,7 +62,7 @@ export default function SalesOrderCard({ order }: { order: Customer360Order }) {
                     <Field label="Company">
                         {order.company
                             ? `${order.company.code} · ${order.company.name}`
-                            : '—'}
+                            : order.companyName || '—'}
                     </Field>
                     <Field label="Created">{formatDate(order.createdAt)}</Field>
                     <Field label="From opportunity">

@@ -96,11 +96,22 @@ export class TrackingService {
         }
     }
 
-    async fleet(query: { status?: string; search?: string } = {}) {
-        const where: Record<string, unknown> = {}
+    async fleet(
+        query: {
+            status?: string
+            search?: string
+            /** Filter vehicles that have an active trip with this purpose (e.g. OCULAR). */
+            purpose?: string
+            /** Focus on a single trip (selects its vehicle). */
+            tripId?: string
+        } = {},
+    ) {
+        const where: Prisma.VehicleWhereInput = {}
+        const purpose = query.purpose?.trim().toUpperCase() || undefined
+        const tripId = query.tripId?.trim() || undefined
 
         if (query.status) {
-            where.status = query.status
+            where.status = query.status as Prisma.EnumVehicleStatusFilter['equals']
         }
 
         if (query.search?.trim()) {
@@ -114,6 +125,18 @@ export class TrackingService {
             ]
         }
 
+        const activeTripWhere: Prisma.TripWhereInput = {
+            status: {
+                in: ['IN_TRANSIT', 'DISPATCHED', 'ASSIGNED', 'READY', 'PLANNED'],
+            },
+            ...(purpose ? { purpose } : {}),
+            ...(tripId ? { id: tripId } : {}),
+        }
+
+        if (purpose || tripId) {
+            where.trips = { some: activeTripWhere }
+        }
+
         const vehicles = await this.prisma.vehicle.findMany({
             where,
             orderBy: { plateNumber: 'asc' },
@@ -123,17 +146,14 @@ export class TrackingService {
                     take: 1,
                 },
                 trips: {
-                    where: {
-                        status: {
-                            in: ['IN_TRANSIT', 'DISPATCHED', 'ASSIGNED', 'READY', 'PLANNED'],
-                        },
-                    },
+                    where: activeTripWhere,
                     orderBy: [{ updatedAt: 'desc' }],
                     take: 5,
                     select: {
                         id: true,
                         code: true,
                         status: true,
+                        purpose: true,
                         stops: {
                             orderBy: { sequence: 'asc' },
                             select: {

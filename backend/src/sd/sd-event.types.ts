@@ -13,6 +13,8 @@ export const SD_EVENTS = {
     POS_SALE_COMPLETED: 'PosSaleCompleted',
     /** A POS sale was voided: the stock returned and the tenders cancelled. */
     POS_SALE_VOIDED: 'PosSaleVoided',
+    /** A subsequent payment was collected against an outstanding POS receivable. */
+    POS_COLLECTION_COMPLETED: 'PosCollectionCompleted',
 } as const
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]

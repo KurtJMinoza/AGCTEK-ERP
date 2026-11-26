@@ -73,8 +73,8 @@ describe('QuotationController.downloadPdf', () => {
             cancel: jest.fn(),
             claimForConversion: jest.fn(),
         }
-        const doc = { end: jest.fn() }
-        const pdf = { createDocument: jest.fn(() => doc) }
+        const doc = Buffer.from('%PDF-1.3 quotation')
+        const pdf = { render: jest.fn().mockResolvedValue(doc) }
         const controller = new QuotationController(
             quotations as unknown as QuotationService,
             pdf as unknown as QuotationPdfService,
@@ -90,15 +90,15 @@ describe('QuotationController.downloadPdf', () => {
         return { input, quotations, doc, pdf, controller, res, headers }
     }
 
-    it('streams an attachment PDF named after the quotation number and revision', async () => {
+    it('sends the rendered PDF (design composed) named after the quotation number and revision', async () => {
         const { input, quotations, doc, pdf, controller, res, headers } = setup()
         await controller.downloadPdf('q-1', undefined, res as never)
 
         expect(quotations.pdfInput).toHaveBeenCalledWith('q-1')
-        expect(pdf.createDocument).toHaveBeenCalledWith(input)
+        expect(pdf.render).toHaveBeenCalledWith(input)
         expect(headers['Content-Type']).toBe('application/pdf')
+        expect(headers['Content-Length']).toBe(String(doc.length))
         expect(headers['Content-Disposition']).toBe('attachment; filename="Q-000012_rev3.pdf"')
-        expect(doc.end).toHaveBeenCalledTimes(1)
         expect(res.send).toHaveBeenCalledWith(doc)
     })
 
@@ -110,9 +110,9 @@ describe('QuotationController.downloadPdf', () => {
 
     it('propagates 400 (no lines) from the generator', async () => {
         const { pdf, controller, res } = setup()
-        pdf.createDocument.mockImplementationOnce(() => {
-            throw new BadRequestException('A quotation without lines cannot be turned into a PDF')
-        })
+        pdf.render.mockRejectedValueOnce(
+            new BadRequestException('A quotation without lines cannot be turned into a PDF'),
+        )
         await expect(controller.downloadPdf('q-1', undefined, res as never)).rejects.toBeInstanceOf(
             BadRequestException,
         )

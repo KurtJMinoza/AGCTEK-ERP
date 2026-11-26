@@ -1,7 +1,12 @@
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { HiOutlineChartPie, HiOutlineUserGroup } from 'react-icons/hi'
+import {
+    HiOutlineChartPie,
+    HiOutlineCheckCircle,
+    HiOutlineExclamationCircle,
+    HiOutlineUserGroup,
+} from 'react-icons/hi'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import Avatar from '@/components/ui/Avatar'
@@ -109,6 +114,8 @@ export const KpiCard = ({
     previous,
     icon,
     loading,
+    tone = 'default',
+    subtext,
 }: {
     label: string
     value: string
@@ -116,15 +123,40 @@ export const KpiCard = ({
     previous: number
     icon: ReactNode
     loading: boolean
+    /** `warning` highlights money still owed (amber). */
+    tone?: 'default' | 'warning'
+    /** Replaces the "vs previous period" line (e.g. orders with a balance). */
+    subtext?: string
 }) => {
     const change = changePercent(current, previous)
+    const warning = tone === 'warning' && current > 0
     return (
-        <AdaptiveCard className="h-full">
+        <AdaptiveCard
+            className={classNames(
+                'h-full',
+                warning &&
+                    'border-amber-300 bg-amber-50/70 ring-1 ring-amber-200 dark:border-amber-500/40 dark:bg-amber-500/10 dark:ring-amber-500/30',
+            )}
+        >
             <div className="flex items-start justify-between gap-3">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                <p
+                    className={classNames(
+                        'text-sm font-medium',
+                        warning
+                            ? 'text-amber-800 dark:text-amber-300'
+                            : 'text-gray-500 dark:text-gray-400',
+                    )}
+                >
                     {label}
                 </p>
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-subtle text-lg text-primary-deep dark:bg-primary/15 dark:text-primary-light">
+                <span
+                    className={classNames(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg',
+                        warning
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                            : 'bg-primary-subtle text-primary-deep dark:bg-primary/15 dark:text-primary-light',
+                    )}
+                >
                     {icon}
                 </span>
             </div>
@@ -135,25 +167,47 @@ export const KpiCard = ({
                 </>
             ) : (
                 <>
-                    <p className="mt-1 truncate text-2xl font-bold tabular-nums heading-text">
+                    <p
+                        className={classNames(
+                            'mt-1 truncate text-2xl font-bold tabular-nums',
+                            warning
+                                ? 'text-amber-700 dark:text-amber-300'
+                                : 'heading-text',
+                        )}
+                    >
                         {value}
                     </p>
-                    <div className="mt-2 flex items-center gap-1.5 text-xs">
-                        {change === null ? (
-                            <span className="font-semibold text-gray-500">
-                                {current > 0 ? 'New' : 'No change'}
+                    {subtext !== undefined ? (
+                        <div
+                            className={classNames(
+                                'mt-2 text-xs font-medium',
+                                warning
+                                    ? 'text-amber-800 dark:text-amber-300'
+                                    : 'text-gray-500',
+                            )}
+                        >
+                            {subtext}
+                        </div>
+                    ) : (
+                        <div className="mt-2 flex items-center gap-1.5 text-xs">
+                            {change === null ? (
+                                <span className="font-semibold text-gray-500">
+                                    {current > 0 ? 'New' : 'No change'}
+                                </span>
+                            ) : (
+                                <GrowShrinkValue
+                                    className="font-semibold"
+                                    value={change}
+                                    suffix="%"
+                                    positiveIcon="+"
+                                    negativeIcon=""
+                                />
+                            )}
+                            <span className="text-gray-500">
+                                vs previous period
                             </span>
-                        ) : (
-                            <GrowShrinkValue
-                                className="font-semibold"
-                                value={change}
-                                suffix="%"
-                                positiveIcon="+"
-                                negativeIcon=""
-                            />
-                        )}
-                        <span className="text-gray-500">vs previous period</span>
-                    </div>
+                        </div>
+                    )}
                 </>
             )}
         </AdaptiveCard>
@@ -221,6 +275,112 @@ export const TopCustomersList = ({
                                     percent={share}
                                     showInfo={false}
                                 />
+                                {customer.balanceDue > 0.005 ? (
+                                    <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                                        <HiOutlineExclamationCircle className="text-sm" />
+                                        Balance due{' '}
+                                        {formatSdMoney(
+                                            customer.balanceDue,
+                                            currency,
+                                        )}
+                                        <span className="font-normal opacity-80">
+                                            · {customer.ordersWithBalance} open
+                                            order
+                                            {customer.ordersWithBalance === 1
+                                                ? ''
+                                                : 's'}
+                                        </span>
+                                    </p>
+                                ) : null}
+                            </div>
+                        </div>
+                    </li>
+                )
+            })}
+        </ul>
+    )
+}
+
+/**
+ * Customers who still owe money on orders of the period (down payments /
+ * partial payments), largest balance first. Read-only: collections are taken
+ * at POS or in Sales Orders, which update the balance this panel reads.
+ */
+export const CustomerReceivablesPanel = ({
+    receivables,
+    totalBalanceDue,
+    currency,
+    loading,
+}: {
+    receivables: SalesAnalytics['customerReceivables']
+    totalBalanceDue: number
+    currency: string
+    loading: boolean
+}) => {
+    if (loading) return <ListSkeleton rows={4} />
+    if (!receivables.length) {
+        return (
+            <EmptyState
+                icon={<HiOutlineCheckCircle />}
+                message="No customer balance due in this period"
+                height={160}
+            />
+        )
+    }
+    return (
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {receivables.map((row, index) => {
+                const share = sharePercent(row.balanceDue, totalBalanceDue)
+                const paid = Math.max(0, row.revenue - row.balanceDue)
+                return (
+                    <li
+                        key={row.customerKey}
+                        className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10"
+                    >
+                        <div className="flex items-start gap-3">
+                            <CustomerAvatar name={row.customerName} size={34} />
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-baseline justify-between gap-2">
+                                    <p className="truncate text-sm font-semibold heading-text">
+                                        <span className="mr-1.5 text-gray-400">
+                                            {index + 1}.
+                                        </span>
+                                        {row.customerName}
+                                    </p>
+                                    <span className="shrink-0 text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                                        {formatSdMoney(row.balanceDue, currency)}
+                                    </span>
+                                </div>
+                                <p className="truncate text-[11px] text-gray-500">
+                                    {row.customerNumber
+                                        ? `${row.customerNumber} · `
+                                        : ''}
+                                    {row.openOrders} open order
+                                    {row.openOrders === 1 ? '' : 's'} · paid{' '}
+                                    {formatSdMoney(paid, currency)} of{' '}
+                                    {formatSdMoney(row.revenue, currency)}
+                                </p>
+                                <p
+                                    className="mt-0.5 truncate font-mono text-[11px] text-gray-500"
+                                    title={row.orderNumbers.join(', ')}
+                                >
+                                    {row.orderNumbers.slice(0, 3).join(' · ')}
+                                    {row.orderNumbers.length > 3
+                                        ? ` +${row.orderNumbers.length - 3}`
+                                        : ''}
+                                </p>
+                                <div className="mt-1.5 flex items-center gap-2">
+                                    <Progress
+                                        className="flex-1"
+                                        size="sm"
+                                        customColorClass="bg-amber-500"
+                                        percent={share}
+                                        showInfo={false}
+                                    />
+                                    <span className="w-10 text-right text-[11px] tabular-nums text-gray-500">
+                                        {share}%
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </li>

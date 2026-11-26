@@ -10,7 +10,11 @@ import type { ReactNode } from 'react'
 import { notifyError } from './FicoCompanySelect'
 import { formatFicoDate } from './ficoTableUi'
 import { ficoGlAccountService } from '../services/ficoService'
-import type { FicoGlAccount, FicoGlAccountUsage } from '../types'
+import type {
+    FicoGlAccount,
+    FicoGlAccountDependencies,
+    FicoGlAccountUsage,
+} from '../types'
 
 type Props = {
     account: FicoGlAccount | null
@@ -55,15 +59,22 @@ function sourceLabel(entry: FicoGlAccountUsage['journalLines']['items'][number][
 
 const GlAccountUsageDialog = ({ account, onClose }: Props) => {
     const [usage, setUsage] = useState<FicoGlAccountUsage | null>(null)
+    const [deps, setDeps] = useState<FicoGlAccountDependencies | null>(null)
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
         if (!account) return
         setUsage(null)
+        setDeps(null)
         setLoading(true)
-        ficoGlAccountService
-            .usage(account.id)
-            .then(setUsage)
+        Promise.all([
+            ficoGlAccountService.usage(account.id),
+            ficoGlAccountService.dependencies(account.id),
+        ])
+            .then(([usageData, depData]) => {
+                setUsage(usageData)
+                setDeps(depData)
+            })
             .catch((error) => notifyError(error, 'Unable to load where this account is used.'))
             .finally(() => setLoading(false))
     }, [account])
@@ -113,6 +124,32 @@ const GlAccountUsageDialog = ({ account, onClose }: Props) => {
                         <Metric label="Credits" value={money(lines.creditTotal, currency)} />
                         <Metric label="Mappings" value={usage.mappings.length} hint="Account determination" />
                     </div>
+
+                    {deps?.categories.some((row) => row.count > 0) ? (
+                        <div>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Dependency categories
+                            </p>
+                            <ul className="grid gap-2 sm:grid-cols-2">
+                                {deps.categories
+                                    .filter((row) => row.count > 0)
+                                    .map((row) => (
+                                        <li
+                                            key={row.type}
+                                            className="rounded-lg border border-gray-100 px-3 py-2 text-xs dark:border-gray-700"
+                                        >
+                                            <span className="font-medium">{row.label}</span>: {row.count}
+                                            {row.hiddenByScope ? (
+                                                <span className="text-gray-500">
+                                                    {' '}
+                                                    (+{row.hiddenByScope} outside your company scope)
+                                                </span>
+                                            ) : null}
+                                        </li>
+                                    ))}
+                            </ul>
+                        </div>
+                    ) : null}
 
                     {lines.hiddenByCompanyScope > 0 ? (
                         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">

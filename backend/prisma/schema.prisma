@@ -226,6 +226,8 @@ model Company {
   name       String
   /// Public URL under `/uploads/companies/` (Next.js `public/`).
   logoUrl    String?
+  /// Logo printed on POS sales receipts; falls back to `logoUrl` when unset.
+  receiptLogoUrl String?
   address    String       @default("")
   tin        String       @default("")
   createdAt  DateTime     @default(now())
@@ -279,6 +281,9 @@ model Company {
   accountingEvents       MmAccountingEvent[]
   ficoFinancialPeriods   FicoFinancialPeriod[]
   ficoJournalEntries     FicoJournalEntry[]
+  ficoReconciliationCases FicoReconciliationCase[]
+  ficoOpeningBalanceBatches FicoOpeningBalanceBatch[]
+  ficoPeriodClosingRuns     FicoPeriodClosingRun[]
 
   materialValuations           MmMaterialValuation[]
   costLayers                   MmCostLayer[]
@@ -345,7 +350,16 @@ model Company {
   ficoTaxCodeAuditLogs             FicoTaxCodeAuditLog[]
   ficoDocumentTypes                FicoDocumentType[]
   ficoTaxRates                     FicoTaxRate[]
+  ficoSupplierCompanyAccounts      FicoSupplierCompanyAccount[]
+  ficoSupplierBankApprovals        FicoSupplierBankApproval[]
+  ficoApDocuments                  FicoApDocument[]
+  ficoApOpenItems                  FicoApOpenItem[]
+  ficoApPayments                   FicoApPayment[]
+  ficoApClearings                  FicoApClearing[]
   extPlatformTransactions          SdExtPlatformTransaction[] @relation("ExtPlatformTxCompany")
+  posReceivables                   SdPosReceivable[]
+  posCollections                   SdPosCollection[]
+  employeeLoanItems                SdEmployeeLoanItem[]
 
   @@map("companies")
 }
@@ -390,6 +404,7 @@ model Branch {
   deletedAt  DateTime?
   warehouses Warehouse[]
   extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxBranch")
+  ficoAccountDeterminationRules FicoAccountDeterminationRule[] @relation("FicoRuleBranch")
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -1442,6 +1457,8 @@ model MmBatch {
   materialId        String
   material          MmMaterial       @relation(fields: [materialId], references: [id])
   batchNumber       String
+  /// Optional lot identifier (distinct from batch when both are tracked).
+  lotNumber         String?
   manufacturingDate DateTime?
   expiryDate        DateTime?
   /// Days from manufacture → expiry (optional; used to derive expiryDate)
@@ -1453,6 +1470,8 @@ model MmBatch {
   updatedAt         DateTime         @updatedAt
   deletedAt         DateTime?
   serialNumbers     MmSerialNumber[]
+  sdSalesOrderLines         SdSalesOrderLine[]
+  extPlatformLines          SdExtPlatformTransactionLine[]
 
   inventoryTransactions     MmInventoryTransaction[]
   mmInventoryBalances       MmInventoryBalance[]
@@ -1469,6 +1488,7 @@ model MmBatch {
   inspectionLots MmInspectionLot[]
 
   @@unique([materialId, batchNumber])
+  @@unique([materialId, lotNumber])
   @@index([materialId])
   @@index([supplierId])
   @@index([expiryDate])
@@ -2305,10 +2325,11 @@ model MmPaymentTerms {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  suppliers         MmSupplier[]
-  quotations        MmSupplierQuotation[]
-  purchaseOrders    MmPurchaseOrder[]
-  purchaseContracts MmPurchaseContract[]
+  suppliers                   MmSupplier[]
+  ficoSupplierCompanyAccounts FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyPaymentTerms")
+  quotations                  MmSupplierQuotation[]
+  purchaseOrders              MmPurchaseOrder[]
+  purchaseContracts           MmPurchaseContract[]
 
   @@map("mm_payment_terms")
 }
@@ -2398,6 +2419,13 @@ model MmSupplier {
   procurementSuggestions MmProcurementSuggestion[]    @relation("SuggestionPreferredSupplier")
   inspectionPlans        MmInspectionPlan[]           @relation("InspectionPlanSupplier")
   inspectionLots         MmInspectionLot[]            @relation("InspectionLotSupplier")
+  ficoJournalEntries     FicoJournalEntry[]
+  ficoCompanyAccounts    FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyAccountSupplier")
+  ficoAlternativePayeeForCompanyAccounts FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyAlternativePayee")
+  ficoApDocuments        FicoApDocument[]
+  ficoApOpenItems        FicoApOpenItem[]
+  ficoApPayments         FicoApPayment[]
+  ficoApClearings        FicoApClearing[]
 
   @@index([status])
   @@index([companyId])
@@ -2421,6 +2449,7 @@ model MmSupplierBankAccount {
   isActive      Boolean    @default(true)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+  ficoCompanyApprovals FicoSupplierBankApproval[]
 
   @@index([supplierId])
   @@map("mm_supplier_bank_accounts")
@@ -3860,9 +3889,14 @@ model MmAccountingEvent {
   totalValue          Decimal?          @db.Decimal(18, 4)
   accountingEffects   Json?
   payload             Json
-  status              String            @default("PENDING") // PENDING | CONSUMED | FAILED
+  status              String            @default("PENDING") // PENDING | PROCESSING | CONSUMED | FAILED | SKIPPED
   journalEntryId      String?
   lastError           String?
+  lastErrorCode       String?
+  attemptCount        Int               @default(0)
+  lastAttemptAt       DateTime?
+  processingStartedAt DateTime?
+  outcomeReason       String?
   createdAt           DateTime          @default(now())
   consumedAt          DateTime?
   ficoJournalEntry    FicoJournalEntry?
@@ -3872,6 +3906,110 @@ model MmAccountingEvent {
   @@index([companyId, postingDate])
   @@index([sourceEventId])
   @@map("mm_accounting_events")
+}
+
+/// Accounting reconciliation workflow case (investigation / resolution — no silent GL mutation).
+model FicoReconciliationCase {
+  id                  String    @id @default(cuid())
+  companyId           String
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fingerprint         String
+  category            String
+  severity            String    @default("ERROR")
+  status              String    @default("OPEN")
+  message             String
+  sourceModule        String?
+  sourceDocumentType  String?
+  sourceDocumentId    String?
+  journalEntryId      String?
+  mmAccountingEventId String?
+  recommendedAction   String?
+  investigationNotes  String?
+  resolutionCode      String?
+  resolutionNotes     String?
+  assignedTo          String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([companyId, fingerprint])
+  @@index([companyId, status, severity])
+  @@map("fico_reconciliation_cases")
+}
+
+/// Opening balance migration batch (posted only via centralized journal engine).
+model FicoOpeningBalanceBatch {
+  id                  String                   @id @default(cuid())
+  companyId           String
+  company             Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  batchReference      String
+  migrationDate       DateTime                 @db.Date
+  postingDate         DateTime                 @db.Date
+  fiscalYear          Int
+  currencyCode        String                   @db.VarChar(3)
+  sourceSystem        String?
+  description         String?
+  status              String                   @default("DRAFT")
+  journalEntryId      String?
+  legacyTbTotalDebit  Decimal?                 @db.Decimal(18, 4)
+  legacyTbTotalCredit Decimal?                 @db.Decimal(18, 4)
+  createdBy           String?
+  submittedAt         DateTime?
+  approvedBy          String?
+  approvedAt          DateTime?
+  postedBy            String?
+  postedAt            DateTime?
+  lockedAt            DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  lines               FicoOpeningBalanceLine[]
+
+  @@unique([companyId, batchReference])
+  @@index([companyId, status])
+  @@map("fico_opening_balance_batches")
+}
+
+model FicoOpeningBalanceLine {
+  id           String                  @id @default(cuid())
+  batchId      String
+  batch        FicoOpeningBalanceBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  lineNumber   Int
+  glAccountId  String
+  glAccount    FicoGlAccount           @relation(fields: [glAccountId], references: [id], onDelete: Restrict)
+  debitAmount  Decimal                 @default(0) @db.Decimal(18, 4)
+  creditAmount Decimal                 @default(0) @db.Decimal(18, 4)
+  importCode   String?
+  importName   String?
+
+  @@unique([batchId, lineNumber])
+  @@index([glAccountId])
+  @@map("fico_opening_balance_lines")
+}
+
+/// Fiscal period or year-end closing run (validation snapshot + idempotent execution).
+model FicoPeriodClosingRun {
+  id                    String   @id @default(cuid())
+  companyId             String
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  runType               String   // PERIOD | YEAR_END
+  fiscalYear            Int
+  fiscalPeriodId        String?
+  status                String   @default("VALIDATED") // VALIDATED | APPROVED | EXECUTED | FAILED
+  validationSnapshot    Json?
+  closingJournalEntryId String?
+  approvedBy            String?
+  approvedAt            DateTime?
+  executedBy            String?
+  executedAt            DateTime?
+  idempotencyKey        String   @unique
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([companyId, runType, fiscalYear])
+  @@index([companyId, fiscalYear, status])
+  @@map("fico_period_closing_runs")
 }
 
 /// Phase 1 — FICO fiscal period control (FICO owns period state).
@@ -3939,9 +4077,12 @@ model FicoJournalEntry {
   totalAmount         Decimal                @db.Decimal(18, 4)
   currencyCode        String                 @db.VarChar(3)
   exchangeRate        Decimal?               @db.Decimal(18, 6)
-  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | LEGACY (GL posting state)
-  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | REVERSED
+  status              String                 @default("POSTED") // DRAFT | POSTED | REVERSED | CANCELLED | LEGACY
+  approvalStatus      String                 @default("DRAFT")  // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | NOT_REQUIRED | legacy POSTED | REVERSED
+  revisionNumber      Int                    @default(1)
   requiresApproval    Boolean                @default(true)
+  cancelledAt         DateTime?
+  cancelledBy         String?
   preparedBy          String?
   preparedAt          DateTime?
   reviewedBy          String?
@@ -3954,6 +4095,9 @@ model FicoJournalEntry {
   sourceDocumentType  String?
   sourceDocumentId    String?
   sourcePostingKey    String?                @unique
+  /// Optional MM supplier partner reference (document-level; not AP open-item).
+  supplierId          String?
+  supplier            MmSupplier?            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   reversalOfId        String?                @unique
   reversalOf          FicoJournalEntry?      @relation("FicoJournalReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
   reversedBy          FicoJournalEntry?      @relation("FicoJournalReversal")
@@ -3964,16 +4108,310 @@ model FicoJournalEntry {
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
   lines               FicoJournalEntryLine[]
+  apDocument          FicoApDocument?        @relation("FicoApDocumentJournal")
+  apDocumentReversal  FicoApDocument?        @relation("FicoApDocumentReversalJournal")
+  apPayment           FicoApPayment?         @relation("FicoApPaymentJournal")
+  apPaymentReversal   FicoApPayment?         @relation("FicoApPaymentReversalJournal")
+  apClearing          FicoApClearing?        @relation("FicoApClearingJournal")
+  apClearingReversal  FicoApClearing?        @relation("FicoApClearingReversalJournal")
 
   @@unique([companyId, documentNumber])
   @@index([companyId, postingDate])
   @@index([companyId, status])
   @@index([companyId, approvalStatus])
+  @@index([companyId, supplierId])
+  @@index([supplierId])
   @@index([fiscalPeriodId])
   @@index([sourceEventId])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])
   @@index([documentNumber])
   @@map("fico_journal_entries")
+}
+
+/// Phase 06 — supplier accounting settings are FICO-owned and may differ by company.
+/// The MM supplier remains the authoritative supplier identity and bank-account owner.
+model FicoSupplierCompanyAccount {
+  id                                   String                @id @default(cuid())
+  supplierId                           String
+  supplier                             MmSupplier            @relation("FicoSupplierCompanyAccountSupplier", fields: [supplierId], references: [id], onDelete: Restrict)
+  companyId                            String
+  company                              Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplierAccountGroup                 String                @default("STANDARD")
+  reconciliationAccountId              String?
+  reconciliationAccount                FicoGlAccount?        @relation("FicoSupplierCompanyRecon", fields: [reconciliationAccountId], references: [id], onDelete: Restrict)
+  paymentTermsId                       String?
+  paymentTerms                         MmPaymentTerms?        @relation("FicoSupplierCompanyPaymentTerms", fields: [paymentTermsId], references: [id], onDelete: Restrict)
+  defaultPaymentMethodCode             String?
+  transactionCurrencyCode              String?               @db.VarChar(3)
+  defaultPurchaseTaxCodeId             String?
+  defaultPurchaseTaxCode               FicoTaxCode?           @relation("FicoSupplierCompanyPurchaseTax", fields: [defaultPurchaseTaxCodeId], references: [id], onDelete: Restrict)
+  withholdingTaxCodeId                 String?
+  withholdingTaxCode                   FicoTaxCode?           @relation("FicoSupplierCompanyWithholdingTax", fields: [withholdingTaxCodeId], references: [id], onDelete: Restrict)
+  taxIdentificationNumber              String?
+  taxClassification                    String?
+  invoiceToleranceAmount               Decimal?              @db.Decimal(18, 4)
+  invoiceTolerancePercent              Decimal?              @db.Decimal(9, 4)
+  postingBlocked                       Boolean               @default(false)
+  paymentBlocked                       Boolean               @default(false)
+  alternativePayeeSupplierId           String?
+  alternativePayeeSupplier             MmSupplier?            @relation("FicoSupplierCompanyAlternativePayee", fields: [alternativePayeeSupplierId], references: [id], onDelete: Restrict)
+  alternativePayeeAuthorized           Boolean               @default(false)
+  alternativePayeeAuthorizedBy         String?
+  alternativePayeeAuthorizedAt         DateTime?
+  status                               String                @default("ACTIVE") // ACTIVE | INACTIVE
+  createdBy                            String?
+  updatedBy                            String?
+  createdAt                            DateTime              @default(now())
+  updatedAt                            DateTime              @updatedAt
+  bankApprovals                        FicoSupplierBankApproval[]
+  apDocuments                          FicoApDocument[]
+  apPayments                           FicoApPayment[]
+
+  @@unique([supplierId, companyId])
+  @@index([companyId, status])
+  @@index([companyId, supplierAccountGroup])
+  @@index([reconciliationAccountId])
+  @@map("fico_supplier_company_accounts")
+}
+
+/// Approved use of an MM-owned supplier bank account for one company code.
+model FicoSupplierBankApproval {
+  id                       String                     @id @default(cuid())
+  supplierCompanyAccountId String
+  supplierCompanyAccount   FicoSupplierCompanyAccount @relation(fields: [supplierCompanyAccountId], references: [id], onDelete: Cascade)
+  supplierBankAccountId    String
+  supplierBankAccount      MmSupplierBankAccount      @relation(fields: [supplierBankAccountId], references: [id], onDelete: Restrict)
+  companyId                String
+  company                  Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  status                   String                     @default("ACTIVE") // ACTIVE | INACTIVE | REVOKED
+  isDefault                Boolean                    @default(false)
+  approvedBy               String?
+  approvedAt               DateTime?
+  remarks                  String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  payments                 FicoApPayment[]
+
+  @@unique([supplierCompanyAccountId, supplierBankAccountId])
+  @@index([companyId, status])
+  @@index([supplierBankAccountId])
+  @@map("fico_supplier_bank_approvals")
+}
+
+/// Immutable AP source document. Financial effect is always represented by the linked FICO journal.
+model FicoApDocument {
+  id                         String                       @id @default(cuid())
+  companyId                  String
+  company                    Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplierId                 String
+  supplier                   MmSupplier                   @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierCompanyAccountId   String?
+  supplierCompanyAccount     FicoSupplierCompanyAccount?  @relation(fields: [supplierCompanyAccountId], references: [id], onDelete: Restrict)
+  sourceSupplierInvoiceId    String?                      @unique
+  sourceSupplierInvoice      MmSupplierInvoice?           @relation(fields: [sourceSupplierInvoiceId], references: [id], onDelete: Restrict)
+  journalEntryId             String                       @unique
+  journalEntry               FicoJournalEntry             @relation("FicoApDocumentJournal", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalJournalEntryId     String?                      @unique
+  reversalJournalEntry       FicoJournalEntry?            @relation("FicoApDocumentReversalJournal", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
+  originalDocumentId         String?
+  originalDocument           FicoApDocument?              @relation("FicoApDocumentReversal", fields: [originalDocumentId], references: [id], onDelete: Restrict)
+  reversalDocuments          FicoApDocument[]             @relation("FicoApDocumentReversal")
+  historicalBackpostingRunId String?
+  historicalBackpostingRun   FicoHistoricalBackpostingRun? @relation(fields: [historicalBackpostingRunId], references: [id], onDelete: Restrict)
+  documentType               String                       // INVOICE | CREDIT_MEMO | DEBIT_ADJUSTMENT | ADVANCE | OPENING_BALANCE
+  status                     String                       @default("POSTED") // POSTED | REVERSED
+  referenceNumber            String?
+  documentDate               DateTime                     @db.Date
+  postingDate                DateTime                     @db.Date
+  baselineDate               DateTime                     @db.Date
+  dueDate                    DateTime?                    @db.Date
+  currencyCode               String                       @db.VarChar(3)
+  netAmount                  Decimal                      @db.Decimal(18, 4)
+  taxAmount                  Decimal                      @default(0) @db.Decimal(18, 4)
+  withholdingAmount          Decimal                      @default(0) @db.Decimal(18, 4)
+  grossAmount                Decimal                      @db.Decimal(18, 4)
+  liabilityAmount            Decimal                      @db.Decimal(18, 4)
+  reconciliationAccountId    String?
+  reconciliationAccount      FicoGlAccount?               @relation("FicoApDocumentRecon", fields: [reconciliationAccountId], references: [id], onDelete: Restrict)
+  reconciliationAccountCode  String?
+  taxCodeId                  String?
+  taxCode                    FicoTaxCode?                 @relation("FicoApDocumentTax", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  withholdingTaxCodeId       String?
+  withholdingTaxCode         FicoTaxCode?                 @relation("FicoApDocumentWithholdingTax", fields: [withholdingTaxCodeId], references: [id], onDelete: Restrict)
+  paymentBlocked             Boolean                      @default(false)
+  reversalReason             String?
+  reversedAt                 DateTime?
+  reversedBy                 String?
+  createdBy                  String?
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+  openItem                   FicoApOpenItem?
+  grirAllocations            FicoApGrIrAllocation[]
+
+  @@index([companyId, supplierId, status])
+  @@index([companyId, dueDate])
+  @@index([reconciliationAccountId])
+  @@index([historicalBackpostingRunId])
+  @@map("fico_ap_documents")
+}
+
+/// Supplier subledger open-item balance. This is the authoritative AP aging and clearing source.
+model FicoApOpenItem {
+  id                      String                @id @default(cuid())
+  companyId               String
+  company                 Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplierId              String
+  supplier                MmSupplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  documentId              String                @unique
+  document                FicoApDocument        @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  reconciliationAccountId String?
+  reconciliationAccount   FicoGlAccount?        @relation("FicoApOpenItemRecon", fields: [reconciliationAccountId], references: [id], onDelete: Restrict)
+  itemType                String                @default("INVOICE") // INVOICE | CREDIT_MEMO | DEBIT_ADJUSTMENT | ADVANCE | OPENING_BALANCE
+  direction               String                @default("CREDIT") // CREDIT = supplier liability; DEBIT = supplier credit / advance
+  originalAmount          Decimal               @db.Decimal(18, 4)
+  openAmount              Decimal               @db.Decimal(18, 4)
+  currencyCode            String                @db.VarChar(3)
+  baselineDate            DateTime              @db.Date
+  dueDate                 DateTime?             @db.Date
+  paymentBlocked          Boolean               @default(false)
+  status                  String                @default("OPEN") // OPEN | PARTIALLY_CLEARED | CLEARED | REVERSED
+  clearedAt               DateTime?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  paymentAllocations      FicoApPaymentAllocation[]
+  debitClearingAllocations  FicoApClearingAllocation[] @relation("FicoApClearingDebitItem")
+  creditClearingAllocations FicoApClearingAllocation[] @relation("FicoApClearingCreditItem")
+
+  @@index([companyId, supplierId, status])
+  @@index([companyId, dueDate, status])
+  @@index([reconciliationAccountId, status])
+  @@map("fico_ap_open_items")
+}
+
+/// Outgoing supplier payment. The financial entry is immutable; clearing allocations are posted atomically with it.
+model FicoApPayment {
+  id                       String                      @id @default(cuid())
+  companyId                String
+  company                  Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplierId               String
+  supplier                 MmSupplier                  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierCompanyAccountId String?
+  supplierCompanyAccount   FicoSupplierCompanyAccount? @relation(fields: [supplierCompanyAccountId], references: [id], onDelete: Restrict)
+  journalEntryId           String                      @unique
+  journalEntry             FicoJournalEntry            @relation("FicoApPaymentJournal", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalJournalEntryId   String?                     @unique
+  reversalJournalEntry     FicoJournalEntry?           @relation("FicoApPaymentReversalJournal", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
+  supplierBankApprovalId   String?
+  supplierBankApproval     FicoSupplierBankApproval?   @relation(fields: [supplierBankApprovalId], references: [id], onDelete: Restrict)
+  paymentNumber            String                      @unique
+  idempotencyKey           String                      @unique
+  paymentDate              DateTime                    @db.Date
+  currencyCode             String                      @db.VarChar(3)
+  totalAmount              Decimal                     @db.Decimal(18, 4)
+  paymentMethodCode        String?
+  bankAccountId            String?
+  paymentReference         String?
+  status                   String                      @default("POSTED") // POSTED | REVERSED
+  reversalReason           String?
+  reversedAt               DateTime?
+  reversedBy               String?
+  createdBy                String?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+  allocations              FicoApPaymentAllocation[]
+
+  @@index([companyId, supplierId, status])
+  @@index([companyId, paymentDate])
+  @@map("fico_ap_payments")
+}
+
+/// Full or partial payment allocation to one AP open item.
+model FicoApPaymentAllocation {
+  id          String          @id @default(cuid())
+  paymentId   String
+  payment     FicoApPayment   @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  openItemId  String
+  openItem    FicoApOpenItem  @relation(fields: [openItemId], references: [id], onDelete: Restrict)
+  amount      Decimal         @db.Decimal(18, 4)
+  status      String          @default("CLEARED") // CLEARED | REVERSED
+  reversedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([paymentId, openItemId])
+  @@index([openItemId, status])
+  @@map("fico_ap_payment_allocations")
+}
+
+/// Netting / settlement of a supplier credit or advance against a supplier liability.
+/// The journal uses the original document account snapshots so later master-data
+/// changes cannot alter a historical clearing.
+model FicoApClearing {
+  id                      String                       @id @default(cuid())
+  companyId               String
+  company                 Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplierId              String
+  supplier                MmSupplier                   @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  journalEntryId          String                       @unique
+  journalEntry            FicoJournalEntry             @relation("FicoApClearingJournal", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalJournalEntryId  String?                      @unique
+  reversalJournalEntry    FicoJournalEntry?            @relation("FicoApClearingReversalJournal", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
+  clearingNumber          String                       @unique
+  idempotencyKey          String                       @unique
+  clearingDate            DateTime                     @db.Date
+  currencyCode            String                       @db.VarChar(3)
+  totalAmount             Decimal                      @db.Decimal(18, 4)
+  status                  String                       @default("POSTED") // POSTED | REVERSED
+  reference               String?
+  reversalReason          String?
+  reversedAt              DateTime?
+  reversedBy              String?
+  createdBy               String?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  allocations             FicoApClearingAllocation[]
+
+  @@index([companyId, supplierId, status])
+  @@index([companyId, clearingDate])
+  @@map("fico_ap_clearings")
+}
+
+/// A single settlement allocation always consumes one debit and one credit AP item.
+model FicoApClearingAllocation {
+  id                String          @id @default(cuid())
+  clearingId        String
+  clearing          FicoApClearing  @relation(fields: [clearingId], references: [id], onDelete: Restrict)
+  debitOpenItemId   String
+  debitOpenItem     FicoApOpenItem  @relation("FicoApClearingDebitItem", fields: [debitOpenItemId], references: [id], onDelete: Restrict)
+  creditOpenItemId  String
+  creditOpenItem    FicoApOpenItem  @relation("FicoApClearingCreditItem", fields: [creditOpenItemId], references: [id], onDelete: Restrict)
+  amount            Decimal         @db.Decimal(18, 4)
+  status            String          @default("CLEARED") // CLEARED | REVERSED
+  reversedAt        DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([clearingId, debitOpenItemId, creditOpenItemId])
+  @@index([debitOpenItemId, status])
+  @@index([creditOpenItemId, status])
+  @@map("fico_ap_clearing_allocations")
+}
+
+/// Allocation snapshot proving how a supplier invoice cleared goods-received / invoice-received exposure.
+model FicoApGrIrAllocation {
+  id                 String         @id @default(cuid())
+  documentId         String
+  document           FicoApDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  invoiceLineId      String
+  goodsReceiptLineId String
+  allocatedQuantity  Decimal        @db.Decimal(18, 4)
+  allocatedAmount    Decimal        @db.Decimal(18, 4)
+  createdAt          DateTime       @default(now())
+
+  @@unique([documentId, invoiceLineId, goodsReceiptLineId])
+  @@index([goodsReceiptLineId])
+  @@index([invoiceLineId])
+  @@map("fico_ap_grir_allocations")
 }
 
 /// Phase 1 — every company has exactly one accounting configuration.
@@ -4021,8 +4459,14 @@ model FicoCompanyAccountingSettings {
   documentNumberPrefix             String                           @default("JE")
   documentNumberPadding            Int                              @default(6)
   allowNegativePostings            Boolean                          @default(false)
+  /// Phase 04.27 — maker-checker: submitter/creator may not approve or activate determination rules.
+  determinationSeparationOfDuties  Boolean                          @default(true)
   backdatedPostingAllowed          Boolean                          @default(true)
   maxBackdatedPostingDays          Int?
+  /// Phase 04.07 — MM cutover: see `fico-mm-resolution-mode.constants.ts`.
+  mmResolutionMode                 String                           @default("CENTRAL_WITH_LEGACY_FALLBACK")
+  /// When set, CENTRAL_WITH_TIMED_FALLBACK rejects legacy after this instant (UTC).
+  mmLegacyFallbackUntil              DateTime?
   closeChecklist                   Json?
   activatedAt                      DateTime?
   activatedBy                      String?
@@ -4110,6 +4554,7 @@ model FicoGlAccount {
   updatedAt                       DateTime                        @updatedAt
   companyAssignments              FicoCompanyGlAccount[]
   journalLines                    FicoJournalEntryLine[]
+  openingBalanceLines             FicoOpeningBalanceLine[]
   debitMappings                   FicoMmAccountMapping[]          @relation("FicoMappingDebit")
   creditMappings                  FicoMmAccountMapping[]          @relation("FicoMappingCredit")
   determinationLines              FicoAccountDeterminationLine[]  @relation("FicoRuleLineGlAccount")
@@ -4127,6 +4572,9 @@ model FicoGlAccount {
   taxCodeWithholdingPayable       FicoTaxCode[]                   @relation("FicoTaxWHTPayable")
   taxCodeWithholdingReceivable    FicoTaxCode[]                   @relation("FicoTaxWHTReceivable")
   taxCodeNonRecoverable           FicoTaxCode[]                   @relation("FicoTaxNonRecoverable")
+  ficoSupplierCompanyReconciliations FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyRecon")
+  ficoApDocumentReconciliationAccounts FicoApDocument[]           @relation("FicoApDocumentRecon")
+  ficoApOpenItemReconciliationAccounts FicoApOpenItem[]           @relation("FicoApOpenItemRecon")
 
   @@unique([chartOfAccountsId, accountCode])
   @@index([chartOfAccountsId])
@@ -4225,16 +4673,22 @@ model FicoAccountDeterminationProfile {
 
 /// Phase 1 — transaction keys resolved to explicit G/L account pairs.
 model FicoTransactionKey {
-  id                     String                         @id @default(cuid())
-  code                   String                         @unique
-  name                   String
-  description            String                         @default("")
-  requiresValuationClass Boolean                        @default(false)
-  inventorySide          String                         @default("NONE")
-  sortOrder              Int                            @default(0)
-  status                 String                         @default("ACTIVE")
-  createdAt              DateTime                       @default(now())
-  updatedAt              DateTime                       @updatedAt
+  id                       String                         @id @default(cuid())
+  code                     String                         @unique
+  name                     String
+  description              String                         @default("")
+  owningModule             String                         @default("MM")
+  accountingCategory       String                         @default("GENERAL")
+  supportedSourceModules   Json                           @default("[]")
+  requiresValuationClass   Boolean                        @default(false)
+  inventorySide            String                         @default("NONE")
+  automaticPostingEligible Boolean                        @default(true)
+  systemDefined            Boolean                        @default(false)
+  integrationStatus        String                         @default("NOT_AVAILABLE")
+  sortOrder                Int                            @default(0)
+  status                   String                         @default("ACTIVE")
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
   mappings               FicoMmAccountMapping[]
   determinationRules     FicoAccountDeterminationRule[] @relation("FicoDeterminationRuleKey")
 
@@ -4300,8 +4754,22 @@ model FicoAccountDeterminationRule {
   materialType         MmMaterialType?                @relation("FicoRuleMaterialType", fields: [materialTypeCode], references: [code], onDelete: Restrict)
   movementType         String?
   customerAccountGroup String?
+  /// AP / MM supplier reconciliation grouping (free code, validated against rule authoring hints).
+  supplierAccountGroup String?
   salesOrganization    String?
   distributionChannel  String?
+  paymentMethodCode    String?
+  bankAccountId        String?
+  paymentProviderCode  String?
+  currencyCode         String?
+  branchId             String?
+  branch               Branch?                        @relation("FicoRuleBranch", fields: [branchId], references: [id], onDelete: Restrict)
+  assetClassCode       String?
+  depreciationAreaCode String?
+  documentTypeCode     String?
+  productionOrderTypeCode String?
+  costElementCategoryCode String?
+  controllingAreaCode  String?
   changeReason         String?
   submittedBy          String?
   submittedAt          DateTime?
@@ -4322,8 +4790,14 @@ model FicoAccountDeterminationRule {
 
   @@index([companyId, sourceModule, transactionType, status])
   @@index([companyId, sourceModule, status, priority])
+  @@index([companyId, transactionKeyCode, status, priority])
+  @@index([companyId, status, effectiveFrom, effectiveTo])
+  @@index([transactionKeyCode])
   @@index([valuationClassId])
   @@index([materialTypeCode])
+  @@index([branchId])
+  @@index([paymentMethodCode])
+  @@index([bankAccountId])
   @@map("fico_account_determination_rules")
 }
 
@@ -4465,6 +4939,7 @@ model FicoHistoricalBackpostingRun {
   error       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  apDocuments FicoApDocument[]
 
   @@index([companyId, status])
   @@map("fico_historical_backposting_runs")
@@ -4619,6 +5094,12 @@ model FicoTaxCode {
   auditLogs                        FicoTaxCodeAuditLog[]
   materialTaxAssignments           MmMaterial[]             @relation("MaterialTaxCode")
   materialTaxHistory               MmMaterialTaxHistory[]   @relation("MaterialTaxHistoryCode")
+  ficoSupplierCompanyPurchaseTax   FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyPurchaseTax")
+  ficoSupplierCompanyWithholdingTax FicoSupplierCompanyAccount[] @relation("FicoSupplierCompanyWithholdingTax")
+  ficoApDocumentsTax               FicoApDocument[]         @relation("FicoApDocumentTax")
+  ficoApDocumentsWithholdingTax    FicoApDocument[]         @relation("FicoApDocumentWithholdingTax")
+  ficoSupplierInvoicesTax          MmSupplierInvoice[]      @relation("FicoSupplierInvoiceTax")
+  ficoSupplierInvoicesWithholdingTax MmSupplierInvoice[]    @relation("FicoSupplierInvoiceWithholdingTax")
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -4767,10 +5248,10 @@ model SdCustomer {
   crmOpportunities  CrmOpportunity[]
   crmTickets        CrmTicket[]
   crmLoyaltyAccount CrmLoyaltyAccount?
-  crmCustomerRating CrmCustomerRating?
-  crmCustomerRatingHistory CrmCustomerRatingHistory[]
+  crmRatingEvents   CrmCustomerRatingEvent[]
   sdQuotations      SdQuotation[]
   sdSalesReturns    SdSalesReturn[]
+  crmEmailMessages  CrmEmailMessage[]
   extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxCustomer")
 
   @@index([status])
@@ -5172,6 +5653,17 @@ model SdSalesOrder {
   trackingNumber     String?
   courierName        String?
   proofOfDeliveryUrl String?
+  /// Outstanding balance of a partially-paid POS sale (zero for full payment).
+  outstandingBalance Decimal?              @default(0) @db.Decimal(18, 2)
+  /// When the remaining balance is due; null for full-payment sales.
+  dueDate            DateTime?
+  /// PERCENTAGE | FIXED | null (full payment / split payment).
+  downPaymentType    String?
+  /// Percentage applied (e.g. 50.00 for 50%); null when type is FIXED or full.
+  downPaymentPct     Decimal?              @db.Decimal(5, 2)
+  /// Absolute down-payment amount; null for full-payment sales.
+  downPaymentAmount  Decimal?              @db.Decimal(18, 2)
+
   lines              SdSalesOrderLine[]
   shipments          SdShipment[]
   fulfillments       SdFulfillment[]
@@ -5185,6 +5677,12 @@ model SdSalesOrder {
   productReviews     ProductReview[]
   /// The void transaction that reversed this POS sale (POS only, at most one).
   voidTransaction    SdPosVoidTransaction?
+  /// Receivable created when the sale is partially paid (at most one).
+  receivable         SdPosReceivable?
+  /// Subsequent payment collections against the receivable.
+  collections        SdPosCollection[]
+  /// Employee loan items for SALARY_LOAN tenders.
+  employeeLoanItems  SdEmployeeLoanItem[]
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -5252,6 +5750,12 @@ model SdSalesOrderLine {
   reservationHeaderId  String?
   /// OPEN | RESERVED | SHORT | FULFILLED | CANCELLED
   integrationStatus    String                @default("OPEN")
+  /// MM batch picked for this line (nullable when not batch-managed).
+  batchId              String?
+  batch                MmBatch?              @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  /// Frozen batch / lot labels for order history and reporting.
+  batchNumber          String?
+  lotNumber            String?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   fulfillmentLines     SdFulfillmentLine[]
@@ -5264,6 +5768,7 @@ model SdSalesOrderLine {
   @@index([materialId])
   @@index([productId])
   @@index([divisionId])
+  @@index([batchId])
   @@map("sd_sales_order_lines")
 }
 
@@ -5294,6 +5799,8 @@ model SdQuotation {
   subtotal           Decimal              @default(0) @db.Decimal(18, 2)
   totalAmount        Decimal              @default(0) @db.Decimal(18, 2)
   notes              String?
+  /// Customer-facing payment terms printed on the PDF (free text, e.g. "50% on order, 50% on delivery").
+  paymentTerms       String?
   sentBy             String?
   sentAt             DateTime?
   /// Accept / reject actor; `decisionReason` is required for REJECTED.
@@ -5305,6 +5812,8 @@ model SdQuotation {
   cancelReason       String?
   convertedBy        String?
   convertedAt        DateTime?
+  /// Last successful cover-email delivery of this revision's PDF; null until the rep emails it.
+  lastEmailedAt      DateTime?
   createdBy          String?
   updatedBy          String?
   createdAt          DateTime             @default(now())
@@ -5312,7 +5821,9 @@ model SdQuotation {
   lines              SdQuotationLine[]
   sections           SdQuotationSection[]
   events             SdQuotationEvent[]
+  documents          SdQuotationDocument[]
   salesOrder         SdSalesOrder?
+  crmEmailMessages   CrmEmailMessage[]
 
   @@unique([quotationNumber, revision])
   @@index([crmOpportunityId, createdAt])
@@ -5373,6 +5884,84 @@ model SdQuotationSection {
 
   @@unique([quotationId, beforeLineNumber])
   @@map("sd_quotation_sections")
+}
+
+/// PDF snapshot of one quotation revision: the exact bytes emailed to the customer. Created on the
+/// first successful email and reused by every resend, so the attachment and the in-app download
+/// always match. Bytes live on disk (QUOTATION_DOCUMENT_DIR); the row carries the metadata.
+model SdQuotationDocument {
+  id          String      @id @default(cuid())
+  quotationId String
+  quotation   SdQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  revision    Int
+  /// Generated file name inside the quotation document folder (no path separators).
+  storageKey  String      @unique
+  contentType String      @default("application/pdf")
+  byteSize    Int
+  /// SHA-256 of the stored bytes, to prove the served file is the emailed one.
+  checksum    String
+  createdBy   String?
+  createdAt   DateTime    @default(now())
+  crmEmailAttachments CrmEmailAttachment[]
+
+  @@unique([quotationId, revision])
+  @@map("sd_quotation_documents")
+}
+
+/// Editable cover-email template for SD quotation emails. Only `{{placeholder}}` substitution is
+/// supported; the quotation PDF stays the commercial source of truth and is always attached.
+model SdEmailTemplate {
+  id        String   @id @default(cuid())
+  /// quotation_sent | quotation_resent (unique per module).
+  key       String   @unique
+  name      String
+  subject   String
+  bodyText  String
+  /// Optional authored HTML; when null the plain text is converted to safe HTML on send.
+  bodyHtml  String?
+  /// QUOTATION for now; keeps the table from becoming a global marketing engine.
+  module    String   @default("QUOTATION")
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([module, isActive])
+  @@map("sd_email_templates")
+}
+
+/// Quotation PDF layout profile (CRM › Documents › PDF templates): look only, never quotation data.
+/// The active default profile is used by every quotation PDF; see resolveQuotationPdfLayout().
+model SdPdfLayoutProfile {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  /// { showLetterhead, showTin, showOpportunity, showPaymentTerms, marginTop, marginSide, contentStartY, disclaimer }
+  config      Json?
+  /// Imported one-page PDF design drawn under every page (uploads/sd/pdf-designs); null = none.
+  designStorageKey String?
+  designFileName   String?
+  designByteSize   Int?
+  designUploadedAt DateTime?
+  designUploadedBy String?
+  /// Increments on every upload / removal, so a replaced design is visible in the audit of the profile.
+  designVersion    Int      @default(0)
+  /// Company logo (PNG / JPEG, uploads/sd/pdf-logos) drawn instead of the company name; null = name.
+  logoStorageKey   String?
+  logoFileName     String?
+  logoMimeType     String?
+  logoByteSize     Int?
+  logoUploadedAt   DateTime?
+  logoUploadedBy   String?
+  /// Increments on every upload / removal, like designVersion.
+  logoVersion      Int      @default(0)
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("sd_pdf_layout_profiles")
 }
 
 model SdFulfillment {
@@ -5769,12 +6358,17 @@ model SdSalesOrderPayment {
   transactionDate DateTime?
   /// Employee number for a salary-deduction tender.
   employeeNumber  String?
+  /// Employee full name snapshot at checkout (salary deduction).
+  employeeName    String?
   /// Payroll deduction reference for a salary-deduction tender.
   payrollReference String?
   /// Cashier (User id) that collected the tender.
   collectedBy     String?
   isDemo          Boolean      @default(true)
   paidAt          DateTime?
+  /// Links this tender to a subsequent collection (null for initial-sale tenders).
+  collectionId    String?
+  collection      SdPosCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   createdBy       String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -5782,6 +6376,7 @@ model SdSalesOrderPayment {
   @@index([companyId, status])
   @@index([salesOrderId])
   @@index([posSessionId])
+  @@index([collectionId])
   @@map("sd_sales_order_payments")
 }
 
@@ -5913,6 +6508,113 @@ model SdPosVoidTransaction {
   @@index([companyId, createdAt])
   @@index([branchId, createdAt])
   @@map("sd_pos_void_transactions")
+}
+
+// ── POS Receivables & Collections ─────────────────────────────────────────────
+
+/// Outstanding balance of a partially-paid POS sale. One per order.
+model SdPosReceivable {
+  id              String              @id @default(cuid())
+  companyId       String
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrderId    String              @unique
+  salesOrder      SdSalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  customerId      String
+  /// Employee id when the receivable includes a salary-loan component.
+  employeeId      String?
+  /// Total unpaid amount at creation (order total minus initial payment).
+  originalAmount  Decimal             @db.Decimal(18, 2)
+  /// Confirmed payments collected so far.
+  paidAmount      Decimal             @default(0) @db.Decimal(18, 2)
+  /// Pending-verification payments (not yet counted as collected).
+  pendingAmount   Decimal             @default(0) @db.Decimal(18, 2)
+  /// Current outstanding balance (originalAmount - paidAmount).
+  balance         Decimal             @db.Decimal(18, 2)
+  /// OPEN | SETTLED | CANCELLED
+  status          String              @default("OPEN")
+  dueDate         DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  collections     SdPosCollection[]
+
+  @@index([companyId, status])
+  @@index([customerId])
+  @@map("sd_pos_receivables")
+}
+
+/// A subsequent payment collected against a POS receivable.
+model SdPosCollection {
+  id               String              @id @default(cuid())
+  companyId        String
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  receivableId     String
+  receivable       SdPosReceivable     @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  salesOrderId     String
+  salesOrder       SdSalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  collectionNumber String              @unique
+  totalAmount      Decimal             @db.Decimal(18, 2)
+  posSessionId     String?
+  collectedBy      String?
+  idempotencyKey   String?             @unique
+  /// COMPLETED | CANCELLED
+  status           String              @default("COMPLETED")
+  createdAt        DateTime            @default(now())
+  tenders          SdSalesOrderPayment[]
+
+  @@index([companyId, createdAt])
+  @@index([receivableId])
+  @@index([salesOrderId])
+  @@map("sd_pos_collections")
+}
+
+/// Monthly sales target and collection quota for the Sales Analysis scorecard.
+/// One row per calendar month (Manila); YTD figures are the sum of Jan..month.
+/// Reporting reference only — never read by order, inventory or accounting flows.
+model SdSalesTarget {
+  id              String   @id @default(cuid())
+  year            Int
+  /// 1..12
+  month           Int
+  salesTarget     Decimal  @default(0) @db.Decimal(18, 2)
+  collectionQuota Decimal  @default(0) @db.Decimal(18, 2)
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([year, month])
+  @@map("sd_sales_targets")
+}
+
+/// Item-level salary-loan tracking for SALARY_LOAN POS tenders.
+model SdEmployeeLoanItem {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrderId     String
+  salesOrder       SdSalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  salesOrderLineId String
+  customerId       String
+  employeeNumber   String
+  receiptNumber    String?
+  sku              String?
+  productName      String?
+  variantName      String?
+  barcode          String?
+  quantity         Decimal      @db.Decimal(18, 4)
+  unitPrice        Decimal      @db.Decimal(18, 2)
+  loanAmount       Decimal      @db.Decimal(18, 2)
+  repaidAmount     Decimal      @default(0) @db.Decimal(18, 2)
+  balance          Decimal      @db.Decimal(18, 2)
+  /// OPEN | PARTIAL | SETTLED | CANCELLED
+  status           String       @default("OPEN")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([companyId])
+  @@index([salesOrderId])
+  @@index([customerId, status])
+  @@index([employeeNumber, status])
+  @@map("sd_employee_loan_items")
 }
 
 model SdEventOutbox {
@@ -6721,6 +7423,12 @@ model MmSupplierInvoice {
   currency        MmCurrency?     @relation("InvoiceCurrency", fields: [currencyId], references: [id])
   invoiceDate     DateTime
   postingDate     DateTime?
+  baselineDate    DateTime?
+  dueDate         DateTime?
+  taxCodeId       String?
+  taxCode         FicoTaxCode?   @relation("FicoSupplierInvoiceTax", fields: [taxCodeId], references: [id], onDelete: Restrict)
+  withholdingTaxCodeId String?
+  withholdingTaxCode   FicoTaxCode? @relation("FicoSupplierInvoiceWithholdingTax", fields: [withholdingTaxCodeId], references: [id], onDelete: Restrict)
   taxAmount       Decimal         @default(0)
   totalAmount     Decimal         @default(0)
   /// DRAFT | SUBMITTED | MATCHED | PARTIALLY_MATCHED | VARIANCE | BLOCKED | CANCELLED
@@ -6728,6 +7436,7 @@ model MmSupplierInvoice {
   /// Last engine result (same vocabulary as status match outcomes)
   matchStatus     String?
   paymentEligible Boolean         @default(false)
+  paymentBlocked  Boolean         @default(false)
   invoicedApplied Boolean         @default(false)
   approvedBy      String?
   approvedAt      DateTime?
@@ -6739,11 +7448,14 @@ model MmSupplierInvoice {
 
   lines      MmSupplierInvoiceLine[]
   exceptions MmMatchException[]
+  ficoApDocuments FicoApDocument[]
 
   @@index([status])
   @@index([companyId])
   @@index([supplierId])
   @@index([purchaseOrderId])
+  @@index([taxCodeId])
+  @@index([withholdingTaxCodeId])
   @@map("mm_supplier_invoices")
 }
 
@@ -8477,9 +9189,11 @@ model Trip {
   driverId        String?
   driver          Driver?         @relation(fields: [driverId], references: [id], onDelete: SetNull)
   status          TripStatus      @default(DRAFT)
-  /// Cargo-first TMS: trip built from this READY load plan (null = legacy trip)
+  /// Cargo-first TMS: trip built from this READY load plan (null = legacy / ocular trip)
   loadPlanId      String?
   loadPlan        LoadPlan?       @relation(fields: [loadPlanId], references: [id], onDelete: SetNull)
+  /// DELIVERY (cargo / default) | OCULAR (field site-visit run — vehicle + stops, no shipments)
+  purpose         String          @default("DELIVERY")
   plannedStartAt  DateTime?
   plannedEndAt    DateTime?
   dispatchedAt    DateTime?
@@ -8501,6 +9215,7 @@ model Trip {
   @@index([vehicleId])
   @@index([driverId])
   @@index([loadPlanId])
+  @@index([purpose, status])
 }
 
 model TripStop {
@@ -8542,6 +9257,11 @@ model TripStop {
   locationSnapshotAt DateTime?
   warehouseId        String?
   warehouse          Warehouse?             @relation("TripStopWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+  /// OCULAR trips (soft references to CRM / SD; SCM never writes those tables):
+  /// known lead or customer visited at this stop, and the lead captured here.
+  existingLeadId     String?
+  customerId         String?
+  createdLeadId      String?
   shipments          TripStopShipment[]
   lines              TripStopLine[]
   events             TripStopEvent[]
@@ -8940,6 +9660,10 @@ model CrmProfile {
   churnScore  Float      @default(0)
   notes       String?
   ownerUserId String?
+  /// Current internal relationship rating (1–5); history lives in CrmCustomerRatingEvent.
+  ratingStars Int?
+  ratedAt     DateTime?
+  ratedBy     String?
   createdBy   String?
   updatedBy   String?
   createdAt   DateTime   @default(now())
@@ -8950,6 +9674,21 @@ model CrmProfile {
   @@map("crm_profiles")
 }
 
+/// Append-only customer relationship rating history (CRM-owned; keyed by SD customer id).
+model CrmCustomerRatingEvent {
+  id            String     @id @default(cuid())
+  customerId    String
+  customer      SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  stars         Int
+  comment       String?
+  previousStars Int?
+  ratedBy       String
+  ratedAt       DateTime   @default(now())
+
+  @@index([customerId, ratedAt])
+  @@map("crm_customer_rating_events")
+}
+
 /// Sales lead; may exist before an SdCustomer is created.
 model CrmLead {
   id            String           @id @default(cuid())
@@ -8958,8 +9697,10 @@ model CrmLead {
   name          String
   email         String?
   phone         String?
-  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OTHER
+  /// WEBSITE | REFERRAL | WALK_IN | CAMPAIGN | EVENT | COLD_CALL | OCULAR | OTHER
   source        String           @default("OTHER")
+  /// SCM ocular-trip stop this lead was captured at (soft reference; SCM owns the stop)
+  originTripStopId String?
   /// NEW | CONTACTED | QUALIFIED | UNQUALIFIED | CONVERTED | LOST
   status        String           @default("NEW")
   assignedTo    String?
@@ -8992,6 +9733,8 @@ model CrmOpportunity {
   currency          String          @default("PHP")
   /// PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
   stage             String          @default("PROSPECTING")
+  /// When the opportunity entered its current stage (stall clock). Set on create and every stage change.
+  stageEnteredAt    DateTime        @default(now())
   /// 0–100
   probability       Int?
   expectedCloseDate DateTime?
@@ -9009,12 +9752,83 @@ model CrmOpportunity {
   activities        CrmActivity[]
   messages          CrmMessage[]
   attachments       CrmAttachment[]
+  emailMessages     CrmEmailMessage[]
 
   @@index([customerId])
   @@index([stage])
   @@index([assignedTo])
   @@index([leadId])
+  @@index([stage, stageEnteredAt])
   @@map("crm_opportunities")
+}
+
+/// CRM email hub (Communications › Emails): outbound drafts/sent + MailDev inbound inbox/spam.
+model CrmEmailMessage {
+  id                 String               @id @default(cuid())
+  /// OUTBOUND | INBOUND
+  direction          String               @default("OUTBOUND")
+  /// OUTBOUND: DRAFT | SENT | FAILED · INBOUND: RECEIVED
+  status             String               @default("DRAFT")
+  toEmail            String
+  toName             String?
+  fromEmail          String?
+  subject            String               @default("")
+  bodyText           String               @default("")
+  bodyHtml           String?
+  customerId         String?
+  customer           SdCustomer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  opportunityId      String?
+  opportunity        CrmOpportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  quotationId        String?
+  quotation          SdQuotation?         @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  quotationRevision  Int?
+  templateKey        String?
+  starred            Boolean              @default(false)
+  /// Inbound only: Spam folder when true.
+  isSpam             Boolean              @default(false)
+  /// e.g. MAILDEV
+  provider           String?
+  /// Provider-native id (MailDev email id) for idempotent import.
+  providerMessageId  String?              @unique
+  /// Outbound SMTP Message-ID; used to skip re-import of our own sends from MailDev.
+  smtpMessageId      String?
+  sentAt             DateTime?
+  receivedAt         DateTime?
+  lastError          String?
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  attachments        CrmEmailAttachment[]
+
+  @@index([status, sentAt])
+  @@index([createdBy, status])
+  @@index([quotationId])
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([direction, isSpam, receivedAt])
+  @@index([smtpMessageId])
+  @@map("crm_email_messages")
+}
+
+/// Attachment on a CRM email: uploaded file or a reference to the quotation PDF snapshot.
+model CrmEmailAttachment {
+  id                   String              @id @default(cuid())
+  messageId            String
+  message              CrmEmailMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// QUOTATION_PDF | UPLOAD
+  kind                 String
+  fileName             String
+  mimeType             String?
+  byteSize             Int
+  /// Disk key under uploads/crm/emails (UPLOAD); may be empty when quotationDocumentId is set.
+  storageKey           String?
+  quotationDocumentId  String?
+  quotationDocument    SdQuotationDocument? @relation(fields: [quotationDocumentId], references: [id], onDelete: SetNull)
+  createdAt            DateTime            @default(now())
+
+  @@index([messageId])
+  @@map("crm_email_attachments")
 }
 
 /// Customer support ticket.
@@ -9081,6 +9895,7 @@ model CrmActivity {
   @@index([leadId, dueAt])
   @@index([ticketId, dueAt])
   @@index([assignedTo, dueAt])
+  @@index([type, dueAt])
   @@map("crm_activities")
 }
 
@@ -9189,37 +10004,6 @@ model CrmLoyaltyTransaction {
   @@map("crm_loyalty_transactions")
 }
 
-/// Current internal 1–5 relationship rating for an SD customer (CRM-owned; not loyalty).
-model CrmCustomerRating {
-  id         String     @id @default(cuid())
-  customerId String     @unique
-  customer   SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  /// Whole stars only (1–5).
-  stars      Int
-  comment    String?
-  ratedBy    String
-  ratedAt    DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-
-  @@index([stars])
-  @@map("crm_customer_ratings")
-}
-
-/// Append-only rating history; each set/change writes a new row (never update/delete).
-model CrmCustomerRatingHistory {
-  id            String     @id @default(cuid())
-  customerId    String
-  customer      SdCustomer @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  stars         Int
-  previousStars Int?
-  comment       String?
-  ratedBy       String
-  ratedAt       DateTime   @default(now())
-
-  @@index([customerId, ratedAt])
-  @@map("crm_customer_rating_history")
-}
-
 // ────────────────────────────────────────────────────────────────
 // SD External Platform Sales — manual entry of third-party channel transactions
 // ────────────────────────────────────────────────────────────────
@@ -9284,6 +10068,10 @@ model SdExtPlatformTransaction {
   createdBy             String?
   approvedBy            String?
   approvedAt            DateTime?
+  /// Void of a confirmed / approved sale (status becomes CANCELLED): when, by whom and why.
+  voidedAt              DateTime?
+  voidedBy              String?
+  voidReason            String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   lines                 SdExtPlatformTransactionLine[]
@@ -9334,11 +10122,18 @@ model SdExtPlatformTransactionLine {
   zeroRatedAmount       Decimal   @default(0) @db.Decimal(18, 4)
   netAmount             Decimal   @default(0) @db.Decimal(18, 4)
   grossAmount           Decimal   @default(0) @db.Decimal(18, 4)
+  batchId               String?
+  batch                 MmBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  batchNumber           String?
+  lotNumber             String?
+  /// Barcode snapshot at sale time: the sold variant's barcode, else the material's primary MM barcode.
+  barcode               String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
   @@unique([transactionId, lineNumber])
   @@index([materialId])
   @@index([productId])
+  @@index([batchId])
   @@map("sd_ext_platform_transaction_lines")
 }

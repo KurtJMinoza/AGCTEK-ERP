@@ -21,6 +21,12 @@ import {
     SURFACE_HOVER,
     formatPrice,
 } from '../marketplaceUi'
+import {
+    useEffect,
+    useState,
+    type KeyboardEvent,
+    type MouseEvent,
+} from 'react'
 
 type MarketplaceProductCardProps = {
     product: SdProductRecord
@@ -46,8 +52,8 @@ export const discountPercent = (product: SdProductRecord) =>
         : null
 
 const stopCardClick = {
-    onClick: (event: React.MouseEvent) => event.stopPropagation(),
-    onKeyDown: (event: React.KeyboardEvent) => event.stopPropagation(),
+    onClick: (event: MouseEvent) => event.stopPropagation(),
+    onKeyDown: (event: KeyboardEvent) => event.stopPropagation(),
 }
 
 const usePricingResolve = ({
@@ -59,7 +65,7 @@ const usePricingResolve = ({
     promoCode?: string
     customerType?: 'RETAIL' | 'B2B' | 'ALL'
 }) => {
-    const [resolved, setResolved] = React.useState<{
+    const [resolved, setResolved] = useState<{
         baseUnitPrice: number
         unitPrice: number
         discountPerUnit: number
@@ -70,9 +76,9 @@ const usePricingResolve = ({
         appliedValue: number | null
     } | null>(null)
 
-    const [loading, setLoading] = React.useState(true)
+    const [loading, setLoading] = useState(true)
 
-    React.useEffect(() => {
+    useEffect(() => {
         let cancelled = false
 
         const resolve = async () => {

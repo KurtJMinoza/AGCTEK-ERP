@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { BarcodeResolveService } from '../mm/scanner/barcode-resolve.service'
+import { findWithZeroTolerance } from '../mm/scanner/barcode-zero-variants'
 import { MaterialsService } from '../mm/materials/materials.service'
 import { CommercialAvailabilityService } from './commercial-availability.service'
 import { ProductFamilyService } from './product-family.service'
@@ -70,17 +71,36 @@ export class ProductBarcodeService {
     async lookup(barcode: string, companyId?: string) {
         const value = barcode?.trim()
         if (!value) throw new BadRequestException('Barcode is required')
+        const scopedCompanyId = companyId?.trim() || undefined
 
         let materialId: string | null = null
         let source: 'MM' | 'SD' = 'MM'
         try {
-            const hit = await this.barcodeResolver.resolve(value, companyId)
+            const hit = await this.barcodeResolver.resolve(value, scopedCompanyId)
             materialId = hit.materialId ?? null
         } catch {
-            const variant = await this.prisma.sdProductVariant.findFirst({
-                where: { barcode: value },
-                select: { materialId: true },
-            })
+            /* MM registry miss — try the SD variant barcode below */
+        }
+        // Always try the SD variant barcode when MM did not resolve a material.
+        // (Previously this ran only inside the catch, so a non-material MM hit
+        // left sellable variant barcodes looking "not found".)
+        if (!materialId) {
+            const variant = await findWithZeroTolerance(value, (barcode) =>
+                this.prisma.sdProductVariant.findFirst({
+                    where: {
+                        barcode,
+                        ...(scopedCompanyId
+                            ? {
+                                  OR: [
+                                      { companyId: scopedCompanyId },
+                                      { material: { companyId: scopedCompanyId } },
+                                  ],
+                              }
+                            : {}),
+                    },
+                    select: { materialId: true },
+                }),
+            )
             if (variant?.materialId) {
                 materialId = variant.materialId
                 source = 'SD'
@@ -106,10 +126,28 @@ export class ProductBarcodeService {
             }
         }
 
-        const variant = await this.findListing(material.id)
+        // POS / company terminal: never surface another company's material.
+        if (
+            scopedCompanyId &&
+            material.companyId &&
+            material.companyId !== scopedCompanyId
+        ) {
+            return {
+                found: false,
+                barcode: value,
+                message:
+                    'Barcode belongs to another company and cannot be sold on this terminal.',
+            }
+        }
+
+        const variant = await this.findListing(
+            material.id,
+            value,
+            scopedCompanyId,
+        )
         const ledger = await this.ledgerFor(
             material.id,
-            companyId ?? material.companyId ?? undefined,
+            scopedCompanyId ?? material.companyId ?? undefined,
         )
         return {
             found: true,
@@ -164,19 +202,25 @@ export class ProductBarcodeService {
         })
         if (!company) throw new BadRequestException('Company not found')
 
-        const existingBarcode = await this.prisma.mmBarcode.findFirst({
-            where: {
-                barcodeValue: barcode,
-                deletedAt: null,
-                status: 'ACTIVE',
-                companyId: input.companyId,
-            },
-            select: { materialId: true },
-        })
-        const existingVariant = await this.prisma.sdProductVariant.findFirst({
-            where: { barcode },
-            select: { materialId: true },
-        })
+        // Same leading-zero tolerance as lookup, so quick-add never creates a
+        // second material for a code that is already stored without its zero.
+        const existingBarcode = await findWithZeroTolerance(barcode, (barcodeValue) =>
+            this.prisma.mmBarcode.findFirst({
+                where: {
+                    barcodeValue,
+                    deletedAt: null,
+                    status: 'ACTIVE',
+                    companyId: input.companyId,
+                },
+                select: { materialId: true },
+            }),
+        )
+        const existingVariant = await findWithZeroTolerance(barcode, (variantBarcode) =>
+            this.prisma.sdProductVariant.findFirst({
+                where: { barcode: variantBarcode },
+                select: { materialId: true },
+            }),
+        )
         const existingMaterialId =
             existingBarcode?.materialId ?? existingVariant?.materialId ?? null
 
@@ -311,25 +355,69 @@ export class ProductBarcodeService {
         }
     }
 
-    private findListing(materialId: string) {
-        return this.prisma.sdProductVariant.findFirst({
-            where: { materialId },
-            select: {
-                id: true,
-                sku: true,
-                variantName: true,
-                price: true,
-                product: {
-                    select: {
-                        id: true,
-                        name: true,
-                        sku: true,
-                        price: true,
-                        isActive: true,
-                        status: true,
-                    },
+    private async findListing(
+        materialId: string,
+        barcode?: string,
+        companyId?: string,
+    ) {
+        const select = {
+            id: true,
+            sku: true,
+            variantName: true,
+            price: true,
+            product: {
+                select: {
+                    id: true,
+                    name: true,
+                    sku: true,
+                    price: true,
+                    isActive: true,
+                    status: true,
+                    divisionId: true,
                 },
             },
+        } as const
+        const companyScope = companyId
+            ? {
+                  OR: [
+                      { companyId },
+                      { material: { companyId } },
+                  ],
+              }
+            : {}
+
+        // Prefer the exact variant that carries this barcode (correct size/color).
+        if (barcode) {
+            const byBarcode = await findWithZeroTolerance(barcode, (variantBarcode) =>
+                this.prisma.sdProductVariant.findFirst({
+                    where: { materialId, barcode: variantBarcode, ...companyScope },
+                    select,
+                }),
+            )
+            if (byBarcode) return byBarcode
+            const byBarcodeOnly = await findWithZeroTolerance(barcode, (variantBarcode) =>
+                this.prisma.sdProductVariant.findFirst({
+                    where: { barcode: variantBarcode, ...companyScope },
+                    select,
+                }),
+            )
+            if (byBarcodeOnly) return byBarcodeOnly
+        }
+
+        // Prefer an active retail listing when several variants share the material.
+        const retail = await this.prisma.sdProductVariant.findFirst({
+            where: {
+                materialId,
+                product: { isActive: true, divisionId: 'DIV_RETAIL' },
+                ...companyScope,
+            },
+            select,
+        })
+        if (retail) return retail
+
+        return this.prisma.sdProductVariant.findFirst({
+            where: { materialId, ...companyScope },
+            select,
         })
     }
 

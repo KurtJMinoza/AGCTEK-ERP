@@ -15,6 +15,12 @@ type Props = {
     onVoid: (reason: string) => Promise<void>
     onClose: () => void
     formatPrice: (value: number) => string
+    /** Word before the document number; the POS says "Receipt". */
+    documentLabel?: string
+    /** What the void does, shown under the title; defaults to the POS wording. */
+    consequence?: string
+    /** Quick-pick reasons; defaults to the POS list. */
+    reasons?: string[]
 }
 
 const REASONS = [
@@ -37,6 +43,9 @@ const POSVoidDialog = ({
     onVoid,
     onClose,
     formatPrice,
+    documentLabel = 'Receipt',
+    consequence = 'is voided: the stock returns to the shelf and the payment is taken out of the drawer.',
+    reasons = REASONS,
 }: Props) => {
     const [reason, setReason] = useState('')
     const [error, setError] = useState<string | null>(null)
@@ -70,9 +79,8 @@ const POSVoidDialog = ({
                 Void sale
             </h5>
             <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                {receiptNumber ? `Receipt ${receiptNumber}` : 'This sale'}
-                {amount ? ` · ${formatPrice(amount)}` : ''} is voided: the stock
-                returns to the shelf and the payment is taken out of the drawer.
+                {receiptNumber ? `${documentLabel} ${receiptNumber}` : 'This sale'}
+                {amount ? ` · ${formatPrice(amount)}` : ''} {consequence}
             </p>
 
             <div className="space-y-3">
@@ -99,7 +107,7 @@ const POSVoidDialog = ({
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                    {REASONS.map((item) => (
+                    {reasons.map((item) => (
                         <button
                             key={item}
                             type="button"

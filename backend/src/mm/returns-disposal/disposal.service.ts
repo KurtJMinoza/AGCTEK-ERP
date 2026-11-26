@@ -423,7 +423,7 @@ export class DisposalService {
 
         await this.periodGuard.assertCanPost(doc.companyId, new Date())
 
-        void this.domainEvents.disposalReversed({
+        await this.domainEvents.disposalReversed({
             companyId: doc.companyId,
             disposalId: doc.id,
             payload: {

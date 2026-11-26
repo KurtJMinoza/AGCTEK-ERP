@@ -36,6 +36,8 @@ export interface CreateQuotationInput {
     lines: CatalogLineInput[]
     sections?: QuotationSectionInput[]
     notes?: string
+    /** Customer-facing payment terms printed on the PDF. */
+    paymentTerms?: string
     createdBy: string
 }
 
@@ -48,6 +50,8 @@ export interface UpdateQuotationDraftInput {
     sections?: QuotationSectionInput[]
     /** Empty string clears the notes. */
     notes?: string
+    /** Empty string clears the payment terms. */
+    paymentTerms?: string
 }
 
 export interface SendQuotationInput {
@@ -114,6 +118,11 @@ export class UpdateQuotationDraftDto implements UpdateQuotationDraftInput {
     @IsString()
     @MaxLength(2000)
     notes?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    paymentTerms?: string
 }
 
 export class SendQuotationDto implements SendQuotationInput {

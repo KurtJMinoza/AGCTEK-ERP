@@ -67,11 +67,17 @@ export type PosReceiptLine = {
     variantName: string | null
     /** Scannable barcode of the line (variant, else MM material). */
     barcode: string | null
+    /** MM material category (receipt Category column); null when unknown. */
+    category?: string | null
+    /** MM material brand (receipt Brand column); null when unknown. */
+    brand?: string | null
     /** Product image snapshot of the sold line. */
     imageUrl: string | null
     quantity: number
     unitPrice: number
     lineTotal: number
+    /** MM material standard cost; 0 when the line has no material. */
+    unitCost?: number
     /** VATABLE | VAT_EXEMPT | ZERO_RATED, frozen at sale time; null = no tax setup. */
     taxClassification: string | null
     taxCode: string | null
@@ -86,8 +92,15 @@ export type PosReceiptTender = {
     tenderAmount: number
     changeAmount: number
     referenceNumber: string | null
+    employeeName?: string | null
     status: string
     verificationStatus: string
+}
+
+export type PosEmployeeOption = {
+    id: string
+    employeeCode: string
+    fullName: string
 }
 
 /** The server receipt — the only authority for the totals of a sale. */
@@ -100,6 +113,8 @@ export type PosReceipt = {
     branchId: string
     posSessionId: string | null
     cashierUserId: string | null
+    /** Full name of the cashier (receipt "Prepared By"). */
+    cashierName?: string | null
     customerName: string | null
     /** Set when the sale was voided. */
     voidedAt?: string | null
@@ -129,7 +144,28 @@ export type PosReceipt = {
     tendered: number
     change: number
     tenders: PosReceiptTender[]
+    /** Paid | Partially Paid | Unpaid | Pending Verification — never blank. */
+    paymentStatus?: string | null
     warnings: string[]
+    /** Partial-payment fields (null / 0 for full-payment sales). */
+    paymentMode?: string | null
+    downPaymentType?: string | null
+    downPaymentPct?: number | null
+    downPaymentAmount?: number | null
+    outstandingBalance?: number
+    dueDate?: string | null
+    /** Payment remarks entered at Take Payment. */
+    remarks?: string | null
+    /** Selling company printed in the receipt header. */
+    business?: PosReceiptBusiness | null
+}
+
+export type PosReceiptBusiness = {
+    name: string
+    address: string
+    /** BIR Taxpayer Identification Number; empty when not configured. */
+    tin: string
+    logoUrl: string | null
 }
 
 /** Server quote of a running cart: the amount the checkout will ask for. */
@@ -390,16 +426,50 @@ export async function listPosOrders(params: {
     limit?: number
 }): Promise<PosReceipt[]> {
     try {
-        const { data } = await ErpAxiosBase.get<PosReceipt[]>('/sd/pos/orders', {
-            params: {
-                companyId: params.companyId || undefined,
-                branchId: params.branchId || undefined,
-                limit: params.limit,
+        const { data } = await ErpAxiosBase.get<PosReceipt[]>(
+            '/sd/pos/orders',
+            {
+                params: {
+                    companyId: params.companyId || undefined,
+                    branchId: params.branchId || undefined,
+                    limit: params.limit,
+                },
             },
-        })
+        )
         return data ?? []
     } catch (error) {
         throw toApiError(error, 'Unable to load the transactions')
+    }
+}
+
+/** Search employees by name for salary deduction (GET /sd/pos/employees). */
+export async function searchPosEmployees(
+    q: string,
+): Promise<PosEmployeeOption[]> {
+    try {
+        const { data } = await ErpAxiosBase.get<PosEmployeeOption[]>(
+            '/sd/pos/employees',
+            { params: { q, limit: 20 } },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toApiError(error, 'Unable to search employees')
+    }
+}
+
+/** Payroll collected an unpaid salary-deduction sale. */
+export async function markPosSalaryDeductionPaid(
+    orderId: string,
+    completedBy?: string | null,
+): Promise<PosReceipt> {
+    try {
+        const { data } = await ErpAxiosBase.post<PosReceipt>(
+            `/sd/pos/orders/${encodeURIComponent(orderId)}/mark-salary-paid`,
+            { completedBy: completedBy ?? undefined },
+        )
+        return data
+    } catch (error) {
+        throw toApiError(error, 'Unable to mark salary deduction paid')
     }
 }
 
@@ -558,6 +628,114 @@ export async function discardPosHold(id: string): Promise<PosHold> {
     } catch (error) {
         throw toApiError(error, 'Unable to discard the held sale')
     }
+}
+
+// ── Receivables & Collections ──────────────────────────────────────
+
+export type PosReceivable = {
+    id: string
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber: string | null
+    customerName: string | null
+    customerId: string
+    employeeId: string | null
+    originalTotal: number
+    originalAmount: number
+    paidAmount: number
+    pendingAmount: number
+    balance: number
+    status: string
+    isOverdue: boolean
+    dueDate: string | null
+    saleDate: string
+    createdAt: string
+}
+
+export type ReceivableSummary = {
+    totalOutstanding: number
+    totalOverdue: number
+    totalCustomerReceivables: number
+    totalEmployeeLoanBalance: number
+    totalPendingVerification: number
+    openCount: number
+    overdueCount: number
+}
+
+export type CollectionReceipt = {
+    collectionNumber: string
+    salesOrderId: string
+    orderNumber: string
+    receiptNumber: string | null
+    customerName: string | null
+    collectionDate: string
+    previousBalance: number
+    collectedAmount: number
+    remainingBalance: number
+    tenders: Array<{
+        method: string
+        amount: number
+        referenceNumber: string | null
+        status: string
+    }>
+    collectedBy: string | null
+}
+
+export async function listReceivables(
+    companyId: string,
+    opts: { status?: string; search?: string; limit?: number } = {},
+): Promise<PosReceivable[]> {
+    const params = new URLSearchParams({ companyId })
+    if (opts.status) params.set('status', opts.status)
+    if (opts.search) params.set('search', opts.search)
+    if (opts.limit) params.set('limit', String(opts.limit))
+    const { data } = await ErpAxiosBase.get<PosReceivable[]>(
+        `/sd/pos/receivables?${params}`,
+    )
+    return data
+}
+
+export async function getReceivableSummary(
+    companyId: string,
+): Promise<ReceivableSummary> {
+    const { data } = await ErpAxiosBase.get<ReceivableSummary>(
+        `/sd/pos/receivables/summary?companyId=${encodeURIComponent(companyId)}`,
+    )
+    return data
+}
+
+export async function collectPayment(
+    salesOrderId: string,
+    input: {
+        tenders: Array<{
+            method: string
+            amount: number
+            tenderAmount?: number
+            referenceNumber?: string
+            bankName?: string
+            transactionDate?: string
+            employeeNumber?: string
+            verifiedBy?: string
+        }>
+        posSessionId?: string
+        collectedBy?: string
+        idempotencyKey?: string
+    },
+): Promise<CollectionReceipt> {
+    const { data } = await ErpAxiosBase.post<CollectionReceipt>(
+        `/sd/pos/orders/${encodeURIComponent(salesOrderId)}/collections`,
+        input,
+    )
+    return data
+}
+
+export async function getCollectionReceipt(
+    collectionId: string,
+): Promise<CollectionReceipt> {
+    const { data } = await ErpAxiosBase.get<CollectionReceipt>(
+        `/sd/pos/collections/${encodeURIComponent(collectionId)}/receipt`,
+    )
+    return data
 }
 
 export { newIdempotencyKey }

@@ -49,9 +49,40 @@ cashier confirmation the tender stays pending. A salary deduction is a credit
 sale — the customer's credit limit is checked before the sale and consumed
 after it; it is never counted as cash in the drawer.
 
-Split payment is supported: a sale carries one tender row per payment method
-and the tenders must cover the amount due. Only cash may hand over more than
-the amount it covers; the surplus is the change.
+Split payment is supported (`paymentMode: SPLIT`): a sale carries one tender
+row per payment method (Cash + GCash, Cash + Card, …). The cashier enters each
+payment amount; the UI shows covered vs remaining balance. Checkout rejects a
+split with fewer than two tenders, and the order is marked `Paid` only when the
+tenders fully cover the amount due and every tender has settled. Only cash may
+hand over more than the amount it covers; the surplus is the change.
+
+### Charge sale (pay later)
+
+`paymentMode: CHARGE` lets an identified customer take the goods now and pay
+later. It takes **no tenders**: the whole total becomes an open `SdPosReceivable`
+(balance = total), while the goods issue runs through the same MM engine as any
+other sale (stock leaves immediately).
+
+| Aspect | Rule |
+| --- | --- |
+| Request | `paymentMode: 'CHARGE'`, `dueDate` (required, `YYYY-MM-DD`, not before today in Manila time), `tenders` omitted/empty |
+| Customer | Must be identified (walk-in is rejected). `CREDIT` accounts: `creditLimit − open receivables` must cover the total. Other accounts have no limit |
+| Order | `paymentMethod = 'CHARGE'`, `paymentStatus = 'Unpaid'`, `outstandingBalance = total`, `dueDate`; no down payment fields |
+| Paying later | Existing collections (`PosCollectionService.collect`, **Collect** in POS transactions) — in full or in parts (e.g. a down payment tomorrow). Status moves `Unpaid → Partially Paid → Paid`; `paymentMethod` stays `CHARGE` |
+| Receipt | `paymentMode: 'CHARGE'`; the **credit** box is ticked, status reads "Charge · …", with balance due, due date and a customer acknowledgement line |
+| FICO | Unchanged: the `PosSaleCompleted` event carries `outstandingBalance`, so Accounts Receivable is debited for the unpaid part |
+
+Reporting: the Sales Orders list/detail show the method as *Charge*, the balance
+and the due date (flagged **Overdue** once the due day, in Manila time, has
+ended). The Sales Analysis detailed line report (and its Excel export) adds
+sales type `CHARGE`, paid status `Unpaid` while nothing is collected, and the
+`Due date` / `Overdue` columns. A charge sale is only valid through staged
+checkout (`deferCompletion`), so a failed goods issue can be resumed without
+losing the receivable.
+
+Known limitation: the credit check and receivable creation are not locked
+against each other, so two simultaneous charge sales for the same CREDIT
+customer could together exceed the limit by one sale.
 
 ## 4. Completion, idempotency and safety
 
@@ -76,6 +107,26 @@ the amount it covers; the surplus is the change.
 If the stock posting fails, the sale stays `CONFIRMED` with its tenders
 recorded: the money is captured, the stock is not, and the cashier can retry
 the completion. The sale is never marked complete without the goods issue.
+
+### Sales receipt (A4)
+
+The receipt (`POSReceipt.tsx`, printed through `printPosReceipt.ts`) follows
+the company's paper **Sales Receipt** form on A4: logo, company name and
+address (from the selling company), date and time, customer name, an item
+table (barcode, category, brand, description, qty, unit price, discount,
+total), the totals box, **cash / credit** boxes, and Prepared By / Checked By /
+Received signature lines. Prepared By is the cashier's **full name**
+(`PosReceipt.cashierName`, resolved by the server from the user that served the
+sale: "First Last", else the login name). Category and brand come
+from the MM material on each line (`PosReceipt.lines[].category|brand`). A
+discount is recorded for the whole order, so the Discount column shows "—" per
+line and the order discount appears in the totals box as "Less: Discount".
+
+**Two copies per sheet.** `POSReceiptSheet` prints the receipt twice on one A4
+page (top and bottom half) with a dashed **cut line** between them.
+`printPosReceipt` always keeps both copies on the same sheet: each copy is
+shrunk to fit its half (down to about 40% for a long sale). It never page-breaks
+onto a second sheet.
 
 ## 5. Cashier shift
 

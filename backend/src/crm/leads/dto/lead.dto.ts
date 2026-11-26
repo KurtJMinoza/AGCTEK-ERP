@@ -40,6 +40,7 @@ export const LEAD_SOURCES = [
     'CAMPAIGN',
     'EVENT',
     'COLD_CALL',
+    'OCULAR',
     'OTHER',
 ] as const
 export type LeadSource = (typeof LEAD_SOURCES)[number]
@@ -128,6 +129,16 @@ export class CreateLeadDto {
     @Min(0)
     @Max(100)
     score?: number
+
+    /**
+     * SCM ocular-trip stop where the lead was captured. Forces `source = OCULAR`; SCM links
+     * the stop to the new lead through an event.
+     */
+    @IsOptional()
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(64)
+    originTripStopId?: string
 }
 
 /** `customerId` / `assignedTo` accept `null` to unlink. */

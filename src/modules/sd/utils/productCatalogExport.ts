@@ -13,10 +13,12 @@ export function downloadProductCatalogCsv(
 ) {
     const header = [
         'SKU',
+        'Barcode',
         'Name',
         'Company',
         'Category',
         'Price',
+        'Cost',
         'Original price',
         'Badge',
         'Visible',
@@ -27,10 +29,12 @@ export function downloadProductCatalogCsv(
         const stock = stockByProductId[p.id]
         return [
             p.sku,
+            stock?.barcode ?? '',
             p.name,
             productSellerLabel(p),
             p.category,
             String(p.price),
+            p.standardCost == null ? '' : String(p.standardCost),
             p.originalPrice == null ? '' : String(p.originalPrice),
             p.badge ?? '',
             p.isActive ? 'yes' : 'no',

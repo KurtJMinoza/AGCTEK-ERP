@@ -1,6 +1,5 @@
-import { redirect } from 'next/navigation'
-
-/** Account Determination is a tab of the G/L Accounts workspace. */
-export default function Page() {
-    redirect('/modules/fico/gl-accounts?tab=determination')
+export const metadata = {
+    title: 'Account Determination | FICO | AGCTEK ERP',
 }
+
+export { default } from '@/modules/fico/pages/AccountDeterminationPage'

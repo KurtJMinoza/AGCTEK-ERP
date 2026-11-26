@@ -15,9 +15,14 @@ import {
 } from '@/configs/erp-modules'
 import { getActiveModuleCode } from '@/utils/erp-navigation'
 import usePermissions from '@/utils/hooks/usePermissions'
-import type { ErpModule, ErpSubmodule } from '@/types/erp-modules'
+import type { ErpModule, ErpSidebarGroup, ErpSubmodule } from '@/types/erp-modules'
 
 const { MenuItem, MenuGroup } = Menu
+
+const SIDEBAR_GROUPS: { code: ErpSidebarGroup; label: string }[] = [
+    { code: 'modules', label: 'Modules' },
+    { code: 'tools', label: 'Tools' },
+]
 
 type ErpSidebarContentProps = {
     collapsed?: boolean
@@ -40,6 +45,17 @@ export default function ErpSidebarContent({
     const activeModuleCode = getActiveModuleCode(pathname)
     const activeKeys = activeModuleCode ? [activeModuleCode, pathname] : []
 
+    const groups = useMemo(
+        () =>
+            SIDEBAR_GROUPS.map((group) => ({
+                ...group,
+                modules: modules.filter(
+                    (module) => (module.sidebarGroup ?? 'modules') === group.code,
+                ),
+            })).filter((group) => group.modules.length > 0),
+        [modules],
+    )
+
     return (
         <div className="flex h-full flex-col">
             <div className="flex-1 overflow-y-auto py-2">
@@ -48,25 +64,27 @@ export default function ErpSidebarContent({
                     defaultActiveKeys={activeKeys}
                     className="px-1"
                 >
-                    <MenuGroup label="Modules">
-                        {modules.map((module) => (
-                            <Fragment key={module.code}>
-                                <ModuleMenuItem
-                                    module={module}
-                                    collapsed={collapsed}
-                                    onNavigate={onNavigate}
-                                />
-                                {sidebarShortcuts(module, can).map((shortcut) => (
-                                    <ShortcutMenuItem
-                                        key={shortcut.path}
-                                        shortcut={shortcut}
+                    {groups.map((group) => (
+                        <MenuGroup key={group.code} label={group.label}>
+                            {group.modules.map((module) => (
+                                <Fragment key={module.code}>
+                                    <ModuleMenuItem
+                                        module={module}
                                         collapsed={collapsed}
                                         onNavigate={onNavigate}
                                     />
-                                ))}
-                            </Fragment>
-                        ))}
-                    </MenuGroup>
+                                    {sidebarShortcuts(module, can).map((shortcut) => (
+                                        <ShortcutMenuItem
+                                            key={shortcut.path}
+                                            shortcut={shortcut}
+                                            collapsed={collapsed}
+                                            onNavigate={onNavigate}
+                                        />
+                                    ))}
+                                </Fragment>
+                            ))}
+                        </MenuGroup>
+                    ))}
                 </Menu>
             </div>
         </div>

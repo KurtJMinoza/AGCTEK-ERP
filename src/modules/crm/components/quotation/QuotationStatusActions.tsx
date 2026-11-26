@@ -6,6 +6,7 @@ import QuotationDecisionDialog, {
     type QuotationDecisionTarget,
 } from './QuotationDecisionDialog'
 import QuotationSendDialog from './QuotationSendDialog'
+import QuotationEmailComposer from './QuotationEmailComposer'
 import type { Quotation } from '@/modules/sd/services/quotationService'
 
 type QuotationStatusActionsProps = {
@@ -22,6 +23,7 @@ type QuotationStatusActionsProps = {
 
 const ACTION_COPY: Record<string, { label: string; solid?: boolean }> = {
     send: { label: 'Send', solid: true },
+    email: { label: 'Email' },
     accept: { label: 'Accept', solid: true },
     reject: { label: 'Reject' },
     revise: { label: 'Revise' },
@@ -32,11 +34,12 @@ const ACTION_COPY: Record<string, { label: string; solid?: boolean }> = {
 function actionsFor(status: string): string[] {
     switch (status) {
         case 'DRAFT':
+            // Emailing needs the frozen PDF: Send first (the composer then opens automatically).
             return ['send', 'cancel']
         case 'SENT':
-            return ['accept', 'reject', 'revise', 'cancel']
+            return ['email', 'accept', 'reject', 'revise', 'cancel']
         case 'ACCEPTED':
-            return ['revise', 'cancel']
+            return ['email', 'revise', 'cancel']
         case 'REJECTED':
         case 'EXPIRED':
             return ['revise']
@@ -53,6 +56,7 @@ export default function QuotationStatusActions({
     onRevise,
 }: QuotationStatusActionsProps) {
     const [sending, setSending] = useState(false)
+    const [composer, setComposer] = useState<{ quotation: Quotation; isResend: boolean } | null>(null)
     const [decision, setDecision] = useState<QuotationDecisionTarget | null>(null)
 
     if (!canManage) return null
@@ -62,6 +66,7 @@ export default function QuotationStatusActions({
     const locked = busy
     const run = {
         send: () => setSending(true),
+        email: () => setComposer({ quotation, isResend: Boolean(quotation.lastEmailedAt) }),
         accept: () => setDecision({ decision: 'accept', quotation }),
         reject: () => setDecision({ decision: 'reject', quotation }),
         revise: () => setDecision({ decision: 'revise', quotation }),
@@ -81,7 +86,7 @@ export default function QuotationStatusActions({
                             title={locked ? 'Save the draft before sending or cancelling' : undefined}
                             onClick={run[key as keyof typeof run]}
                         >
-                            {copy.label}
+                            {key === 'email' && quotation.lastEmailedAt ? 'Resend email' : copy.label}
                         </Button>
                     )
                 })}
@@ -89,8 +94,19 @@ export default function QuotationStatusActions({
             <QuotationSendDialog
                 quotation={sending ? quotation : null}
                 onClose={() => setSending(false)}
-                onSent={() => onChanged()}
+                onSent={(sent) => {
+                    setSending(false)
+                    onChanged()
+                    // Send freezes the quotation; the rep then composes the first email.
+                    setComposer({ quotation: sent, isResend: false })
+                }}
                 onRepriced={() => onChanged()}
+            />
+            <QuotationEmailComposer
+                quotation={composer?.quotation ?? null}
+                isResend={composer?.isResend}
+                onClose={() => setComposer(null)}
+                onSent={onChanged}
             />
             <QuotationDecisionDialog
                 target={decision}

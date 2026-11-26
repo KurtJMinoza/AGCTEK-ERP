@@ -59,7 +59,49 @@ export class FicoReconciliationQueryDto {
     @IsDateString()
     dateTo?: string
 }
-export class CreateJournalEntryDto {
+export class UpdateJournalEntryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsDateString()
+    postingDate?: string
+
+    @IsOptional()
+    @IsString()
+    description?: string
+
+    @IsOptional()
+    @IsString()
+    currencyCode?: string
+
+    /** Optional MM supplier partner; omit to leave unchanged, empty string to clear. */
+    @IsOptional()
+    @IsString()
+    supplierId?: string | null
+
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateJournalLineDto)
+    lines?: CreateJournalLineDto[]
+}
+
+export class CancelJournalEntryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    reason?: string
+}
+
+export class WithdrawJournalEntryDto {
+    @IsString()
+    companyId!: string
+}
+
+export class CreateJournalEntryDto {
     @IsString()
     companyId!: string
 
@@ -73,6 +115,11 @@ export class FicoReconciliationQueryDto {
     @IsOptional()
     @IsString()
     currencyCode?: string
+
+    /** Optional MM supplier partner reference (same company). */
+    @IsOptional()
+    @IsString()
+    supplierId?: string
 
     @IsOptional()
     @IsBoolean()
@@ -109,13 +156,9 @@ export class CreateJournalLineDto {
     description?: string
 }
 
-export class JournalEntryListQueryDto {
+export class FicoTrialBalanceQueryDto {
     @IsString()
     companyId!: string
-
-    @IsOptional()
-    @IsString()
-    status?: string
 
     @IsOptional()
     @IsDateString()
@@ -126,15 +169,153 @@ export class JournalEntryListQueryDto {
     dateTo?: string
 
     @IsOptional()
+    @IsString()
+    accountType?: string
+
+    @IsOptional()
+    @IsBoolean()
+    @Transform(({ value }) => value === true || value === 'true')
+    includeZeroBalances?: boolean
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    page?: number
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @Max(500)
+    pageSize?: number
+}
+
+export class FicoJournalIntegrityQueryDto {
+    @IsOptional()
+    @IsString()
+    companyId?: string
+
+    @IsOptional()
+    @IsBoolean()
+    @Transform(({ value }) => value === true || value === 'true')
+    dryRun?: boolean
+}
+
+export class JournalEntryListQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsString()
+    tab?: string
+
+    @IsOptional()
+    @IsString()
+    status?: string
+
+    @IsOptional()
+    @IsString()
+    approvalStatus?: string
+
+    @IsOptional()
+    @IsString()
+    documentType?: string
+
+    @IsOptional()
+    @IsString()
+    documentNumber?: string
+
+    @IsOptional()
+    @IsString()
+    sourceModule?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentId?: string
+
+    @IsOptional()
+    @IsString()
+    supplierId?: string
+
+    @IsOptional()
+    @IsString()
+    glAccountId?: string
+
+    @IsOptional()
+    @IsString()
+    currencyCode?: string
+
+    @IsOptional()
+    @IsString()
+    createdBy?: string
+
+    @IsOptional()
+    @IsString()
+    postedBy?: string
+
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    fiscalYear?: number
+
+    @IsOptional()
+    @IsString()
+    fiscalPeriodId?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
+
+    @IsOptional()
+    @IsDateString()
+    documentDateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    documentDateTo?: string
+
+    @IsOptional()
+    @IsString()
+    sortBy?: string
+
+    @IsOptional()
+    @IsIn(['asc', 'desc'])
+    sortDir?: 'asc' | 'desc'
+
+    @IsOptional()
+    @Type(() => Number)
     @IsInt()
     @Min(1)
     page?: number = 1
 
     @IsOptional()
+    @Type(() => Number)
     @IsInt()
     @Min(1)
     @Max(100)
     pageSize?: number = 20
+}
+
+export class JournalEntrySummaryQueryDto {
+    @IsString()
+    companyId!: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
 }
 
 export class JournalEntryDetailQueryDto {
@@ -149,11 +330,16 @@ export class ReverseJournalEntryDto {
     @IsString()
     companyId!: string
 
+    @IsOptional()
     @IsString()
-    journalEntryId!: string
+    journalEntryId?: string
 
     @IsString()
     reason!: string
+
+    @IsOptional()
+    @IsDateString()
+    postingDate?: string
 }
 
 export class SubmitJournalEntryDto {

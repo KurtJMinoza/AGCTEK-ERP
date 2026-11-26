@@ -16,7 +16,9 @@ export type PosTenderInput = {
     provider?: string | null
     bankName?: string | null
     transactionDate?: string | null
+    employeeUserId?: string | null
     employeeNumber?: string | null
+    employeeName?: string | null
     payrollReference?: string | null
     /** Cashier that confirmed the tender (required to mark a reference verified). */
     verifiedBy?: string | null
@@ -32,6 +34,7 @@ export type PosTender = {
     bankName: string | null
     transactionDate: Date | null
     employeeNumber: string | null
+    employeeName: string | null
     payrollReference: string | null
     verificationStatus: PosTenderVerificationStatus
     status: string
@@ -162,13 +165,13 @@ export function allocateTenders(
             status = POS_TENDER_SETTLEMENT_STATUS.PENDING_VERIFICATION
             paidAt = null
         } else if (method === 'SALARY_LOAN') {
-            if (!text(input.employeeNumber)) {
+            if (!text(input.employeeName)) {
                 throw new BadRequestException(
-                    `${label}: the employee number is required for a salary deduction.`,
+                    `${label}: the employee full name is required for a salary deduction.`,
                 )
             }
             verificationStatus = 'RECEIVABLE'
-            status = POS_TENDER_SETTLEMENT_STATUS.AUTHORIZED
+            status = POS_TENDER_SETTLEMENT_STATUS.UNPAID
             paidAt = null
         }
 
@@ -185,6 +188,7 @@ export function allocateTenders(
                 ? new Date(input.transactionDate as string)
                 : null,
             employeeNumber: text(input.employeeNumber),
+            employeeName: text(input.employeeName),
             payrollReference: text(input.payrollReference),
             verificationStatus,
             status,
@@ -205,4 +209,84 @@ export function allocateTenders(
     const change = round2(tenders.reduce((sum, t) => sum + t.changeAmount, 0))
 
     return { tenders, totalApplied, totalTendered, change }
+}
+
+const tenderMethod = (row: {
+    method?: string
+    paymentMethod?: string
+}) => row.method ?? row.paymentMethod ?? ''
+
+/** Header payment status from captured tenders. */
+export function resolvePosOrderPaymentStatus(
+    tenders: Array<{
+        method?: string
+        paymentMethod?: string
+        status: string
+    }>,
+): string {
+    if (!tenders.length) return POS_TENDER_SETTLEMENT_STATUS.PENDING_VERIFICATION
+    if (tenders.every((t) => t.status === POS_TENDER_SETTLEMENT_STATUS.PAID)) {
+        return POS_TENDER_SETTLEMENT_STATUS.PAID
+    }
+    if (
+        tenders.some(
+            (t) =>
+                tenderMethod(t) === 'SALARY_LOAN' &&
+                t.status === POS_TENDER_SETTLEMENT_STATUS.UNPAID,
+        )
+    ) {
+        return POS_TENDER_SETTLEMENT_STATUS.UNPAID
+    }
+    if (
+        tenders.some((t) => t.status !== POS_TENDER_SETTLEMENT_STATUS.PAID)
+    ) {
+        return POS_TENDER_SETTLEMENT_STATUS.PENDING_VERIFICATION
+    }
+    return POS_TENDER_SETTLEMENT_STATUS.PAID
+}
+
+/**
+ * Validate and allocate tenders for a down-payment checkout.
+ *
+ * Identical logic to `allocateTenders` except the tenders must cover
+ * `downPaymentAmount` (not the full order total). The outstanding balance
+ * is tracked as a receivable, not fabricated as a tender.
+ */
+export function allocatePartialTenders(
+    orderTotal: number,
+    downPaymentAmount: number,
+    inputs: PosTenderInput[],
+): {
+    tenders: PosTender[]
+    totalApplied: number
+    totalTendered: number
+    change: number
+    outstandingBalance: number
+} {
+    if (!Number.isFinite(orderTotal) || orderTotal <= 0) {
+        throw new BadRequestException('The sale has no payable amount.')
+    }
+    const dp = round2(downPaymentAmount)
+    if (!Number.isFinite(dp) || dp <= 0) {
+        throw new BadRequestException(
+            'The down payment must be greater than zero.',
+        )
+    }
+    if (dp > round2(orderTotal) + 0.005) {
+        throw new BadRequestException(
+            'The down payment cannot exceed the order total.',
+        )
+    }
+    // If the down payment equals the full total, delegate to full-pay path
+    if (Math.abs(dp - round2(orderTotal)) <= 0.005) {
+        const result = allocateTenders(orderTotal, inputs)
+        return { ...result, outstandingBalance: 0 }
+    }
+
+    // Validate tenders against the down-payment amount
+    const result = allocateTenders(dp, inputs)
+    return {
+        ...result,
+        outstandingBalance: round2(orderTotal - dp),
+    }
 }

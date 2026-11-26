@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import StatusBadge from '@/components/shared/StatusBadge'
 import Tag from '@/components/ui/Tag'
@@ -22,7 +22,7 @@ export function rcvTableRowEnterClass(index: number): string {
     const delay = Math.min(index, 14) * 40
     return [
         'group/row',
-        'animate-mm-row-in motion-reduce:animate-none opacity-0',
+        'animate-mm-row-in motion-reduce:animate-none',
         `[animation-delay:${delay}ms]`,
         'transition-colors duration-200',
         'hover:bg-gray-50/90 dark:hover:bg-gray-800/45',
@@ -31,12 +31,12 @@ export function rcvTableRowEnterClass(index: number): string {
 
 export function rcvMobileCardEnterClass(index: number): string {
     const delay = Math.min(index, 10) * 55
-    return `animate-mm-row-in motion-reduce:animate-none opacity-0 [animation-delay:${delay}ms]`
+    return `animate-mm-row-in motion-reduce:animate-none [animation-delay:${delay}ms]`
 }
 
 export function rcvIconPopClass(extraDelayMs = 0): string {
     return [
-        'animate-mm-icon-pop motion-reduce:animate-none opacity-0',
+        'animate-mm-icon-pop motion-reduce:animate-none',
         extraDelayMs > 0 ? `[animation-delay:${extraDelayMs}ms]` : '',
         'transition-transform duration-200 group-hover/row:scale-105',
     ]

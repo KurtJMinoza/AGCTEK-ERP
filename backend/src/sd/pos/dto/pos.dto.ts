@@ -12,6 +12,7 @@ import {
     IsNotEmpty,
     MaxLength,
     Min,
+    ValidateIf,
     ValidateNested,
 } from 'class-validator'
 import { RETAIL_SALES_DIVISIONS } from '../../dto/sales-order.dto'
@@ -56,6 +57,15 @@ export class PosTenderDto {
     @IsString()
     @MaxLength(60)
     employeeNumber?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    employeeName?: string
+
+    @IsOptional()
+    @IsString()
+    employeeUserId?: string
 
     @IsOptional()
     @IsString()
@@ -153,11 +163,57 @@ export class PosCheckoutDto {
     @Min(0)
     discountAmount?: number
 
+    /**
+     * What the customer pays at the register. A CHARGE (pay later) sale takes
+     * no payment now, so the tenders are optional (and must be empty) there;
+     * every other mode needs at least one tender.
+     */
+    @ValidateIf((dto: PosCheckoutDto) => dto.paymentMode !== 'CHARGE')
     @IsArray()
     @ArrayMinSize(1)
     @ValidateNested({ each: true })
     @Type(() => PosTenderDto)
-    tenders!: PosTenderDto[]
+    tenders?: PosTenderDto[]
+
+    /**
+     * FULL | SPLIT | DOWN_PAYMENT | CHARGE — how the customer pays.
+     * CHARGE: the customer takes the goods now and pays the whole total later
+     * (in one or several collections) against a receivable.
+     */
+    @IsOptional()
+    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT', 'CHARGE'])
+    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT' | 'CHARGE'
+
+    /** PERCENTAGE | FIXED — how the down-payment amount was chosen. */
+    @IsOptional()
+    @IsIn(['PERCENTAGE', 'FIXED'])
+    downPaymentType?: 'PERCENTAGE' | 'FIXED'
+
+    /** Percentage of the total (e.g. 50 for 50%). */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    downPaymentPct?: number
+
+    /** Absolute down-payment amount the tenders must cover. */
+    @IsOptional()
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    downPaymentAmount?: number
+
+    /**
+     * When the remaining balance is due. Required for a CHARGE sale (ISO date,
+     * not in the past); optional for a down payment.
+     */
+    @IsOptional()
+    @IsString()
+    dueDate?: string
+
+    /** Free-text payment remarks captured at Take Payment (stored on the sale). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    remarks?: string
 
     @IsOptional()
     @IsString()

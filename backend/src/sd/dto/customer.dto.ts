@@ -13,6 +13,9 @@ import {
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
+/** Empty string → null so PATCH can clear birthday. */
+const emptyToNull = ({ value }: { value: unknown }) => (value === '' ? null : value)
+
 export const CUSTOMER_STATUSES = ['ACTIVE', 'BLOCKED', 'INACTIVE'] as const
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number]
 
@@ -114,7 +117,7 @@ export class CreateCustomerDto {
     @IsIn(PAYMENT_MODES)
     paymentMode?: PaymentMode
 
-    /** ISO date (YYYY-MM-DD); date-only birth date. Future dates rejected in service. */
+    /** Optional YYYY-MM-DD (date-only); rejected if in the future by CustomerService. */
     @IsOptional()
     @IsDateString()
     birthDate?: string
@@ -182,11 +185,9 @@ export class UpdateCustomerDto {
     @IsIn(PAYMENT_MODES)
     paymentMode?: PaymentMode
 
-    /**
-     * ISO date (YYYY-MM-DD) or null to clear. Omit to leave unchanged.
-     * Future dates rejected in service.
-     */
+    /** YYYY-MM-DD or null to clear; rejected if in the future by CustomerService. */
     @IsOptional()
+    @Transform(emptyToNull)
     @ValidateIf((_, value) => value !== null)
     @IsDateString()
     birthDate?: string | null

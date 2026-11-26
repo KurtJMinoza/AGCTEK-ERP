@@ -105,20 +105,21 @@ export class PosVoidService {
         }
 
         // 3. The money is closed: the tenders are cancelled (the drawer no
-        // longer counts them), a salary deduction gives its credit back and
-        // the lines and the sale itself are closed. One transaction, so a
-        // failure never leaves a voided sale with live tenders (or the other
-        // way round).
+        // longer counts them) and the lines and the sale itself are closed.
+        // One transaction, so a failure never leaves a voided sale with live
+        // tenders (or the other way round).
+        const voidNumber = `V-${order.receiptNumber ?? order.orderNumber}`
+        const voidedAmount = new Decimal(order.totalAmount ?? 0).negated()
         const salaryLoanCredit = order.payments
             .filter(
                 (payment) =>
                     payment.paymentMethod === 'SALARY_LOAN' &&
                     !['Cancelled', 'Refunded'].includes(payment.status),
             )
-            .reduce((sum, payment) => sum + Number(payment.amount), 0)
-
-        const voidNumber = `V-${order.receiptNumber ?? order.orderNumber}`
-        const voidedAmount = new Decimal(order.totalAmount ?? 0).negated()
+            .reduce(
+                (sum, payment) => sum + Number(payment.amount ?? 0),
+                0,
+            )
 
         const { cancelled, voided, voidTransaction } =
             await this.prisma.$transaction(
@@ -147,18 +148,15 @@ export class PosVoidService {
                     },
                 })
 
-                // The checkout booked the deduction against the employee's
-                // credit; the voided sale no longer owes it.
-                if (salaryLoanCredit > 0 && order.customerId) {
-                    await tx.sdCustomer.updateMany({
-                        where: { id: order.customerId },
-                        data: {
-                            availableCredit: {
-                                increment: new Decimal(salaryLoanCredit),
-                            },
-                        },
-                    })
-                }
+                // Cancel the receivable and employee loan items (partial payment)
+                await tx.sdPosReceivable.updateMany({
+                    where: { salesOrderId: order.id, status: 'OPEN' },
+                    data: { status: 'CANCELLED', balance: 0 },
+                })
+                await tx.sdEmployeeLoanItem.updateMany({
+                    where: { salesOrderId: order.id, status: { in: ['OPEN', 'PARTIAL'] } },
+                    data: { status: 'CANCELLED', balance: 0 },
+                })
 
                 // The void is a transaction of its own: a reversal entry
                 // that follows the completed sale in the register history.

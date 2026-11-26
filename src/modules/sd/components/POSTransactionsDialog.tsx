@@ -34,12 +34,18 @@ type Props = {
     onVoid: (receipt: PosReceipt) => void
     /** Finishes a sale whose checkout stopped before completion. */
     onComplete: (receipt: PosReceipt) => void
+    /** Opens the collection dialog for a partially paid sale. */
+    onCollect?: (receipt: PosReceipt) => void
+    /** Payroll collected an unpaid salary-deduction sale. */
+    onMarkSalaryPaid?: (receipt: PosReceipt) => void
     /** Sale currently being completed. */
     completingId?: string | null
+    /** Sale currently being marked paid. */
+    markingPaidId?: string | null
     formatPrice: (value: number) => string
 }
 
-type Filter = 'ALL' | 'COMPLETED' | 'VOIDED' | 'PENDING'
+type Filter = 'ALL' | 'COMPLETED' | 'VOIDED' | 'PENDING' | 'PARTIALLY_PAID'
 
 const TENDER_LABEL: Record<string, string> = {
     CASH: 'Cash',
@@ -60,6 +66,13 @@ const matchesFilter = (r: PosReceipt, filter: Filter) => {
     if (filter === 'ALL') return true
     if (filter === 'VOIDED') return isVoidRow(r) || r.status === 'CANCELLED'
     if (isVoidRow(r)) return false
+    if (filter === 'PARTIALLY_PAID') {
+        return (
+            r.paymentStatus === 'PARTIALLY_PAID' ||
+            r.paymentStatus === 'Partially Paid' ||
+            Number(r.outstandingBalance ?? 0) > 0.005
+        )
+    }
     return filter === 'PENDING' ? r.status === 'CONFIRMED' : r.status === 'COMPLETED'
 }
 
@@ -151,7 +164,10 @@ const POSTransactionsDialog = ({
     onShowReceipt,
     onVoid,
     onComplete,
+    onCollect,
+    onMarkSalaryPaid,
     completingId = null,
+    markingPaidId = null,
     formatPrice,
 }: Props) => {
     const [filter, setFilter] = useState<Filter>('ALL')
@@ -252,6 +268,7 @@ const POSTransactionsDialog = ({
                         <Segment size="sm" value={filter} onChange={(v) => setFilter(v as Filter)}>
                             <Segment.Item value="ALL">All</Segment.Item>
                             <Segment.Item value="COMPLETED">Completed</Segment.Item>
+                            <Segment.Item value="PARTIALLY_PAID">Partial</Segment.Item>
                             <Segment.Item value="VOIDED">Voided</Segment.Item>
                             <Segment.Item value="PENDING">Pending</Segment.Item>
                         </Segment>
@@ -287,10 +304,13 @@ const POSTransactionsDialog = ({
                                         receipt={receipt}
                                         isNew={newKeys?.has(posReceiptKey(receipt)) ?? false}
                                         completingId={completingId}
+                                        markingPaidId={markingPaidId}
                                         formatPrice={formatPrice}
                                         onShowReceipt={onShowReceipt}
                                         onVoid={onVoid}
                                         onComplete={onComplete}
+                                        onCollect={onCollect}
+                                        onMarkSalaryPaid={onMarkSalaryPaid}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -317,43 +337,77 @@ function TransactionRow({
     receipt,
     isNew,
     completingId,
+    markingPaidId,
     formatPrice,
     onShowReceipt,
     onVoid,
     onComplete,
+    onCollect,
+    onMarkSalaryPaid,
 }: {
     receipt: PosReceipt
     isNew: boolean
     completingId: string | null
+    markingPaidId?: string | null
     formatPrice: (value: number) => string
     onShowReceipt: (receipt: PosReceipt) => void
     onVoid: (receipt: PosReceipt) => void
     onComplete: (receipt: PosReceipt) => void
+    onCollect?: (receipt: PosReceipt) => void
+    onMarkSalaryPaid?: (receipt: PosReceipt) => void
 }) {
     const voidTransaction = isVoidRow(receipt)
     const voided = receipt.status === 'CANCELLED'
     const pending = receipt.status === 'CONFIRMED'
+    const partiallyPaid =
+        receipt.paymentStatus === 'PARTIALLY_PAID' ||
+        receipt.paymentStatus === 'Partially Paid' ||
+        Number(receipt.outstandingBalance ?? 0) > 0.005
+    const outstanding = Number(receipt.outstandingBalance ?? 0)
+    // Charge sale (pay later): the customer took the goods and owes the total.
+    const isCharge = receipt.paymentMode === 'CHARGE'
+    const hasUnpaidSalary =
+        !isCharge &&
+        (receipt.paymentStatus === 'Unpaid' ||
+            receipt.tenders.some(
+                (tender) =>
+                    tender.method === 'SALARY_LOAN' && tender.status === 'Unpaid',
+            ))
     const itemCount = receipt.lines.reduce((sum, line) => sum + line.quantity, 0)
+    const totalCost = receipt.lines.reduce(
+        (sum, line) => sum + Number(line.unitCost ?? 0) * line.quantity,
+        0,
+    )
     const statusLabel = voidTransaction
         ? 'Void transaction'
         : voided
           ? 'Voided'
           : pending
             ? 'Pending'
-            : receipt.status === 'COMPLETED'
-              ? 'Completed'
-              : receipt.status
+            : isCharge && partiallyPaid
+              ? receipt.paymentStatus === 'Unpaid'
+                  ? 'Charge · unpaid'
+                  : 'Charge · partially paid'
+              : partiallyPaid
+              ? 'Partially paid'
+              : receipt.status === 'COMPLETED'
+                ? 'Completed'
+                : receipt.status
     const statusTone =
         voidTransaction || voided
             ? 'danger'
             : pending
               ? 'warning'
-              : receipt.status === 'COMPLETED'
-                ? 'success'
-                : 'default'
-    const tenders = receipt.tenders
-        .map((tender) => TENDER_LABEL[tender.method] ?? tender.method)
-        .join(' + ')
+              : partiallyPaid
+                ? 'warning'
+                : receipt.status === 'COMPLETED'
+                  ? 'success'
+                  : 'default'
+    const tenders = isCharge
+        ? ['Charge', ...receipt.tenders.map((tender) => TENDER_LABEL[tender.method] ?? tender.method)].join(' → ')
+        : receipt.tenders
+              .map((tender) => TENDER_LABEL[tender.method] ?? tender.method)
+              .join(' + ')
     const reason = voidTransaction || (voided && !receipt.voidTransactionNumber) ? receipt.voidReason : null
 
     return (
@@ -364,9 +418,9 @@ function TransactionRow({
             exit={{ opacity: 0 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
             className={classNames(
-                'relative grid grid-cols-1 items-center gap-3 rounded-xl border bg-white px-4 py-3 transition-shadow md:grid-cols-[minmax(0,1fr)_9rem_8.5rem_11rem] dark:bg-gray-800',
+                'relative grid grid-cols-1 items-start gap-3 rounded-xl border bg-white px-3 py-3 transition-shadow sm:px-4 md:grid-cols-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1.4fr)_7.5rem_minmax(7rem,9rem)_auto] lg:items-center dark:bg-gray-800',
                 voidTransaction
-                    ? 'ml-6 border-red-200 bg-red-50/70 dark:border-red-500/30 dark:bg-red-500/10'
+                    ? 'ml-4 border-red-200 bg-red-50/70 sm:ml-6 dark:border-red-500/30 dark:bg-red-500/10'
                     : voided
                       ? 'border-gray-200 opacity-80 dark:border-gray-700'
                       : 'border-gray-200 hover:shadow-sm dark:border-gray-700',
@@ -407,29 +461,54 @@ function TransactionRow({
                 </div>
             </div>
 
-            {/* Items + payment */}
-            <div className="text-xs text-gray-500 md:text-left">
-                {itemCount > 0 ? (
-                    <div className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
-                        {itemCount} {itemCount === 1 ? 'item' : 'items'}
+            {/* Items + payment + amount (stacked on small / mid screens) */}
+            <div className="flex flex-wrap items-end justify-between gap-3 md:contents">
+                <div className="text-xs text-gray-500 lg:text-left">
+                    {itemCount > 0 ? (
+                        <div className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                            {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                        </div>
+                    ) : null}
+                    {tenders ? <div className="truncate">{tenders}</div> : null}
+                </div>
+
+                <div className="text-right lg:text-right">
+                    <div
+                        className={classNames(
+                            'text-base font-bold tabular-nums',
+                            voidTransaction
+                                ? 'text-red-600'
+                                : voided
+                                  ? 'text-gray-400 line-through'
+                                  : 'heading-text',
+                        )}
+                    >
+                        {voidTransaction ? '−' : ''}
+                        {formatPrice(Math.abs(receipt.total))}
                     </div>
-                ) : null}
-                {tenders ? <div className="truncate">{tenders}</div> : null}
+                    {totalCost > 0.005 ? (
+                        <div className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
+                            Cost {formatPrice(totalCost)}
+                        </div>
+                    ) : null}
+                    {partiallyPaid && outstanding > 0 ? (
+                        <div className="text-[11px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                            Due {formatPrice(outstanding)}
+                            {isCharge && receipt.dueDate
+                                ? ` by ${new Date(String(receipt.dueDate)).toLocaleDateString('en-PH', { month: 'short', day: '2-digit' })}`
+                                : ''}
+                        </div>
+                    ) : null}
+                    {hasUnpaidSalary ? (
+                        <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            Unpaid salary deduction
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
-            {/* Amount */}
-            <div
-                className={classNames(
-                    'text-base font-bold tabular-nums md:text-right',
-                    voidTransaction ? 'text-red-600' : voided ? 'text-gray-400 line-through' : 'heading-text',
-                )}
-            >
-                {voidTransaction ? '−' : ''}
-                {formatPrice(Math.abs(receipt.total))}
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-start gap-2 md:justify-end">
+            {/* Actions — wrap on narrow widths so Collect stays clickable */}
+            <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end md:col-span-2 lg:col-span-1">
                 {voidTransaction ? null : pending ? (
                     <Button
                         size="xs"
@@ -445,6 +524,29 @@ function TransactionRow({
                         <Button size="xs" variant="default" onClick={() => onShowReceipt(receipt)}>
                             Receipt
                         </Button>
+                        {!voided && onCollect && partiallyPaid ? (
+                            <Button
+                                size="xs"
+                                variant="solid"
+                                onClick={() => onCollect(receipt)}
+                            >
+                                Collect
+                            </Button>
+                        ) : null}
+                        {hasUnpaidSalary && onMarkSalaryPaid ? (
+                            <Button
+                                size="xs"
+                                variant="solid"
+                                loading={markingPaidId === receipt.salesOrderId}
+                                disabled={
+                                    markingPaidId !== null &&
+                                    markingPaidId !== undefined
+                                }
+                                onClick={() => onMarkSalaryPaid(receipt)}
+                            >
+                                Mark paid
+                            </Button>
+                        ) : null}
                         {voided ? null : (
                             <Button
                                 size="xs"

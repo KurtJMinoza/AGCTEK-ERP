@@ -49,6 +49,11 @@ export type ProductAvailability = {
     reservedQuantity: number
     physicalStock: number
     ledgerAvailable?: number
+    /** Latest MM batch for the resolved material (display only). */
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode (display only). */
+    barcode?: string | null
     state:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -91,6 +96,7 @@ const WITH_MATERIAL_CATEGORY = {
             },
             material: {
                 select: {
+                    standardCost: true,
                     materialCategory: {
                         select: { name: true, imageUrl: true },
                     },
@@ -128,6 +134,7 @@ const WITH_MATERIAL_CATEGORY = {
             },
             material: {
                 select: {
+                    standardCost: true,
                     materialCategory: {
                         select: { name: true, imageUrl: true },
                     },
@@ -283,13 +290,16 @@ export class ProductService {
         }
         const numbers = this.availabilityFromLedger(ledgers)
 
-        return {
-            sku: normalized,
-            hasVariants: false,
-            variantId: null,
-            materialId: materialIds.length === 1 ? materialIds[0] : null,
-            ...numbers,
-        }
+        const [enriched] = await this.attachPrimaryBatchTrackingAsync([
+            {
+                sku: normalized,
+                hasVariants: false,
+                variantId: null,
+                materialId: materialIds.length === 1 ? materialIds[0] : null,
+                ...numbers,
+            },
+        ])
+        return enriched
     }
 
     /**
@@ -545,7 +555,7 @@ export class ProductService {
             )
         }
 
-        return targets.map((target) => {
+        const rows = targets.map((target) => {
             if (target.fixed) {
                 const unlimited = target.fixed === 'NON_INVENTORY'
                 return {
@@ -580,6 +590,7 @@ export class ProductService {
                 ...this.availabilityFromLedger(ledgers),
             }
         })
+        return this.attachPrimaryBatchTrackingAsync(rows)
     }
 
     /** Company of the primary active product–material assignment, if any. */
@@ -604,6 +615,107 @@ export class ProductService {
      * that links to no material of its own reports NOT_MAPPED — the parent
      * product's stock must never be presented as the variant's stock.
      */
+    private async primaryBatchByMaterialIds(materialIds: string[]) {
+        const unique = [...new Set(materialIds.filter(Boolean))]
+        if (!unique.length) return new Map<string, { batchNumber: string; lotNumber: string | null }>()
+        const rows = await this.prisma.mmBatch.findMany({
+            where: { materialId: { in: unique }, deletedAt: null },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['materialId'],
+            select: { materialId: true, batchNumber: true, lotNumber: true },
+        })
+        return new Map(
+            rows.map((row) => [
+                row.materialId,
+                { batchNumber: row.batchNumber, lotNumber: row.lotNumber },
+            ]),
+        )
+    }
+
+    private attachPrimaryBatchTracking(
+        rows: ProductAvailability[],
+        batchByMaterial?: Map<string, { batchNumber: string; lotNumber: string | null }>,
+    ): ProductAvailability[] {
+        const map =
+            batchByMaterial ??
+            new Map<string, { batchNumber: string; lotNumber: string | null }>()
+        return rows.map((row) => {
+            const tracking = row.materialId ? map.get(row.materialId) : undefined
+            return {
+                ...row,
+                primaryBatchNumber: tracking?.batchNumber ?? null,
+                primaryLotNumber: tracking?.lotNumber ?? null,
+            }
+        })
+    }
+
+    private async attachPrimaryBatchTrackingAsync(
+        rows: ProductAvailability[],
+    ): Promise<ProductAvailability[]> {
+        const materialIds = rows
+            .map((row) => row.materialId)
+            .filter((id): id is string => Boolean(id))
+        const batchByMaterial = await this.primaryBatchByMaterialIds(materialIds)
+        const tracked = this.attachPrimaryBatchTracking(rows, batchByMaterial)
+        return this.attachBarcodes(tracked)
+    }
+
+    /** Variant barcode, else the material's primary MM barcode, on each availability row. */
+    private async attachBarcodes(
+        rows: ProductAvailability[],
+    ): Promise<ProductAvailability[]> {
+        const variantIds = [
+            ...new Set(rows.map((r) => r.variantId).filter((id): id is string => !!id)),
+        ]
+        const variants = variantIds.length
+            ? await this.prisma.sdProductVariant.findMany({
+                  where: { id: { in: variantIds } },
+                  select: { id: true, barcode: true },
+              })
+            : []
+        const variantBarcode = new Map(
+            variants.map((v) => [v.id, v.barcode?.trim() || null]),
+        )
+        const missing = rows.filter(
+            (r) => r.materialId && !(r.variantId && variantBarcode.get(r.variantId)),
+        )
+        const materialBarcode = await this.primaryMaterialBarcodes(
+            missing.map((r) => r.materialId!),
+        )
+        return rows.map((row) => ({
+            ...row,
+            barcode:
+                (row.variantId ? variantBarcode.get(row.variantId) : null) ||
+                (row.materialId ? materialBarcode.get(row.materialId) : null) ||
+                null,
+        }))
+    }
+
+    /** Primary active MM barcode per material (company-specific or shared); first created wins. */
+    async primaryMaterialBarcodes(
+        materialIds: string[],
+        companyId?: string,
+    ): Promise<Map<string, string>> {
+        const ids = [...new Set(materialIds.filter(Boolean))]
+        const map = new Map<string, string>()
+        if (!ids.length) return map
+        const rows = await this.prisma.mmBarcode.findMany({
+            where: {
+                materialId: { in: ids },
+                entityType: 'MATERIAL',
+                status: 'ACTIVE',
+                deletedAt: null,
+                ...(companyId ? { OR: [{ companyId: null }, { companyId }] } : {}),
+            },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+            select: { materialId: true, barcodeValue: true },
+        })
+        for (const row of rows) {
+            if (!map.has(row.materialId)) map.set(row.materialId, row.barcodeValue)
+        }
+        return map
+    }
+
     private async availabilityForMaterial(args: {
         sku: string
         materialId: string | null
@@ -614,7 +726,7 @@ export class ProductService {
         fallbackCompanyId: string | null
     }) {
         const scopedCompanyId = args.companyId ?? args.fallbackCompanyId
-        const notMapped = {
+        const notMapped: ProductAvailability = {
             sku: args.sku,
             hasVariants: args.hasVariants,
             variantId: args.variantId,
@@ -622,7 +734,9 @@ export class ProductService {
             availableQuantity: 0,
             reservedQuantity: 0,
             physicalStock: 0,
-            state: 'NOT_MAPPED' as const,
+            primaryBatchNumber: null,
+            primaryLotNumber: null,
+            state: 'NOT_MAPPED',
         }
         if (!args.materialId || !scopedCompanyId) return notMapped
 
@@ -631,13 +745,16 @@ export class ProductService {
             scopedCompanyId,
         )
         const numbers = this.availabilityFromLedger([ledger])
-        return {
-            sku: args.sku,
-            hasVariants: args.hasVariants,
-            variantId: args.variantId,
-            materialId: args.materialId,
-            ...numbers,
-        }
+        const [enriched] = await this.attachPrimaryBatchTrackingAsync([
+            {
+                sku: args.sku,
+                hasVariants: args.hasVariants,
+                variantId: args.variantId,
+                materialId: args.materialId,
+                ...numbers,
+            },
+        ])
+        return enriched
     }
 
     async list(query: ListProductsQueryDto) {
@@ -817,10 +934,18 @@ export class ProductService {
                   logoUrl: companyOwner.logoUrl,
               }
             : null
+        const rawCost =
+            primary?.material.standardCost ??
+            primaryVariant?.material?.standardCost ??
+            null
+        const standardCost =
+            rawCost === null || rawCost === undefined
+                ? null
+                : Number(rawCost)
         const base = category
             ? { ...product, category, categoryImageUrl }
             : product
-        return { ...base, company }
+        return { ...base, company, standardCost }
     }
 
     private async materialCategoryName(materialId: string | undefined) {

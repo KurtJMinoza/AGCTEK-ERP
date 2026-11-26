@@ -62,7 +62,7 @@ export class MatchToleranceService {
     }
 
     /**
-     * Resolve tolerances: PO overrides → company config → 0.
+     * Resolve tolerances: PO overrides → supplier accounting master → company config → 0.
      */
     async resolveForPo(purchaseOrderId: string): Promise<ResolvedTolerances> {
         const po = await this.prisma.mmPurchaseOrder.findUnique({
@@ -73,18 +73,39 @@ export class MatchToleranceService {
                   where: { companyId: po.companyId },
               })
             : null
+        const supplierAccount =
+            po?.supplierId && this.prisma.ficoSupplierCompanyAccount?.findUnique
+                ? await this.prisma.ficoSupplierCompanyAccount.findUnique({
+                      where: {
+                          supplierId_companyId: {
+                              supplierId: po.supplierId,
+                              companyId: po.companyId,
+                          },
+                      },
+                      select: {
+                          invoiceTolerancePercent: true,
+                          invoiceToleranceAmount: true,
+                      },
+                  })
+                : null
 
         const qty =
             po?.quantityTolerancePctOverride ??
             company?.quantityTolerancePct ??
             0
         const price =
-            po?.priceTolerancePctOverride ?? company?.priceTolerancePct ?? 0
+            po?.priceTolerancePctOverride ??
+            supplierAccount?.invoiceTolerancePercent ??
+            company?.priceTolerancePct ??
+            0
         const over =
             po?.overDeliveryPctOverride ?? company?.overDeliveryPct ?? 0
         const under =
             po?.underDeliveryPctOverride ?? company?.underDeliveryPct ?? 0
-        const abs = company?.absoluteToleranceAmount ?? 0
+        const abs =
+            supplierAccount?.invoiceToleranceAmount ??
+            company?.absoluteToleranceAmount ??
+            0
 
         return {
             quantityTolerancePct: new Decimal(qty),

@@ -415,8 +415,8 @@ export class SalesOrderService {
         if (search) {
             and.push({
                 OR: [
-                    { orderNumber: { contains: search, mode: 'insensitive' } },
-                    { customerName: { contains: search, mode: 'insensitive' } },
+                { orderNumber: { contains: search, mode: 'insensitive' } },
+                { customerName: { contains: search, mode: 'insensitive' } },
                     {
                         customerEmail: {
                             contains: search,
@@ -436,8 +436,17 @@ export class SalesOrderService {
             orderBy: { createdAt: 'desc' },
             take: query.limit ?? 200,
             include: {
-                lines: { orderBy: { lineNumber: 'asc' } },
+                lines: {
+                    orderBy: { lineNumber: 'asc' },
+                    include: {
+                        material: {
+                            select: { id: true, standardCost: true },
+                        },
+                    },
+                },
                 company: true,
+                // POS split sales need every tender on the detail dialog.
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         const cancellation = await this.customerCancellationMap(rows)
@@ -567,7 +576,7 @@ export class SalesOrderService {
                     ),
                     include: { lines: { orderBy: { lineNumber: 'asc' } } },
                 })
-                const { integrated } =
+                const { integrated, order: enriched } =
                     await this.mmPipeline.integrateConfirmedOrder(created.id)
                 // A staged POS checkout completes the order only after the
                 // tenders are captured and the goods issue is posted.
@@ -578,7 +587,15 @@ export class SalesOrderService {
                         include: { lines: { orderBy: { lineNumber: 'asc' } } },
                     })
                 }
-                return created
+                // Enrichment rewrites companyId/warehouseId from the linked MM
+                // material (e.g. AWIC stock while checkout defaulted to AGCTEK).
+                // Return that refreshed row so POS goods-issue looks up bins
+                // under the company that actually holds the stock.
+                if (enriched) return enriched
+                return this.prisma.sdSalesOrder.findUniqueOrThrow({
+                    where: { id: created.id },
+                    include: { lines: { orderBy: { lineNumber: 'asc' } } },
+                })
             } catch (error) {
                 const target = this.uniqueViolationTarget(error)
                 if (target?.includes('idempotencyKey')) {
@@ -614,17 +631,17 @@ export class SalesOrderService {
             channel: 'ECOMMERCE',
             idempotencyKey: dto.checkoutId,
             divisionId: null,
-            customerId: dto.customerId,
-            customerName: dto.customerName,
-            customerEmail: dto.customerEmail,
+                customerId: dto.customerId,
+                customerName: dto.customerName,
+                customerEmail: dto.customerEmail,
             lines: dto.cartItems,
             subtotal: dto.subtotal,
             discountAmount: dto.discountAmount,
             promoCode: dto.promoCode,
             shippingAmount: dto.shippingAmount,
             totalAmount: dto.totalAmount,
-            shippingAddress: dto.shippingAddress,
-            createdBy: dto.createdBy,
+                shippingAddress: dto.shippingAddress,
+                createdBy: dto.createdBy,
             paymentMethod: dto.paymentMethod,
             paymentProvider: dto.paymentProvider,
             cardDemoSimulateFailure: dto.cardDemoSimulateFailure,
@@ -710,12 +727,12 @@ export class SalesOrderService {
             const orderNumber = await this.nextOrderNumber('SO', attempt)
             try {
                 const order = await this.prisma.sdSalesOrder.create({
-                    data: this.retailOrderData(
+                                data: this.retailOrderData(
                         master,
                         totals,
-                        account?.email,
-                        orderNumber,
-                        dto.checkoutId,
+                                    account?.email,
+                                    orderNumber,
+                                    dto.checkoutId,
                         payment,
                         snapshots,
                         checkoutCompanyId,
@@ -1127,11 +1144,11 @@ export class SalesOrderService {
                         ? snapshots?.variantById.get(line.variantId)
                         : undefined
                     return {
-                        lineNumber: idx + 1,
+                    lineNumber: idx + 1,
                         divisionId,
                         companyId: companyId ?? null,
-                        sku: line.sku,
-                        description: line.description,
+                    sku: line.sku,
+                    description: line.description,
                         productNameSnapshot:
                             product?.name ?? line.description ?? undefined,
                         productSkuSnapshot:
@@ -1659,7 +1676,7 @@ export class SalesOrderService {
 
         const gate = await this.customerCancellationState(order)
         if (!gate.canCancel) {
-            throw new ConflictException(
+                throw new ConflictException(
                 gate.reason ?? 'This order can no longer be cancelled',
             )
         }
@@ -1920,6 +1937,9 @@ export class SalesOrderService {
             | 'totalAmount'
             | 'paymentReceived'
             | 'taxAmount'
+            | 'allowPartialPayment'
+            | 'chargeSale'
+            | 'deferCompletion'
         >,
     ) {
         const money = (value: number | Decimal) =>
@@ -1970,9 +1990,48 @@ export class SalesOrderService {
                 )
             }
             const paymentReceived = money(dto.paymentReceived)
-            if (paymentReceived.lt(totalAmount)) {
+            if (dto.chargeSale) {
+                // Charge sale: nothing is collected at the register. It must be
+                // a staged checkout so the POS checkout service books the
+                // receivable; a directly completed order would be unpaid with
+                // no receivable behind it.
+                if (dto.deferCompletion !== true) {
+                    throw new BadRequestException(
+                        'A charge sale must go through the POS checkout.',
+                    )
+                }
+                if (!paymentReceived.isZero()) {
+                    throw new BadRequestException(
+                        'A charge sale takes no payment at the register.',
+                    )
+                }
+                return {
+                    subtotal,
+                    discountAmount,
+                    shippingAmount,
+                    taxAmount,
+                    totalAmount,
+                    paymentReceived,
+                    changeAmount: new Decimal(0),
+                }
+            }
+            // Down payment / partial payment: tenders cover only the initial
+            // amount; the rest is an outstanding receivable. Full-payment POS
+            // sales still require paymentReceived >= totalAmount.
+            if (
+                paymentReceived.lt(totalAmount) &&
+                !dto.allowPartialPayment
+            ) {
                 throw new BadRequestException(
                     `Insufficient payment: received ${paymentReceived.toFixed(2)}, due ${totalAmount.toFixed(2)}`,
+                )
+            }
+            if (
+                dto.allowPartialPayment &&
+                (paymentReceived.lte(0) || paymentReceived.gt(totalAmount))
+            ) {
+                throw new BadRequestException(
+                    'A down payment must be greater than zero and not exceed the order total.',
                 )
             }
             return {
@@ -1982,7 +2041,11 @@ export class SalesOrderService {
                 taxAmount,
                 totalAmount,
                 paymentReceived,
-                changeAmount: paymentReceived.minus(totalAmount),
+                // Partial payment never produces change from this total check;
+                // cash change is recorded on the individual tender rows.
+                changeAmount: paymentReceived.gt(totalAmount)
+                    ? paymentReceived.minus(totalAmount)
+                    : new Decimal(0),
             }
         }
 
@@ -2059,7 +2122,7 @@ export class SalesOrderService {
             where: { id },
             include: {
                 ...this.includes,
-                payments: { orderBy: { createdAt: 'desc' } },
+                payments: { orderBy: { createdAt: 'asc' } },
             },
         })
         if (!row) throw new NotFoundException('Sales order not found')

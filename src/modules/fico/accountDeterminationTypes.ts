@@ -1,6 +1,14 @@
 /** Types for centralized G/L account determination (FICO — MM, SD and PP). */
 
-export type FicoDeterminationModule = 'MM' | 'SD' | 'PP'
+export type FicoDeterminationModule =
+    | 'MM'
+    | 'SD'
+    | 'PP'
+    | 'TREASURY'
+    | 'AP'
+    | 'AR'
+    | 'AA'
+    | 'CO'
 
 export type FicoDeterminationStatus =
     | 'DRAFT'
@@ -83,6 +91,139 @@ export type FicoDeterminationSummary = {
     pendingApproval: number
     drafts: number
     rejected: number
+    approved?: number
+    inactive?: number
+}
+
+export type FicoDeterminationWorkbenchOverview = FicoDeterminationSummary & {
+    scheduledRules: number
+    missingAccountDeterminationProfile: boolean
+    companyAccountingInactive: boolean
+    failedAccountResolutionEvents: number
+    pendingAccountingEvents: number
+    invalidGlReferencesInRules: number
+    liveTransactionKeys: number
+    activeRulesWithTransactionKey: number
+    missingLiveTransactionKeyRules: number
+    moduleCoverage: Array<{
+        transactionKeyCode: string
+        integrationStatus: string
+        hasActiveRule: boolean
+    }>
+}
+
+export type TransactionKeyCatalogRow = {
+    code: string
+    name: string
+    owningModule: string
+    integrationStatus: string
+    accountingCategory: string
+}
+
+export type FicoDeterminationExceptionCategory =
+    | 'MISSING_TRANSACTION_KEY'
+    | 'MISSING_DETERMINATION_RULE'
+    | 'AMBIGUOUS_RULE'
+    | 'EXPIRED_RULE'
+    | 'INVALID_GL_ACCOUNT'
+    | 'BLOCKED_GL_ACCOUNT'
+    | 'INVALID_COMPANY_ASSIGNMENT'
+    | 'MISSING_REQUIRED_DIMENSION'
+    | 'UNSUPPORTED_SCENARIO'
+    | 'LEGACY_MIGRATION_DISCREPANCY'
+    | 'FAILED_AUTOMATIC_POSTING'
+
+export type FicoDeterminationException = {
+    id: string
+    category: FicoDeterminationExceptionCategory
+    expectedHandling: string
+    companyId: string | null
+    sourceModule: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    accountingEventId: string | null
+    transactionKey: string | null
+    resolutionContext: Record<string, unknown>
+    errorCode: string | null
+    errorDescription: string | null
+    firstFailureAt: string | null
+    lastFailureAt: string | null
+    retryCount: number
+    resolutionStatus: 'OPEN' | 'RETRYABLE' | 'BLOCKED' | 'RESOLVED'
+    configurationLink: string | null
+}
+
+export type FicoDeterminationExceptionList = {
+    items: FicoDeterminationException[]
+    total: number
+    page: number
+    pageSize: number
+    byCategory: Record<string, number>
+}
+
+export type FicoDeterminationModuleCoverage = {
+    companyId: string
+    liveTransactionKeys: number
+    keys: Array<{
+        transactionKeyCode: string
+        name: string
+        owningModule: string
+        accountingCategory: string
+        integrationStatus: string
+        hasActiveRule: boolean
+    }>
+    byModule: Record<
+        string,
+        { total: number; live: number; covered: number; liveCovered: number }
+    >
+}
+
+export type FicoDeterminationEligibleGlAccount = {
+    id: string
+    accountCode: string
+    accountName: string
+    accountType: string
+    accountGroupCode: string
+    normalBalance: string
+    companyAssignment: boolean
+    postingEligible: boolean
+    reconciliationType: string | null
+    isReconciliationAccount: boolean
+    status: string
+    categoryEligible: boolean
+}
+
+export type DeterminationSimulationResult = {
+    safeDryRun: boolean
+    mode: string
+    companyId: string
+    chartOfAccountsId: string | null
+    chartOfAccountsCode: string | null
+    sourceModule: string
+    postingDate: string
+    transactionKey?: string
+    configurationErrors: string[]
+    validationWarnings: string[]
+    candidates: Array<{
+        ruleId: string
+        determinationCode: string
+        eligible: boolean
+        priority: number
+        specificity: number
+        rejectReason?: string
+        matchedDimensions: string[]
+        unmatchedConditions: Array<{
+            dimension: string
+            ruleValue: string | null
+            inputValue: string | null
+        }>
+    }>
+    selectedRule: { determinationCode: string; ruleId: string } | null
+    batchItems?: Array<{
+        transactionKey: string
+        ok: boolean
+        message?: string
+    }>
 }
 
 export type FicoDeterminationReference = {
@@ -96,6 +237,15 @@ export type FicoDeterminationReference = {
     customerAccountGroups: string[]
     salesOrganizations: string[]
     distributionChannels: string[]
+    authoringDimensionsByModule?: Record<
+        string,
+        Array<{
+            key: string
+            label: string
+            required: boolean
+            wildcardAllowed: boolean
+        }>
+    >
 }
 
 export type FicoDeterminationHistoryEntry = {

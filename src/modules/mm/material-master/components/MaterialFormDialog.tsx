@@ -36,6 +36,7 @@ import {
 } from '@/modules/mm/shared/uomHelpers'
 import StockThresholdSummary from './StockThresholdSummary'
 import MaterialWizardSteps from './MaterialWizardSteps'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
 import { materialService } from '../services/materialService'
 import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
@@ -76,6 +77,8 @@ const baseMaterialSchema = z
         barcodeValue: z.string().optional().or(z.literal('')),
         barcodeType: z.string().optional().or(z.literal('')),
         serialNumber: z.string().optional().or(z.literal('')),
+        initialBatchNumber: z.string().optional().or(z.literal('')),
+        initialLotNumber: z.string().optional().or(z.literal('')),
         qualityInspectionRequired: z.boolean(),
         expiryManaged: z.boolean(),
         inventoryManaged: z.boolean(),
@@ -191,7 +194,7 @@ const blankValues: FormShape = {
     reorderQuantity: 0,
     leadTimeDays: 0,
     minimumOrderQuantity: 0,
-    valuationMethod: '',
+    valuationMethod: 'STANDARD_COST',
     standardCost: 0,
     valuationClassId: '',
     companyId: '',
@@ -201,6 +204,8 @@ const blankValues: FormShape = {
     barcodeValue: '',
     barcodeType: 'EAN13',
     serialNumber: '',
+    initialBatchNumber: '',
+    initialLotNumber: '',
     taxClassification: '',
     taxCodeId: '',
     priceTaxTreatment: '',
@@ -257,7 +262,7 @@ function toFormValues(material?: Material | null): FormShape {
         reorderQuantity: Number(material.reorderQuantity),
         leadTimeDays: material.leadTimeDays,
         minimumOrderQuantity: Number(material.minimumOrderQuantity),
-        valuationMethod: material.valuationMethod ?? '',
+        valuationMethod: material.valuationMethod ?? 'STANDARD_COST',
         standardCost: Number(material.standardCost),
         valuationClassId: material.valuationClassId ?? '',
         companyId: material.companyId ?? '',
@@ -283,7 +288,20 @@ const TABS: TabDef[] = [
     { value: 'general', label: 'General', icon: <HiOutlineTemplate />, fields: ['materialName', 'description', 'materialTypeId', 'materialCategoryId', 'brand', 'model', 'manufacturer', 'status'] },
     { value: 'uom', label: 'UOM', icon: <HiOutlineScale />, fields: ['baseUomId', 'purchaseUomId', 'salesUomId'] },
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
-    { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'serialTrackingPolicy', 'qualityInspectionRequired', 'expiryManaged'] },
+    {
+        value: 'tracking',
+        label: 'Tracking',
+        icon: <HiOutlineShieldCheck />,
+        fields: [
+            'batchManaged',
+            'initialBatchNumber',
+            'initialLotNumber',
+            'serialManaged',
+            'serialTrackingPolicy',
+            'qualityInspectionRequired',
+            'expiryManaged',
+        ],
+    },
     { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'storageBinId', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'negativeStockAllowed', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
     { value: 'tax', label: 'Tax', icon: <HiOutlineShieldCheck />, fields: ['taxClassification', 'taxCodeId', 'priceTaxTreatment', 'taxStatus', 'taxEffectiveFrom', 'taxEffectiveTo'] },
@@ -797,6 +815,17 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
 
     const weight = useWatch({ control, name: 'weight' }) ?? 0
+    const initialBatchWatch = useWatch({ control, name: 'initialBatchNumber' }) ?? ''
+    const initialLotWatch = useWatch({ control, name: 'initialLotNumber' }) ?? ''
+    const batchManagedWatch = useWatch({ control, name: 'batchManaged' }) ?? false
+    const batchLotEntryActive =
+        Boolean(initialBatchWatch.trim()) || Boolean(initialLotWatch.trim())
+
+    useEffect(() => {
+        if (batchLotEntryActive) {
+            setValue('batchManaged', true, { shouldDirty: true })
+        }
+    }, [batchLotEntryActive, setValue])
     const weightUom = useWatch({ control, name: 'weightUom' }) ?? ''
     const length = useWatch({ control, name: 'length' }) ?? 0
     const width = useWatch({ control, name: 'width' }) ?? 0
@@ -995,12 +1024,21 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             dimensionUom: values.dimensionUom || undefined,
             volume: values.volume || undefined,
             volumeUom: values.volumeUom || undefined,
-            batchManaged: values.batchManaged,
             serialManaged: values.serialManaged,
             serialTrackingPolicy: values.serialTrackingPolicy || 'NOT_SERIALIZED',
             barcodeValue: values.barcodeValue || undefined,
             barcodeType: values.barcodeType || undefined,
             serialNumber: values.serialNumber || undefined,
+            ...(values.initialBatchNumber?.trim()
+                ? { initialBatchNumber: values.initialBatchNumber.trim() }
+                : {}),
+            ...(values.initialLotNumber?.trim()
+                ? { initialLotNumber: values.initialLotNumber.trim() }
+                : {}),
+            batchManaged:
+                values.batchManaged ||
+                Boolean(values.initialBatchNumber?.trim()) ||
+                Boolean(values.initialLotNumber?.trim()),
             qualityInspectionRequired: values.qualityInspectionRequired,
             expiryManaged: values.expiryManaged,
             inventoryManaged: values.inventoryManaged,
@@ -1016,7 +1054,7 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             reorderQuantity: values.reorderQuantity,
             leadTimeDays: values.leadTimeDays,
             minimumOrderQuantity: values.minimumOrderQuantity,
-            valuationMethod: values.valuationMethod || undefined,
+            valuationMethod: 'STANDARD_COST',
             standardCost: values.standardCost,
             valuationClassId: values.valuationClassId || undefined,
             companyId: values.companyId || undefined,
@@ -1603,8 +1641,78 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                     {/* TRACKING */}
                     <TabPanel active={tab === 'tracking'}>
                         <SectionHeader title="Tracking & compliance" />
+                        <p className="mb-3 text-xs text-gray-500">
+                            Batch tracking and batch/lot numbers are connected: either enter
+                            numbers below (recommended) or turn on batch managed only and add
+                            batches later at receiving or import.
+                        </p>
                         <div className="flex flex-col gap-2">
-                            <Controller name="batchManaged" control={control} render={({ field }) => <ToggleRow label="Batch managed" description="Track by batch/lot number." checked={field.value} onChange={field.onChange} />} />
+                            <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                        Batch / lot
+                                    </p>
+                                    {batchLotEntryActive ? (
+                                        <Tag className="text-[10px]">Batch managed will turn on</Tag>
+                                    ) : (
+                                        <Tag className="text-[10px]">Optional</Tag>
+                                    )}
+                                </div>
+                                <p className="mb-3 text-xs text-gray-500">
+                                    You do not need to flip &quot;Batch managed&quot; if you type
+                                    here — it enables automatically on save and creates the same
+                                    row as Material Master → Batches. Leave both blank to skip.
+                                </p>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <Controller
+                                        name="initialBatchNumber"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <FormItem label="Batch number">
+                                                <TrackingNumberInput
+                                                    value={field.value ?? ''}
+                                                    placeholder="e.g. LOT-2026-001"
+                                                    onChange={field.onChange}
+                                                />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="initialLotNumber"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <FormItem label="Lot number">
+                                                <TrackingNumberInput
+                                                    value={field.value ?? ''}
+                                                    placeholder="Optional"
+                                                    onChange={field.onChange}
+                                                />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </div>
+                            <Controller
+                                name="batchManaged"
+                                control={control}
+                                render={({ field }) => (
+                                    <ToggleRow
+                                        label="Batch managed"
+                                        description={
+                                            batchLotEntryActive
+                                                ? 'On because you entered batch/lot above. Clear those fields first if you want this off.'
+                                                : batchManagedWatch
+                                                  ? 'Stock movements will expect a batch. Add numbers above, or create batches at receiving / import.'
+                                                  : 'Turn on only if you will track batches later without entering numbers in this wizard.'
+                                        }
+                                        checked={field.value}
+                                        onChange={(next) => {
+                                            if (!next && batchLotEntryActive) return
+                                            field.onChange(next)
+                                        }}
+                                    />
+                                )}
+                            />
                             <Controller name="serialManaged" control={control} render={({ field }) => <ToggleRow label="Serial managed" description="Assign unique serial number per unit." checked={field.value} onChange={field.onChange} />} />
                             <Controller name="serialTrackingPolicy" control={control} render={({ field }) => (
                                 <FormItem label="Serial tracking policy">
@@ -1793,9 +1901,13 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         <SectionHeader title="Valuation & organisation" />
                         <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                             <FormItem label="Valuation method">
-                                <Controller name="valuationMethod" control={control} render={({ field }) => (
-                                    <Select<SelectOption> {...selectPortal} isClearable placeholder="Select method" options={VALUATION_METHOD_OPTIONS} value={VALUATION_METHOD_OPTIONS.find((o) => o.value === field.value) ?? null} onChange={(opt) => field.onChange(opt?.value ?? '')} />
-                                )} />
+                                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200">
+                                    Standard cost
+                                </p>
+                                <p className="mt-1 text-[11px] text-gray-400">
+                                    All materials use standard cost for issues, COGS,
+                                    and FICO posting.
+                                </p>
                             </FormItem>
                             <FormItem label="Standard cost">
                                 <Controller name="standardCost" control={control} render={({ field }) => <NumericInput placeholder="0.00" thousandSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />

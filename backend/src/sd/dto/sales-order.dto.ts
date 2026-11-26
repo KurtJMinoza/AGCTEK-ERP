@@ -302,6 +302,24 @@ export class CreateRetailSalesOrderDto {
     @IsBoolean()
     deferCompletion?: boolean
 
+    /**
+     * When true, POS may accept paymentReceived below totalAmount (down payment /
+     * partial payment). The remaining balance is tracked as a receivable.
+     */
+    @IsOptional()
+    @IsBoolean()
+    allowPartialPayment?: boolean
+
+    /**
+     * Charge sale (pay later): the customer takes the goods and pays the whole
+     * total afterwards, so `paymentReceived` is 0 and the total becomes a POS
+     * receivable. Only valid for a staged POS checkout (`deferCompletion`),
+     * which finishes the sale through the POS checkout service.
+     */
+    @IsOptional()
+    @IsBoolean()
+    chargeSale?: boolean
+
     @IsOptional()
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
