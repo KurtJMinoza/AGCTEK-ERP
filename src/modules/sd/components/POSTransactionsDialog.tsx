@@ -36,6 +36,8 @@ type Props = {
     onComplete: (receipt: PosReceipt) => void
     /** Opens the collection dialog for a partially paid sale. */
     onCollect?: (receipt: PosReceipt) => void
+    /** Journal entry, receivable, and posting retry for the sale. */
+    onAccounting?: (receipt: PosReceipt) => void
     /** Payroll collected an unpaid salary-deduction sale. */
     onMarkSalaryPaid?: (receipt: PosReceipt) => void
     /** Sale currently being completed. */
@@ -165,6 +167,7 @@ const POSTransactionsDialog = ({
     onVoid,
     onComplete,
     onCollect,
+    onAccounting,
     onMarkSalaryPaid,
     completingId = null,
     markingPaidId = null,
@@ -309,8 +312,9 @@ const POSTransactionsDialog = ({
                                         onShowReceipt={onShowReceipt}
                                         onVoid={onVoid}
                                         onComplete={onComplete}
-                                        onCollect={onCollect}
-                                        onMarkSalaryPaid={onMarkSalaryPaid}
+                                onCollect={onCollect}
+                                onAccounting={onAccounting}
+                                onMarkSalaryPaid={onMarkSalaryPaid}
                                     />
                                 ))}
                             </AnimatePresence>
@@ -343,6 +347,7 @@ function TransactionRow({
     onVoid,
     onComplete,
     onCollect,
+    onAccounting,
     onMarkSalaryPaid,
 }: {
     receipt: PosReceipt
@@ -354,6 +359,7 @@ function TransactionRow({
     onVoid: (receipt: PosReceipt) => void
     onComplete: (receipt: PosReceipt) => void
     onCollect?: (receipt: PosReceipt) => void
+    onAccounting?: (receipt: PosReceipt) => void
     onMarkSalaryPaid?: (receipt: PosReceipt) => void
 }) {
     const voidTransaction = isVoidRow(receipt)
@@ -524,6 +530,15 @@ function TransactionRow({
                         <Button size="xs" variant="default" onClick={() => onShowReceipt(receipt)}>
                             Receipt
                         </Button>
+                        {onAccounting && !voided && receipt.status === 'COMPLETED' ? (
+                            <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => onAccounting(receipt)}
+                            >
+                                Accounting
+                            </Button>
+                        ) : null}
                         {!voided && onCollect && partiallyPaid ? (
                             <Button
                                 size="xs"

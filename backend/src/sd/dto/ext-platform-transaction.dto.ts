@@ -3,6 +3,7 @@ import {
     ArrayMinSize,
     IsArray,
     IsBoolean,
+    IsDateString,
     IsIn,
     IsInt,
     IsNotEmpty,
@@ -117,6 +118,11 @@ export class ExtPlatformTransactionLineDto {
     @MaxLength(80)
     @Transform(trim)
     lotNumber?: string
+
+    /** Calendar expiry (YYYY-MM-DD); overrides MM batch when set. */
+    @IsOptional()
+    @IsDateString()
+    expiryDate?: string
 }
 
 export class CreateExtPlatformTransactionDto {

@@ -29,11 +29,14 @@ type RuleForValidation = {
     status: string
     valuationClassId: string | null
     materialTypeCode: string | null
+    materialGroupCode: string | null
     movementType: string | null
     customerAccountGroup: string | null
     supplierAccountGroup: string | null
     salesOrganization: string | null
     distributionChannel: string | null
+    salesChannelCode: string | null
+    taxCodeId: string | null
     paymentMethodCode: string | null
     bankAccountId: string | null
     paymentProviderCode: string | null

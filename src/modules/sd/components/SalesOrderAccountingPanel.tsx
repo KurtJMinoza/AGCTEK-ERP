@@ -11,6 +11,9 @@ type Props = {
     salesOrderId: string
     companyId: string | null
     channel: string
+    showPostingErrors?: boolean
+    onRetryPosting?: () => void
+    retrying?: boolean
 }
 
 const supportsAccounting = (channel: string) =>
@@ -26,6 +29,9 @@ export default function SalesOrderAccountingPanel({
     salesOrderId,
     companyId,
     channel,
+    showPostingErrors = false,
+    onRetryPosting,
+    retrying = false,
 }: Props) {
     const [loading, setLoading] = useState(true)
     const [snapshot, setSnapshot] = useState<SalesOrderAccountingSnapshot | null>(
@@ -79,7 +85,13 @@ export default function SalesOrderAccountingPanel({
             error={error}
             companyId={companyId}
             journals={snapshot?.journals ?? []}
+            inventoryJournals={snapshot?.inventoryJournals ?? []}
+            arDocuments={snapshot?.arDocuments ?? []}
+            salesInvoiceId={snapshot?.salesInvoiceId ?? null}
             accountingEvents={snapshot?.accountingEvents ?? []}
+            showPostingErrors={showPostingErrors}
+            onRetryPosting={onRetryPosting}
+            retrying={retrying}
             performerLabel={performerLabel(channel)}
             performerName={performerName}
             performerEmployeeCode={performerCode}

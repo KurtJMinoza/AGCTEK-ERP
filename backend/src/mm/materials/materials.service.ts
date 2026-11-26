@@ -11,6 +11,7 @@ import { InventoryAvailabilityService } from '../inventory/inventory-availabilit
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { BarcodesService } from '../barcodes/barcodes.service'
 import { ensureMaterialBatch } from '../batches/line-tracking.util'
+import { parseCalendarDateString } from '../common/calendar-date.util'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
@@ -40,6 +41,8 @@ function pickTaxFields(source: Record<string, any>): Record<string, any> {
     }
     return out
 }
+
+const DATE_UPDATE_KEYS = new Set(['defaultExpiryDate'])
 
 const DECIMAL_UPDATE_KEYS = new Set([
     'onHandQty',
@@ -230,6 +233,11 @@ export class MaterialsService {
             if (MaterialsService.NON_COLUMN_KEYS.has(key)) continue
             if (DECIMAL_UPDATE_KEYS.has(key)) {
                 ;(data as Record<string, unknown>)[key] = new Decimal(value as number)
+            } else if (DATE_UPDATE_KEYS.has(key)) {
+                ;(data as Record<string, unknown>)[key] =
+                    value === '' || value === null
+                        ? null
+                        : parseCalendarDateString(String(value))
             } else if (
                 MaterialsService.NULLABLE_FK_KEYS.has(key) &&
                 (value === '' || value === null)
@@ -401,7 +409,7 @@ export class MaterialsService {
             where: { deletedAt: null },
             orderBy: { createdAt: 'desc' as const },
             take: 1,
-            select: { batchNumber: true, lotNumber: true },
+            select: { batchNumber: true, lotNumber: true, expiryDate: true },
         },
     }
 
@@ -451,8 +459,13 @@ export class MaterialsService {
         )
         return {
             data: enriched.map((row) => {
-                const batches = (row as { batches?: Array<{ batchNumber: string; lotNumber: string | null }> })
-                    .batches
+                const batches = (row as {
+                    batches?: Array<{
+                        batchNumber: string
+                        lotNumber: string | null
+                        expiryDate?: Date | null
+                    }>
+                }).batches
                 const latest = batches?.[0]
                 const { batches: _batches, ...rest } = row as Record<string, unknown> & {
                     batches?: unknown
@@ -461,6 +474,7 @@ export class MaterialsService {
                     ...rest,
                     latestBatchNumber: latest?.batchNumber ?? null,
                     latestLotNumber: latest?.lotNumber ?? null,
+                    latestBatchExpiryDate: latest?.expiryDate ?? null,
                     tax: this.materialTax.projection(row as any),
                 })
             }),
@@ -669,8 +683,16 @@ export class MaterialsService {
         const policy = dto.serialTrackingPolicy ?? 'NOT_SERIALIZED'
         const serialManaged = policy !== 'NOT_SERIALIZED'
 
+        const { defaultExpiryDate: defaultExpiryRaw, ...createRest } =
+            dtoWithoutBarcodes as CreateMaterialDto & Record<string, unknown>
         const data = {
-            ...(dtoWithoutBarcodes as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
+            ...(createRest as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
+            defaultExpiryDate:
+                defaultExpiryRaw === undefined
+                    ? undefined
+                    : defaultExpiryRaw === '' || defaultExpiryRaw === null
+                      ? null
+                      : parseCalendarDateString(String(defaultExpiryRaw)),
             ...tax.data,
             materialCode,
             sku,

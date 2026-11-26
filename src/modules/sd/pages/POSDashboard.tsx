@@ -96,6 +96,7 @@ import POSCustomerDialog, {
     type PosCustomerDetails,
 } from '../components/POSCustomerDialog'
 import POSCollectionDialog from '../components/POSCollectionDialog'
+import PosTransactionAccountingDialog from '../components/PosTransactionAccountingDialog'
 import POSTransactionsDialog, {
     POSTransactionsCountBadge,
     posReceiptKey,
@@ -141,7 +142,7 @@ const POSDashboard = () => {
     const router = useRouter()
     const { hydrated, branch } = useActivePOSBranch()
     const branchId = branch?.id ?? null
-    const { canCreate } = useResourceAccess('sd.pos')
+    const { canCreate, canUpdate } = useResourceAccess('sd.pos')
     const { session } = useCurrentSession()
     const cashierUserId = session?.user?.id ?? null
     const { branches } = useSalesBranches()
@@ -207,6 +208,9 @@ const POSDashboard = () => {
 
     /** Collection dialog for partially paid sales. */
     const [collectTarget, setCollectTarget] = useState<PosReceipt | null>(null)
+    const [accountingTarget, setAccountingTarget] = useState<PosReceipt | null>(
+        null,
+    )
 
     /** Tender screen state. */
     const [tenderOpen, setTenderOpen] = useState(false)
@@ -2121,10 +2125,25 @@ const POSDashboard = () => {
                     setCollectTarget(row)
                     closeTransactions()
                 }}
+                onAccounting={(row) => {
+                    setAccountingTarget(row)
+                }}
                 onClose={closeTransactions}
                 completingId={completingId}
                 markingPaidId={markingPaidId}
                 formatPrice={formatPrice}
+            />
+            <PosTransactionAccountingDialog
+                isOpen={Boolean(accountingTarget)}
+                receipt={accountingTarget}
+                companyId={companyId}
+                canRetryPosting={canUpdate}
+                formatPrice={formatPrice}
+                onCollect={(row) => {
+                    setCollectTarget(row)
+                    setAccountingTarget(null)
+                }}
+                onClose={() => setAccountingTarget(null)}
             />
             <POSCollectionDialog
                 isOpen={Boolean(collectTarget)}

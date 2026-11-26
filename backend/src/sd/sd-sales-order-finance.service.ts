@@ -31,6 +31,15 @@ export type SalesOrderJournalSummary = {
     lines: SalesOrderJournalLineSummary[]
 }
 
+export type SalesOrderArDocumentSummary = {
+    id: string
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    journalEntryId: string | null
+    receivableAmount: string
+}
+
 export type SalesOrderAccountingSnapshot = {
     salesOrderId: string
     orderNumber: string
@@ -51,6 +60,9 @@ export type SalesOrderAccountingSnapshot = {
         lastError: string | null
         idempotencyKey: string | null
     }>
+    arDocuments: SalesOrderArDocumentSummary[]
+    inventoryJournals: SalesOrderJournalSummary[]
+    salesInvoiceId: string | null
 }
 
 @Injectable()
@@ -105,6 +117,7 @@ export class SdSalesOrderFinanceService {
                 status: true,
                 journalEntryId: true,
                 lastError: true,
+                lastErrorCode: true,
                 idempotencyKey: true,
             },
         })
@@ -113,12 +126,24 @@ export class SdSalesOrderFinanceService {
             .map((row) => row.journalEntryId)
             .filter((id): id is string => Boolean(id))
 
+        const goodsIssues = await this.prisma.mmGoodsIssue.findMany({
+            where: {
+                sourceDocumentType: 'SALES_ORDER',
+                sourceDocumentId: salesOrderId,
+            },
+            select: { id: true },
+        })
+        const goodsIssueIds = goodsIssues.map((row) => row.id)
+
         const journals = await this.prisma.ficoJournalEntry.findMany({
             where: {
                 companyId: resolvedCompanyId,
                 OR: [
                     { sourceDocumentId: salesOrderId },
                     { idempotencyKey: revenueIdempotency },
+                    ...(goodsIssueIds.length
+                        ? [{ sourceDocumentId: { in: goodsIssueIds } }]
+                        : []),
                     ...(eventJournalIds.length
                         ? [{ id: { in: eventJournalIds } }]
                         : []),
@@ -137,6 +162,39 @@ export class SdSalesOrderFinanceService {
             },
         })
 
+        const mappedJournals = journals.map((row) => this.mapJournal(row))
+        const inventoryJournals = mappedJournals.filter(
+            (row) =>
+                row.documentType === 'MM_GI' ||
+                row.documentType.startsWith('MM_') ||
+                row.metadata?.eventType === 'GoodsIssuePosted',
+        )
+        const sdJournals = mappedJournals.filter(
+            (row) => !inventoryJournals.some((inv) => inv.id === row.id),
+        )
+
+        const [arDocuments, salesInvoice] = await Promise.all([
+            this.prisma.ficoArDocument.findMany({
+                where: {
+                    companyId: resolvedCompanyId,
+                    sourceSalesOrderId: salesOrderId,
+                },
+                select: {
+                    id: true,
+                    documentType: true,
+                    status: true,
+                    referenceNumber: true,
+                    journalEntryId: true,
+                    receivableAmount: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.sdSalesInvoice.findUnique({
+                where: { salesOrderId },
+                select: { id: true },
+            }),
+        ])
+
         return {
             salesOrderId: order.id,
             orderNumber: order.orderNumber,
@@ -148,8 +206,14 @@ export class SdSalesOrderFinanceService {
             performedByUserId: performer.userId,
             performedByName: performer.fullName,
             performedByEmployeeCode: performer.employeeCode,
-            journals: journals.map((row) => this.mapJournal(row)),
+            journals: sdJournals,
             accountingEvents: events,
+            arDocuments: arDocuments.map((doc) => ({
+                ...doc,
+                receivableAmount: doc.receivableAmount.toString(),
+            })),
+            inventoryJournals,
+            salesInvoiceId: salesInvoice?.id ?? null,
         }
     }
 

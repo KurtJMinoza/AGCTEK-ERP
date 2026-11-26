@@ -51,6 +51,11 @@ export type CreateGlAccountInput = {
     reconciliationType?: string | null
     openItemManagement?: boolean
     currencyRestriction?: string | null
+    financialStatementMapping?: string | null
+    taxCategory?: string | null
+    requiresBranch?: boolean
+    requiresCostCenter?: boolean
+    requiresProfitCenter?: boolean
 }
 
 export type UpdateGlAccountInput = Partial<Omit<CreateGlAccountInput, 'chartOfAccountsId' | 'accountCode'>> & {
@@ -720,7 +725,10 @@ export class FicoGlAccountsService {
             (input.currencyRestriction !== undefined ||
                 input.isReconciliationAccount !== undefined ||
                 input.reconciliationType !== undefined ||
-                input.openItemManagement !== undefined)
+                input.openItemManagement !== undefined ||
+                input.requiresBranch !== undefined ||
+                input.requiresCostCenter !== undefined ||
+                input.requiresProfitCenter !== undefined)
         ) {
             const reconcileChange =
                 input.isReconciliationAccount !== undefined &&
@@ -735,11 +743,19 @@ export class FicoGlAccountsService {
             const openItemChange =
                 input.openItemManagement !== undefined &&
                 input.openItemManagement !== current.openItemManagement
+            const dimensionChange = (
+                [
+                    'requiresBranch',
+                    'requiresCostCenter',
+                    'requiresProfitCenter',
+                ] as const
+            ).some((field) => input[field] !== undefined && input[field] !== current[field])
             if (
                 reconcileChange ||
                 reconTypeChange ||
                 currencyChange ||
-                openItemChange
+                openItemChange ||
+                dimensionChange
             ) {
                 throw new BadRequestException(
                     'Reconciliation, currency policy, and open-item settings cannot change after posted journal entries exist. Use a controlled migration if required.',
@@ -862,6 +878,24 @@ export class FicoGlAccountsService {
                               input.currencyRestriction,
                           ),
                       }
+                    : {}),
+                ...(input.financialStatementMapping !== undefined
+                    ? {
+                          financialStatementMapping:
+                              input.financialStatementMapping?.trim() || null,
+                      }
+                    : {}),
+                ...(input.taxCategory !== undefined
+                    ? { taxCategory: input.taxCategory?.trim() || null }
+                    : {}),
+                ...(input.requiresBranch !== undefined
+                    ? { requiresBranch: input.requiresBranch }
+                    : {}),
+                ...(input.requiresCostCenter !== undefined
+                    ? { requiresCostCenter: input.requiresCostCenter }
+                    : {}),
+                ...(input.requiresProfitCenter !== undefined
+                    ? { requiresProfitCenter: input.requiresProfitCenter }
                     : {}),
                 ...(input.status !== undefined ? { status: input.status } : {}),
                 updatedBy: user.id,
@@ -1095,6 +1129,9 @@ export class FicoGlAccountsService {
             dateTo?: string
             page?: number
             pageSize?: number
+            sortDir?: 'asc' | 'desc'
+            sourceModule?: string
+            includeRunningBalance?: boolean
         } = {},
     ) {
         if (query.companyId) {
@@ -1115,19 +1152,25 @@ export class FicoGlAccountsService {
                       ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
                   }
                 : undefined
+        const journalFilter = ledgerCommittedJournalEntryRelationWhere(
+            postingDateFilter ? { postingDate: postingDateFilter } : undefined,
+        )
+        if (query.sourceModule) {
+            journalFilter.sourceModule = query.sourceModule
+        }
         const lineWhere: Prisma.FicoJournalEntryLineWhereInput = {
             glAccountId: id,
-            journalEntry: ledgerCommittedJournalEntryRelationWhere(
-                postingDateFilter ? { postingDate: postingDateFilter } : undefined,
-            ),
+            journalEntry: journalFilter,
             ...(query.companyId ? { companyId: query.companyId } : {}),
             ...(companyIds === null ? {} : { companyId: { in: companyIds } }),
         }
+        const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc'
         const [items, total] = await Promise.all([
             this.prisma.ficoJournalEntryLine.findMany({
                 where: lineWhere,
                 orderBy: [
-                    { journalEntry: { postingDate: 'desc' } },
+                    { journalEntry: { postingDate: sortDir } },
+                    { journalEntry: { documentNumber: sortDir } },
                     { lineNumber: 'asc' },
                 ],
                 skip: (page - 1) * pageSize,
@@ -1139,6 +1182,9 @@ export class FicoGlAccountsService {
                     creditAmount: true,
                     currency: true,
                     description: true,
+                    branchId: true,
+                    costCenterId: true,
+                    profitCenterId: true,
                     company: { select: { id: true, code: true, name: true } },
                     journalEntry: {
                         select: {
@@ -1152,14 +1198,79 @@ export class FicoGlAccountsService {
                             sourceDocumentType: true,
                             sourceDocumentId: true,
                             reversalOfId: true,
-                            reversedBy: true,
                         },
                     },
                 },
             }),
             this.prisma.ficoJournalEntryLine.count({ where: lineWhere }),
         ])
-        return { account, items, total, page, pageSize }
+
+        let runningOpening = new Prisma.Decimal(0)
+        if (query.includeRunningBalance && items.length > 0) {
+            const periodStart = query.dateFrom ? new Date(query.dateFrom) : undefined
+            const openingWhere: Prisma.FicoJournalEntryLineWhereInput = {
+                ...lineWhere,
+                journalEntry: ledgerCommittedJournalEntryRelationWhere(
+                    periodStart ? { postingDate: { lt: periodStart } } : undefined,
+                ),
+            }
+            const openingAgg = await this.prisma.ficoJournalEntryLine.aggregate({
+                where: openingWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+            })
+            runningOpening = (openingAgg._sum.debitAmount ?? new Prisma.Decimal(0)).minus(
+                openingAgg._sum.creditAmount ?? new Prisma.Decimal(0),
+            )
+
+            const first = items[0]
+            const priorWhere: Prisma.FicoJournalEntryLineWhereInput = {
+                ...lineWhere,
+                OR: [
+                    {
+                        journalEntry: {
+                            postingDate: { lt: first.journalEntry.postingDate },
+                        },
+                    },
+                    {
+                        journalEntry: {
+                            postingDate: first.journalEntry.postingDate,
+                            documentNumber: { lt: first.journalEntry.documentNumber ?? '' },
+                        },
+                    },
+                    {
+                        journalEntry: {
+                            postingDate: first.journalEntry.postingDate,
+                            documentNumber: first.journalEntry.documentNumber ?? '',
+                            id: { not: first.journalEntry.id },
+                        },
+                        lineNumber: { lt: first.lineNumber },
+                    },
+                ],
+            }
+            const priorAgg = await this.prisma.ficoJournalEntryLine.aggregate({
+                where: priorWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+            })
+            runningOpening = runningOpening
+                .plus(priorAgg._sum.debitAmount ?? new Prisma.Decimal(0))
+                .minus(priorAgg._sum.creditAmount ?? new Prisma.Decimal(0))
+        }
+
+        let running = runningOpening
+        const enriched = items.map((row) => {
+            const net = row.debitAmount.minus(row.creditAmount)
+            if (query.includeRunningBalance) {
+                running = running.plus(net)
+            }
+            return {
+                ...row,
+                debitAmount: row.debitAmount.toString(),
+                creditAmount: row.creditAmount.toString(),
+                runningBalance: query.includeRunningBalance ? running.toString() : undefined,
+            }
+        })
+
+        return { account, items: enriched, total, page, pageSize, sortDir }
     }
 
     async activate(id: string, user: AuthRequestUser) {
@@ -1397,6 +1508,11 @@ export class FicoGlAccountsService {
                 reconciliationType: source.reconciliationType,
                 openItemManagement: source.openItemManagement,
                 currencyRestriction: source.currencyRestriction,
+                financialStatementMapping: source.financialStatementMapping,
+                taxCategory: source.taxCategory,
+                requiresBranch: source.requiresBranch,
+                requiresCostCenter: source.requiresCostCenter,
+                requiresProfitCenter: source.requiresProfitCenter,
             },
             user,
         )
@@ -1405,7 +1521,7 @@ export class FicoGlAccountsService {
     async balances(
         id: string,
         user: AuthRequestUser,
-        query: { companyId?: string },
+        query: { companyId?: string; dateFrom?: string; dateTo?: string },
     ) {
         const account = await this.prisma.ficoGlAccount.findUnique({
             where: { id },
@@ -1421,27 +1537,58 @@ export class FicoGlAccountsService {
         if (query.companyId) {
             await this.access.assertAccess(user, query.companyId)
         }
-        const lineWhere: Prisma.FicoJournalEntryLineWhereInput = {
+        const baseLineWhere: Prisma.FicoJournalEntryLineWhereInput = {
             glAccountId: id,
-            journalEntry: ledgerCommittedJournalEntryRelationWhere(),
             ...(query.companyId ? { companyId: query.companyId } : {}),
             ...(companyIds === null
                 ? {}
                 : { companyId: { in: companyIds } }),
         }
-        const [aggregate, byCompany] = await Promise.all([
+        const periodStart = query.dateFrom ? new Date(query.dateFrom) : undefined
+        const periodEnd = query.dateTo ? new Date(query.dateTo) : undefined
+        const openingWhere: Prisma.FicoJournalEntryLineWhereInput = {
+            ...baseLineWhere,
+            journalEntry: ledgerCommittedJournalEntryRelationWhere(
+                periodStart ? { postingDate: { lt: periodStart } } : undefined,
+            ),
+        }
+        const periodWhere: Prisma.FicoJournalEntryLineWhereInput = {
+            ...baseLineWhere,
+            journalEntry: ledgerCommittedJournalEntryRelationWhere(
+                periodStart || periodEnd
+                    ? {
+                          postingDate: {
+                              ...(periodStart ? { gte: periodStart } : {}),
+                              ...(periodEnd ? { lte: periodEnd } : {}),
+                          },
+                      }
+                    : undefined,
+            ),
+        }
+        const [openingAgg, periodAgg, byCompany] = await Promise.all([
             this.prisma.ficoJournalEntryLine.aggregate({
-                where: lineWhere,
+                where: openingWhere,
+                _sum: { debitAmount: true, creditAmount: true },
+                _count: true,
+            }),
+            this.prisma.ficoJournalEntryLine.aggregate({
+                where: periodWhere,
                 _sum: { debitAmount: true, creditAmount: true },
                 _count: true,
             }),
             this.prisma.ficoJournalEntryLine.groupBy({
                 by: ['companyId'],
-                where: lineWhere,
+                where: periodWhere,
                 _sum: { debitAmount: true, creditAmount: true },
                 _count: true,
             }),
         ])
+        const openDebit = openingAgg._sum.debitAmount ?? new Prisma.Decimal(0)
+        const openCredit = openingAgg._sum.creditAmount ?? new Prisma.Decimal(0)
+        const periodDebit = periodAgg._sum.debitAmount ?? new Prisma.Decimal(0)
+        const periodCredit = periodAgg._sum.creditAmount ?? new Prisma.Decimal(0)
+        const closeDebit = openDebit.plus(periodDebit)
+        const closeCredit = openCredit.plus(periodCredit)
         const companies = await this.prisma.company.findMany({
             where: {
                 id: {
@@ -1454,9 +1601,17 @@ export class FicoGlAccountsService {
         return {
             account,
             totals: {
-                debit: (aggregate._sum.debitAmount ?? new Prisma.Decimal(0)).toString(),
-                credit: (aggregate._sum.creditAmount ?? new Prisma.Decimal(0)).toString(),
-                lineCount: aggregate._count,
+                debit: periodDebit.toString(),
+                credit: periodCredit.toString(),
+                lineCount: periodAgg._count,
+                openingDebit: openDebit.toString(),
+                openingCredit: openCredit.toString(),
+                periodDebit: periodDebit.toString(),
+                periodCredit: periodCredit.toString(),
+                closingDebit: closeDebit.toString(),
+                closingCredit: closeCredit.toString(),
+                netMovement: periodDebit.minus(periodCredit).toString(),
+                closingBalance: closeDebit.minus(closeCredit).toString(),
             },
             byCompany: byCompany.map((row) => ({
                 company: companyById.get(row.companyId) ?? { id: row.companyId },
@@ -1721,6 +1876,12 @@ export class FicoGlAccountsService {
             reconciliationType,
             openItemManagement: input.openItemManagement ?? false,
             currencyRestriction: normalizeCurrency(input.currencyRestriction),
+            financialStatementMapping:
+                input.financialStatementMapping?.trim() || null,
+            taxCategory: input.taxCategory?.trim() || null,
+            requiresBranch: input.requiresBranch ?? false,
+            requiresCostCenter: input.requiresCostCenter ?? false,
+            requiresProfitCenter: input.requiresProfitCenter ?? false,
             status: 'ACTIVE',
             createdBy: user.id,
             updatedBy: user.id,

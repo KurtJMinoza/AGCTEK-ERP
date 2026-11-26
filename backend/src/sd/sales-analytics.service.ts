@@ -330,6 +330,7 @@ type LineReportRow = {
     remarks: string | null
     batch_number: string | null
     lot_number: string | null
+    product_expiry: string | null
 }
 
 /** One captured tender of a sale, as shown in the sales line report. */
@@ -846,12 +847,20 @@ export class SalesAnalyticsService {
                     l."lineNumber" AS line_no,
                     COALESCE(NULLIF(TRIM(l."batchNumber"), ''), '') AS batch_number,
                     COALESCE(NULLIF(TRIM(l."lotNumber"), ''), '') AS lot_number,
+                    COALESCE(
+                        to_char(so_batch."expiryDate", 'YYYY-MM-DD'),
+                        to_char(so_variant."catalogExpiryDate", 'YYYY-MM-DD'),
+                        to_char(m."defaultExpiryDate", 'YYYY-MM-DD'),
+                        ''
+                    ) AS product_expiry,
                     COALESCE(NULLIF(TRIM(o."notes"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_sales_orders" o ON o."id" = s."id"
                 INNER JOIN "sd_sales_order_lines" l ON l."salesOrderId" = s."id"
                 LEFT JOIN "sd_customers" c ON c."id" = s.customer_id
                 LEFT JOIN "branches" b ON b."id" = o."branchId"
+                LEFT JOIN "mm_batches" so_batch ON so_batch."id" = l."batchId"
+                LEFT JOIN "sd_product_variants" so_variant ON so_variant."id" = l."variantId"
                 LEFT JOIN "sd_products" p ON p."id" = l."productId"
                 LEFT JOIN "mm_materials" m ON m."id" = l."materialId"
                 LEFT JOIN "mm_material_categories" mc ON mc."id" = m."materialCategoryId"
@@ -915,10 +924,19 @@ export class SalesAnalyticsService {
                     el."lineNumber" AS line_no,
                     COALESCE(NULLIF(TRIM(el."batchNumber"), ''), '') AS batch_number,
                     COALESCE(NULLIF(TRIM(el."lotNumber"), ''), '') AS lot_number,
+                    COALESCE(
+                        to_char(el."expiryDate", 'YYYY-MM-DD'),
+                        to_char(ext_batch."expiryDate", 'YYYY-MM-DD'),
+                        to_char(ext_variant."catalogExpiryDate", 'YYYY-MM-DD'),
+                        to_char(m."defaultExpiryDate", 'YYYY-MM-DD'),
+                        ''
+                    ) AS product_expiry,
                     COALESCE(NULLIF(TRIM(t."remarks"), ''), '') AS remarks
                 FROM scoped s
                 INNER JOIN "sd_ext_platform_transactions" t ON t."id" = s."id"
                 INNER JOIN "sd_ext_platform_transaction_lines" el ON el."transactionId" = s."id"
+                LEFT JOIN "mm_batches" ext_batch ON ext_batch."id" = el."batchId"
+                LEFT JOIN "sd_product_variants" ext_variant ON ext_variant."id" = el."variantId"
                 LEFT JOIN "sd_customers" c ON c."id" = t."customerId"
                 LEFT JOIN "branches" b ON b."id" = t."branchId"
                 LEFT JOIN "sd_products" p ON p."id" = el."productId"
@@ -1091,6 +1109,7 @@ export class SalesAnalyticsService {
                 remarks: row.remarks?.trim() || '',
                 batchNumber: row.batch_number?.trim() || '',
                 lotNumber: row.lot_number?.trim() || '',
+                productExpiry: row.product_expiry?.trim() || '',
             })),
         }
     }

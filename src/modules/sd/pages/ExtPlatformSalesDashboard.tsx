@@ -299,6 +299,21 @@ export default function ExtPlatformSalesDashboard() {
                 ),
             },
             {
+                header: 'Expiry',
+                id: 'lineExpiry',
+                size: 130,
+                minSize: 112,
+                enableSorting: false,
+                cell: ({ row }) => (
+                    <ExtPlatformTrackingCell
+                        variant="batch"
+                        values={uniqueLineValues(row.original.lines, 'expiryDate').map(
+                            (v) => (v ? dayjs(v).format('YYYY-MM-DD') : ''),
+                        )}
+                    />
+                ),
+            },
+            {
                 header: 'Total',
                 accessorKey: 'grandTotal',
                 size: 150,

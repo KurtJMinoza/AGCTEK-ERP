@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Control } from 'react-hook-form'
 import { Controller, useWatch } from 'react-hook-form'
 import Button from '@/components/ui/Button'
+import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import { FormItem } from '@/components/ui/Form'
 import Spinner from '@/components/ui/Spinner'
@@ -47,10 +48,13 @@ const dimensions = (row: MaterialCatalogReference) => {
 }
 
 const expirySummary = (row: MaterialCatalogReference) => {
-    if (!row.tracking.expiryManaged) return 'Not managed'
     if (row.expiry.earliestExpiryDate) {
         return new Date(row.expiry.earliestExpiryDate).toLocaleDateString()
     }
+    if (row.expiry.defaultExpiryDate) {
+        return new Date(row.expiry.defaultExpiryDate).toLocaleDateString()
+    }
+    if (!row.tracking.expiryManaged) return 'Not managed'
     if (row.expiry.defaultShelfLifeDays != null) {
         return `${row.expiry.defaultShelfLifeDays}d shelf life`
     }
@@ -77,6 +81,7 @@ const ProductCatalogMaterialSection = ({
         loading: mmRefsLoading,
     } = useLazyMmRefs()
     const materialLinkMode = useWatch({ control, name: 'materialLinkMode' })
+    const productConfig = useWatch({ control, name: 'productConfig' })
     const companyId = useWatch({ control, name: 'companyId' })
     const materialIds = useWatch({ control, name: 'materialIds' }) as string[]
 
@@ -329,6 +334,31 @@ const ProductCatalogMaterialSection = ({
                     )}
                 </p>
             </FormItem>
+
+            {productConfig === 'SIMPLE' ? (
+                <FormItem
+                    label="Product expiry (catalog)"
+                    className="md:col-span-2"
+                >
+                    <Controller
+                        name="catalogExpiryDate"
+                        control={control}
+                        render={({ field }) => (
+                            <Input
+                                type="date"
+                                value={field.value ?? ''}
+                                onChange={field.onChange}
+                            />
+                        )}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                        Optional override for sales and external platform entry.
+                        {batch?.materials[0]
+                            ? ` MM reference: ${expirySummary(batch.materials[0])}.`
+                            : ' Link a material to see the MM reference expiry.'}
+                    </p>
+                </FormItem>
+            ) : null}
 
             {ids.length && effectiveCompany ? (
                 <div className="md:col-span-2">

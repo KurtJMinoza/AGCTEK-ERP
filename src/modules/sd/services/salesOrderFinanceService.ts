@@ -27,6 +27,15 @@ export type SalesOrderJournalSummary = {
     lines?: SalesOrderJournalLineSummary[]
 }
 
+export type SalesOrderArDocumentSummary = {
+    id: string
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    journalEntryId: string | null
+    receivableAmount: string
+}
+
 export type SalesOrderAccountingSnapshot = {
     salesOrderId: string
     orderNumber: string
@@ -45,8 +54,12 @@ export type SalesOrderAccountingSnapshot = {
         status: string
         journalEntryId: string | null
         lastError: string | null
+        lastErrorCode?: string | null
         idempotencyKey: string
     }>
+    arDocuments: SalesOrderArDocumentSummary[]
+    inventoryJournals: SalesOrderJournalSummary[]
+    salesInvoiceId: string | null
 }
 
 export async function fetchSalesOrderAccounting(

@@ -738,4 +738,23 @@ export async function getCollectionReceipt(
     return data
 }
 
+export type PosSaleAccountingReconcileResult = {
+    orderNumber: string
+    dryRun: boolean
+    action: 'NONE' | 'WOULD_RETRY' | 'RETRIED'
+    notes: string[]
+}
+
+export async function reconcilePosSaleAccounting(
+    salesOrderId: string,
+    dryRun = true,
+): Promise<PosSaleAccountingReconcileResult> {
+    const { data } = await ErpAxiosBase.post<PosSaleAccountingReconcileResult>(
+        `/sd/pos/orders/${encodeURIComponent(salesOrderId)}/accounting/reconcile`,
+        {},
+        { params: { dryRun: dryRun ? 'true' : 'false' } },
+    )
+    return data
+}
+
 export { newIdempotencyKey }

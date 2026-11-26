@@ -35,6 +35,8 @@ export type FinancialPostingRequest = {
     sourceDocumentId?: string | null
     /** Optional MM supplier partner when the operational source has one. */
     supplierId?: string | null
+    /** Optional SD customer partner for AR subledger postings. */
+    customerId?: string | null
     sourceEventId?: string | null
     sourceTransactionId?: string | null
     mmAccountingEventId?: string | null
@@ -45,7 +47,7 @@ export type FinancialPostingRequest = {
     metadata?: Record<string, unknown>
     sourcePostingKey?: string | null
     /** AP reconciliation accounts can only be posted from the AP subledger. */
-    subledgerPosting?: 'AP'
+    subledgerPosting?: 'AP' | 'AR'
     afterPersist?: FinancialPostingAfterPersist
     /** When set, journal is posted immediately with consistent approval fields. */
     postImmediately: boolean

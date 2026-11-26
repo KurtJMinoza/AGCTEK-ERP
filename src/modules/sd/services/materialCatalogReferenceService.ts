@@ -69,6 +69,7 @@ export type MaterialCatalogReference = {
     }
     expiry: {
         defaultShelfLifeDays: number | null
+        defaultExpiryDate: string | null
         earliestExpiryDate: string | null
         nearestBatchNumber: string | null
         nearestLotNumber: string | null

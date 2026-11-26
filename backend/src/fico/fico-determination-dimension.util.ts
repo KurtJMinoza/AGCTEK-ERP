@@ -5,6 +5,7 @@ export const FICO_DETERMINATION_ID_DIMENSIONS: readonly FicoDeterminationDimensi
     'valuationClassId',
     'branchId',
     'bankAccountId',
+    'taxCodeId',
 ] as const
 
 export function ficoDeterminationDimensionEqual(
@@ -24,6 +25,9 @@ export function normaliseDeterminationCode(value: string | null | undefined) {
 }
 
 export type DeterminationRuleDimensionInput = {
+    materialGroupCode?: string | null
+    taxCodeId?: string | null
+    salesChannelCode?: string | null
     paymentMethodCode?: string | null
     bankAccountId?: string | null
     paymentProviderCode?: string | null
@@ -41,6 +45,9 @@ export function persistenceFromExtendedDimensions(
     input: DeterminationRuleDimensionInput,
 ) {
     return {
+        materialGroupCode: normaliseDeterminationCode(input.materialGroupCode),
+        taxCodeId: input.taxCodeId?.trim() || null,
+        salesChannelCode: normaliseDeterminationCode(input.salesChannelCode),
         paymentMethodCode: normaliseDeterminationCode(input.paymentMethodCode),
         bankAccountId: input.bankAccountId?.trim() || null,
         paymentProviderCode: normaliseDeterminationCode(input.paymentProviderCode),

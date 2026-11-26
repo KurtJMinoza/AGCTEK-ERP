@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
+import {
+    ficoBuildAccountingIdempotencyKey,
+    ficoDerivePostingPurpose,
+} from '../../fico/fico-accounting-idempotency.policy'
 import { MmAccountingContextBuilder } from './mm-accounting-context.builder'
 import {
     type MmAccountingDispatchPayload,
@@ -21,8 +26,12 @@ export type MmAccountingRecordResult = {
 export class MmAccountingEventService {
     private readonly logger = new Logger(MmAccountingEventService.name)
 
-    constructor(private contextBuilder: MmAccountingContextBuilder) {}
+    constructor(
+        private contextBuilder: MmAccountingContextBuilder,
+        private readonly events: EventEmitter2,
+    ) {}
 
+    /** @deprecated Prefer stable Phase 03 keys via {@link buildStableIdempotencyKey}. */
     buildIdempotencyKey(
         eventType: string,
         documentType: string,
@@ -34,18 +43,49 @@ export class MmAccountingEventService {
         return parts.join(':')
     }
 
+    buildStableIdempotencyKey(input: {
+        companyId: string
+        sourceModule: string
+        documentType: string
+        documentId: string
+        postingPurpose: string
+        businessOccurrenceId: string
+    }): string {
+        return ficoBuildAccountingIdempotencyKey({
+            companyId: input.companyId,
+            sourceModule: input.sourceModule,
+            sourceDocumentType: input.documentType,
+            sourceDocumentId: input.documentId,
+            postingPurpose: input.postingPurpose,
+            businessOccurrenceId: input.businessOccurrenceId,
+        })
+    }
+
     async recordFromEnvelope(
         tx: TransactionClient,
         envelope: MmIntegrationEventEnvelope,
     ): Promise<MmAccountingRecordResult> {
         const payload = await this.contextBuilder.buildFromEnvelope(envelope, tx)
+        const postingPurpose = ficoDerivePostingPurpose(
+            envelope.eventType,
+            payload.accountingEffects,
+        )
+        const businessOccurrenceId =
+            (typeof payload.businessOccurrenceId === 'string' &&
+                payload.businessOccurrenceId) ||
+            (typeof payload.sourceTransactionId === 'string' &&
+                payload.sourceTransactionId) ||
+            envelope.eventId
         const idempotencyKey =
             payload.idempotencyKey ??
-            this.buildIdempotencyKey(
-                envelope.eventType,
-                envelope.sourceEntityType,
-                envelope.sourceEntityId,
-            )
+            this.buildStableIdempotencyKey({
+                companyId: envelope.companyId,
+                sourceModule: envelope.sourceModule,
+                documentType: envelope.sourceEntityType,
+                documentId: envelope.sourceEntityId,
+                postingPurpose,
+                businessOccurrenceId,
+            })
 
         return this.persist(tx, {
             eventType: envelope.eventType,
@@ -64,6 +104,15 @@ export class MmAccountingEventService {
             currencyCode: payload.currencyCode,
             totalValue: new Decimal(payload.totalValue ?? 0),
             accountingEffects: payload.accountingEffects,
+            postingPurpose,
+            businessOccurrenceId,
+            correlationId: payload.correlationId ?? envelope.correlationId ?? null,
+            causationId: envelope.causationId ?? null,
+            documentDate: new Date(payload.transactionDate ?? payload.postingDate),
+            sourceDocumentNumber:
+                typeof payload.sourceDocumentNumber === 'string'
+                    ? payload.sourceDocumentNumber
+                    : null,
             payload,
         })
     }
@@ -73,13 +122,22 @@ export class MmAccountingEventService {
         input: MmAccountingStandaloneInput,
     ): Promise<MmAccountingRecordResult> {
         const payload = await this.contextBuilder.buildFromStandalone(input, tx)
+        const postingPurpose = ficoDerivePostingPurpose(
+            input.eventType,
+            input.accountingEffects,
+        )
+        const businessOccurrenceId =
+            input.sourceTransactionId ?? input.sourceEventId ?? input.documentId
         const idempotencyKey =
             input.idempotencyKey ??
-            this.buildIdempotencyKey(
-                input.eventType,
-                input.documentType,
-                input.documentId,
-            )
+            this.buildStableIdempotencyKey({
+                companyId: input.companyId,
+                sourceModule: input.sourceModule,
+                documentType: input.documentType,
+                documentId: input.documentId,
+                postingPurpose,
+                businessOccurrenceId,
+            })
 
         return this.persist(tx, {
             eventType: input.eventType,
@@ -95,6 +153,19 @@ export class MmAccountingEventService {
             currencyCode: payload.currencyCode,
             totalValue: new Decimal(payload.totalValue ?? 0),
             accountingEffects: payload.accountingEffects,
+            postingPurpose,
+            businessOccurrenceId,
+            correlationId:
+                typeof payload.correlationId === 'string'
+                    ? payload.correlationId
+                    : null,
+            causationId:
+                typeof payload.causationId === 'string' ? payload.causationId : null,
+            documentDate: new Date(payload.transactionDate ?? payload.postingDate),
+            sourceDocumentNumber:
+                typeof payload.sourceDocumentNumber === 'string'
+                    ? payload.sourceDocumentNumber
+                    : null,
             payload,
         })
     }
@@ -127,6 +198,12 @@ export class MmAccountingEventService {
             totalValue: Decimal
             accountingEffects: string[]
             payload: Record<string, unknown>
+            postingPurpose?: string
+            businessOccurrenceId?: string
+            correlationId?: string | null
+            causationId?: string | null
+            documentDate?: Date
+            sourceDocumentNumber?: string | null
         },
     ): Promise<MmAccountingRecordResult> {
         const enrichedPayload = {
@@ -137,6 +214,11 @@ export class MmAccountingEventService {
         }
 
         try {
+            const valuationSnapshot = {
+                lines: (data.payload as { lines?: unknown }).lines ?? null,
+                totalValue: data.totalValue.toString(),
+                currencyCode: data.currencyCode,
+            }
             const row = await tx.mmAccountingEvent.create({
                 data: {
                     eventType: data.eventType,
@@ -148,14 +230,39 @@ export class MmAccountingEventService {
                     sourceTransactionId: data.sourceTransactionId,
                     idempotencyKey: data.idempotencyKey,
                     plantId: data.plantId,
+                    postingPurpose: data.postingPurpose,
+                    businessOccurrenceId: data.businessOccurrenceId,
+                    documentDate: data.documentDate ?? data.postingDate,
                     postingDate: data.postingDate,
                     currencyCode: data.currencyCode,
                     totalValue: data.totalValue,
                     accountingEffects: data.accountingEffects,
+                    valuationSnapshot,
+                    accountingDimensions: {
+                        plantId: data.plantId,
+                        companyId: data.companyId,
+                    },
+                    payloadSchemaVersion: 'v2',
+                    correlationId: data.correlationId,
+                    causationId: data.causationId,
+                    sourceDocumentNumber: data.sourceDocumentNumber,
                     payload: enrichedPayload as Prisma.InputJsonValue,
                     status: 'PENDING',
+                    retryEligible: true,
                 },
             })
+
+            const financiallyRelevant =
+                (data.payload as { financiallyRelevant?: boolean }).financiallyRelevant !==
+                    false && data.accountingEffects.length > 0
+            if (financiallyRelevant) {
+                this.events.emit('accounting.event.status.changed', {
+                    documentType: data.documentType,
+                    documentId: data.documentId,
+                    companyId: data.companyId,
+                    eventStatus: 'PENDING',
+                })
+            }
 
             return {
                 created: true,

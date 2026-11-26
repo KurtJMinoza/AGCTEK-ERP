@@ -57,6 +57,7 @@ const WIDTHS = {
     invoiceNumber: { summary: 170, full: 170, min: 150 },
     batchNumber: { summary: 140, full: 140, min: 120 },
     lotNumber: { summary: 130, full: 130, min: 112 },
+    productExpiry: { summary: 130, full: 130, min: 112 },
     remarks: { summary: 200, full: 220, min: 160 },
 } as const
 
@@ -438,6 +439,12 @@ const ALL_COLUMN_BUILDERS: Array<
         cell: ({ row }) => <MonoCell value={row.original.lotNumber} />,
     }),
     (opts) => ({
+        header: 'Expiry',
+        id: 'productExpiry',
+        ...sized(opts.variant, 'productExpiry'),
+        cell: ({ row }) => <MonoCell value={row.original.productExpiry} />,
+    }),
+    (opts) => ({
         header: 'Remarks',
         id: 'remarks',
         ...sized(opts.variant, 'remarks'),
@@ -466,6 +473,7 @@ const SUMMARY_IDS = new Set([
     'invoiceNumber',
     'batchNumber',
     'lotNumber',
+    'productExpiry',
 ])
 
 export function buildSalesLineReportColumns(

@@ -15,6 +15,12 @@ export const SD_EVENTS = {
     POS_SALE_VOIDED: 'PosSaleVoided',
     /** A subsequent payment was collected against an outstanding POS receivable. */
     POS_COLLECTION_COMPLETED: 'PosCollectionCompleted',
+    /** Partial POS refund: revenue and settlement reversal without voiding the sale. */
+    POS_SALE_REFUNDED: 'PosSaleRefunded',
+    /** Customer deposit at POS — advance liability only (no revenue). */
+    POS_CUSTOMER_DEPOSIT: 'PosCustomerDepositCompleted',
+    /** SD return authorized as credit without physical MM intake. */
+    SALES_RETURN_CREDIT_AUTHORIZED: 'SalesReturnCreditAuthorized',
 } as const
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]

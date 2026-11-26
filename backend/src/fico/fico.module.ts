@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { FINANCIAL_PERIOD_PORT } from '../mm/integration/fico/financial-period.port'
 import { FicoAccountingConsumerService } from './fico-accounting-consumer.service'
 import { FicoAccountingEventProcessorService } from './fico-accounting-event-processor.service'
+import { FicoAccountingEventRecoveryService } from './fico-accounting-event-recovery.service'
 import { FicoSdAccountingBridgeService } from './fico-sd-accounting-bridge.service'
 import { FicoSdPostingService } from './fico-sd-posting.service'
 import { FicoAccountDeterminationController } from './fico-account-determination.controller'
@@ -30,6 +31,7 @@ import { FicoGeneralLedgerService } from './fico-general-ledger.service'
 import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoJournalIntegrityService } from './fico-journal-integrity.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoJournalDocumentFlowService } from './fico-journal-document-flow.service'
 import { FicoApReconciliationGuardService } from './fico-ap-reconciliation-guard.service'
 import { FicoNumberRangeController } from './fico-number-range.controller'
 import { FicoNumberRangeService } from './fico-number-range.service'
@@ -47,8 +49,25 @@ import { FicoTaxCalculationService } from './fico-tax-calculation.service'
 import { FicoTaxCodeService } from './fico-tax-code.service'
 import { FicoAccountsPayableController } from './fico-accounts-payable.controller'
 import { FicoAccountsPayableService } from './fico-accounts-payable.service'
+import { FicoAccountsReceivableController } from './fico-accounts-receivable.controller'
+import { FicoAccountsReceivableService } from './fico-accounts-receivable.service'
+import { FicoGrIrController } from './fico-grir.controller'
+import { FicoGrIrOpenItemListener } from './fico-grir-open-item.listener'
+import { FicoArSalesInvoiceListener } from './fico-ar-sales-invoice.listener'
+import { FicoArInvoicePaidListener } from './fico-ar-invoice-paid.listener'
+import { FicoArSalesReturnListener } from './fico-ar-sales-return.listener'
+import { FicoSdRevenueGuardService } from './fico-sd-revenue-guard.service'
+import { FicoArCreditCheckService } from './fico-ar-credit-check.service'
+import { FicoGrIrOpenItemService } from './fico-grir-open-item.service'
+import { FicoGrIrWorkbenchService } from './fico-grir-workbench.service'
 import { FicoFinancialPeriodAdapter } from './financial-period.adapter'
 import { FicoFinancialPeriodService } from './financial-period.service'
+import { FicoTreasuryController } from './fico-treasury.controller'
+import { FicoTreasuryAccountService } from './fico-treasury-account.service'
+import { FicoTreasurySettlementService } from './fico-treasury-settlement.service'
+import { FicoTreasuryPaymentResolutionService } from './fico-treasury-payment-resolution.service'
+import { FicoTaxPostingSnapshotService } from './fico-tax-posting-snapshot.service'
+import { FicoTaxReconciliationService } from './fico-tax-reconciliation.service'
 
 @Module({
     controllers: [
@@ -59,6 +78,9 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoTaxCodeController,
         FicoDocumentTypeController,
         FicoAccountsPayableController,
+        FicoAccountsReceivableController,
+        FicoGrIrController,
+        FicoTreasuryController,
     ],
     providers: [
         FicoFinancialPeriodService,
@@ -66,8 +88,23 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoDocumentNumberingService,
         FicoFinancialPostingEngine,
         FicoJournalService,
+        FicoJournalDocumentFlowService,
         FicoApReconciliationGuardService,
         FicoAccountsPayableService,
+        FicoAccountsReceivableService,
+        FicoGrIrOpenItemService,
+        FicoGrIrWorkbenchService,
+        FicoGrIrOpenItemListener,
+        FicoArSalesInvoiceListener,
+        FicoArInvoicePaidListener,
+        FicoArSalesReturnListener,
+        FicoSdRevenueGuardService,
+        FicoArCreditCheckService,
+        FicoTreasuryAccountService,
+        FicoTreasurySettlementService,
+        FicoTreasuryPaymentResolutionService,
+        FicoTaxPostingSnapshotService,
+        FicoTaxReconciliationService,
         FicoGeneralLedgerService,
         FicoJournalIntegrityService,
         FicoAccountDeterminationService,
@@ -83,6 +120,7 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoAccountingEventsService,
         FicoAccountingConsumerService,
         FicoAccountingEventProcessorService,
+        FicoAccountingEventRecoveryService,
         FicoSdPostingService,
         FicoSdAccountingBridgeService,
         FicoReconciliationService,
@@ -134,6 +172,11 @@ import { FicoFinancialPeriodService } from './financial-period.service'
         FicoDocumentTypeService,
         FicoAccountsPayableService,
         FicoSdAccountingBridgeService,
+        FicoSdRevenueGuardService,
+        FicoArCreditCheckService,
+        FicoTreasuryPaymentResolutionService,
+        FicoAccountsReceivableService,
+        FicoAccountingEventProcessorService,
         FINANCIAL_PERIOD_PORT,
     ],
 })

@@ -15,12 +15,14 @@ import {
 import {
     JournalAccountingLinesTotals,
     JournalLineAmountCell,
+    JournalPostingOriginBadge,
     JournalPostingStatus,
     formatJournalDate,
     formatJournalMoney,
     journalAmountColumnHeader,
     sumLineTotals,
 } from './journalUi'
+import JournalDocumentFlow from './JournalDocumentFlow'
 import type { FicoAuditEntry, FicoJournalEntryDetail, FicoJournalLine } from '../../types'
 import {
     HiOutlineCalendar,
@@ -48,14 +50,13 @@ function sourceLabel(entry: FicoJournalEntryDetail) {
     if (!entry.sourceModule) {
         return { primary: 'Manual entry', secondary: undefined as string | undefined }
     }
-    const ref =
-        entry.description?.match(/POS-\d+/i)?.[0] ??
-        entry.lines
-            .find((l) => l.description?.includes('POS-'))
-            ?.description?.match(/POS-\d+/i)?.[0]
     return {
         primary: entry.sourceModule,
-        secondary: ref ?? (entry.sourceDocumentId ? 'Linked order' : undefined),
+        secondary:
+            entry.sourceDocumentNumber ??
+            entry.accountingEvent?.sourceDocumentNumber ??
+            entry.sourceDocumentId ??
+            undefined,
     }
 }
 
@@ -143,6 +144,26 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                         {row.original.description ?? '—'}
                     </span>
                 ),
+            },
+            {
+                header: 'Dimensions',
+                id: 'dimensions',
+                cell: ({ row }) => {
+                    const parts = [
+                        row.original.branchId ? `Br ${row.original.branchId.slice(-6)}` : null,
+                        row.original.costCenterId
+                            ? `CC ${row.original.costCenterId.slice(-6)}`
+                            : null,
+                        row.original.profitCenterId
+                            ? `PC ${row.original.profitCenterId.slice(-6)}`
+                            : null,
+                    ].filter(Boolean)
+                    return (
+                        <span className="text-xs text-gray-500">
+                            {parts.length ? parts.join(' · ') : '—'}
+                        </span>
+                    )
+                },
             },
             {
                 header: journalAmountColumnHeader.debit,
@@ -278,17 +299,42 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                             }
                         />
                         <MetaItem label="Currency" value={entry.currencyCode} />
+                        <MetaItem
+                            label="Exchange rate"
+                            value={entry.exchangeRate ?? '1.000000 (document currency)'}
+                        />
                     </MetaBlock>
                     <MetaBlock title="Company & origin" icon={<HiOutlineLibrary className="text-lg" />}>
                         <MetaItem label="Company" value={companyLabel ?? entry.companyId} />
+                        <MetaItem
+                            label="Posting origin"
+                            value={<JournalPostingOriginBadge origin={entry.postingOrigin} />}
+                        />
                         <MetaItem
                             label="Source"
                             value={
                                 <FicoTwoLineCell
                                     primary={source.primary}
                                     secondary={source.secondary}
-                                    mono={Boolean(source.secondary && source.secondary.length <= 16)}
+                                    mono={Boolean(source.secondary && source.secondary.length <= 24)}
                                 />
+                            }
+                        />
+                        <MetaItem
+                            label="Account determination"
+                            value={entry.determinationVersion ?? '—'}
+                        />
+                        <MetaItem
+                            label="Accounting event"
+                            value={
+                                entry.accountingEvent ? (
+                                    <FicoTwoLineCell
+                                        primary={entry.accountingEvent.eventType}
+                                        secondary={entry.accountingEvent.status}
+                                    />
+                                ) : (
+                                    '—'
+                                )
                             }
                         />
                         <MetaItem
@@ -386,6 +432,38 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                     />
                 </section>
             </AdaptiveCard>
+
+            {entry.documentFlow?.length ? (
+                <AdaptiveCard className="mb-4">
+                    <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">
+                        Financial document flow
+                    </h3>
+                    <JournalDocumentFlow nodes={entry.documentFlow} />
+                </AdaptiveCard>
+            ) : null}
+
+            {entry.taxLines?.length ? (
+                <AdaptiveCard className="mb-4">
+                    <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">
+                        Tax lines
+                    </h3>
+                    <ul className="divide-y text-sm dark:divide-gray-800">
+                        {entry.taxLines.map((line) => (
+                            <li
+                                key={line.id}
+                                className="flex flex-wrap justify-between gap-2 py-2"
+                            >
+                                <span>
+                                    {line.taxCode} · {line.taxType}
+                                </span>
+                                <span className="tabular-nums">
+                                    Net {line.netAmount} · Tax {line.taxAmount}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </AdaptiveCard>
+            ) : null}
 
             <AdaptiveCard>
                 <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">

@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import {
     IsArray,
     IsBoolean,
@@ -108,6 +108,19 @@ export class FicoGlLineItemsQueryDto {
     @Min(1)
     @Max(200)
     pageSize?: number
+
+    @IsOptional()
+    @IsIn(['asc', 'desc'])
+    sortDir?: 'asc' | 'desc'
+
+    @IsOptional()
+    @IsString()
+    sourceModule?: string
+
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === 'true')
+    @IsBoolean()
+    includeRunningBalance?: boolean
 }
 
 export class FicoGlChangeHistoryQueryDto {
@@ -244,6 +257,20 @@ export class FicoCompanySettingsUpsertDto {
     @Min(3)
     @Max(12)
     documentNumberPadding?: number
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(4)
+    postingPrecision?: number
+
+    @IsOptional()
+    @IsObject()
+    defaultFinancialDimensions?: Record<string, unknown> | null
+
+    @IsOptional()
+    @IsIn(['BLOCK_MANUAL', 'ALLOW_MANUAL'])
+    reconciliationPolicy?: string
 
     @IsOptional()
     @IsObject()
@@ -456,6 +483,28 @@ export class FicoGlAccountCreateDto {
     @IsString()
     @MaxLength(3)
     currencyRestriction?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    financialStatementMapping?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    taxCategory?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    requiresBranch?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    requiresCostCenter?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    requiresProfitCenter?: boolean
 }
 
 export class FicoGlAccountUpdateDto {
@@ -512,6 +561,28 @@ export class FicoGlAccountUpdateDto {
     currencyRestriction?: string | null
 
     @IsOptional()
+    @IsString()
+    @MaxLength(128)
+    financialStatementMapping?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    taxCategory?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    requiresBranch?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    requiresCostCenter?: boolean
+
+    @IsOptional()
+    @IsBoolean()
+    requiresProfitCenter?: boolean
+
+    @IsOptional()
     @IsIn(FICO_CHART_STATUSES)
     status?: string
 
@@ -531,6 +602,14 @@ export class FicoGlAccountBalancesQueryDto {
     @IsOptional()
     @IsString()
     companyId?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string
 }
 
 export class FicoGlAccountImportRowDto {

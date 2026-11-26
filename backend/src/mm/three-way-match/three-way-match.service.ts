@@ -433,7 +433,7 @@ export class ThreeWayMatchService {
             postingDate: inv.postingDate ?? inv.invoiceDate ?? new Date(),
             currencyCode:
                 inv.currency?.code ?? inv.purchaseOrder?.currency?.code ?? 'PHP',
-            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.GRIR_ACCRUAL],
+            accountingEffects: [],
             lines: (inv.lines ?? []).map((l: any) => ({
                 materialId: l.materialId,
                 movementType: 'INVOICE_MATCH',
@@ -442,6 +442,7 @@ export class ThreeWayMatchService {
                 totalCost: Number(l.lineTotal),
             })),
             extraPayload: payload,
+            financiallyRelevant: true,
         })
         const dispatch = this.accountingEvents.toDispatchPayload(record)
         if (dispatch) {

@@ -54,8 +54,14 @@ describe('FicoAccountsPayableService', () => {
             ficoAccountingAuditLog: { create: jest.fn() },
         }
         const prisma: any = {
-            mmSupplierInvoice: { findUnique: jest.fn().mockResolvedValue(invoice) },
-            ficoApDocument: { findUnique: jest.fn().mockResolvedValue(null) },
+            mmSupplierInvoice: {
+                findUnique: jest.fn().mockResolvedValue(invoice),
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
+            ficoApDocument: {
+                findUnique: jest.fn().mockResolvedValue(null),
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
             ficoSupplierCompanyAccount: { findUnique: jest.fn().mockResolvedValue(null) },
             ficoGlAccount: {
                 findUnique: jest.fn().mockResolvedValue({
@@ -106,6 +112,9 @@ describe('FicoAccountsPayableService', () => {
                 }
             }),
         }
+        const grirOpenItems = {
+            applyInvoiceAllocations: jest.fn().mockResolvedValue(undefined),
+        }
         const service = new FicoAccountsPayableService(
             prisma,
             { assertAccess: jest.fn() } as any,
@@ -113,6 +122,7 @@ describe('FicoAccountsPayableService', () => {
             { assertAccountPostable: jest.fn().mockResolvedValue({}) } as any,
             journal as any,
             { calculate: jest.fn() } as any,
+            grirOpenItems as any,
         )
 
         await expect(
@@ -169,5 +179,34 @@ describe('FicoAccountsPayableService', () => {
             }),
         )
         expect(tx.ficoApGrIrAllocation.createMany).toHaveBeenCalled()
+    })
+
+    it('rejects duplicate supplier invoice numbers before AP posting', async () => {
+        const prisma: any = {
+            mmSupplierInvoice: {
+                findUnique: jest.fn().mockResolvedValue(invoice),
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
+            ficoApDocument: {
+                findUnique: jest.fn().mockResolvedValue(null),
+                findFirst: jest.fn().mockResolvedValue({ id: 'dup-ap' }),
+            },
+        }
+        const service = new FicoAccountsPayableService(
+            prisma,
+            { assertAccess: jest.fn() } as any,
+            { resolve: jest.fn() } as any,
+            {} as any,
+            { postAutomaticJournal: jest.fn() } as any,
+            {} as any,
+            { applyInvoiceAllocations: jest.fn() } as any,
+        )
+        await expect(
+            service.postMatchedSupplierInvoice({
+                eventType: 'SupplierInvoiceMatched',
+                companyId: 'company-1',
+                documentId: 'invoice-1',
+            } as any),
+        ).rejects.toThrow('already exists')
     })
 })

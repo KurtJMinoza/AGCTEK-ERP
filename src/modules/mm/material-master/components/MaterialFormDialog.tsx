@@ -81,6 +81,7 @@ const baseMaterialSchema = z
         initialLotNumber: z.string().optional().or(z.literal('')),
         qualityInspectionRequired: z.boolean(),
         expiryManaged: z.boolean(),
+        defaultExpiryDate: z.string().optional().or(z.literal('')),
         inventoryManaged: z.boolean(),
         negativeStockAllowed: z.boolean(),
         purchasable: z.boolean(),
@@ -181,6 +182,7 @@ const blankValues: FormShape = {
     serialTrackingPolicy: 'NOT_SERIALIZED',
     qualityInspectionRequired: false,
     expiryManaged: false,
+    defaultExpiryDate: '',
     inventoryManaged: true,
     negativeStockAllowed: false,
     purchasable: true,
@@ -244,6 +246,9 @@ function toFormValues(material?: Material | null): FormShape {
         serialTrackingPolicy: material.serialTrackingPolicy ?? 'NOT_SERIALIZED',
         qualityInspectionRequired: material.qualityInspectionRequired,
         expiryManaged: material.expiryManaged,
+        defaultExpiryDate: material.defaultExpiryDate
+            ? String(material.defaultExpiryDate).slice(0, 10)
+            : '',
         inventoryManaged: material.inventoryManaged,
         negativeStockAllowed: material.negativeStockAllowed ?? false,
         purchasable: material.purchasable,
@@ -1041,6 +1046,9 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                 Boolean(values.initialLotNumber?.trim()),
             qualityInspectionRequired: values.qualityInspectionRequired,
             expiryManaged: values.expiryManaged,
+            ...(values.defaultExpiryDate?.trim()
+                ? { defaultExpiryDate: values.defaultExpiryDate.trim() }
+                : { defaultExpiryDate: null }),
             inventoryManaged: values.inventoryManaged,
             negativeStockAllowed: values.negativeStockAllowed,
             purchasable: values.purchasable,
@@ -1772,6 +1780,25 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                             )} />
                             <Controller name="qualityInspectionRequired" control={control} render={({ field }) => <ToggleRow label="Quality inspection" description="Route receipts through QC." checked={field.value} onChange={field.onChange} />} />
                             <Controller name="expiryManaged" control={control} render={({ field }) => <ToggleRow label="Expiry controlled" description="Enforce expiry date tracking." checked={field.value} onChange={field.onChange} />} />
+                            <Controller
+                                name="defaultExpiryDate"
+                                control={control}
+                                render={({ field }) => (
+                                    <FormItem
+                                        label="Default expiry date"
+                                        className="md:col-span-2"
+                                    >
+                                        <Input
+                                            type="date"
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                        />
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Reference expiry for catalog and sales when no batch stock is resolved. Batch-level expiry still applies for stocked items.
+                                        </p>
+                                    </FormItem>
+                                )}
+                            />
                         </div>
                     </TabPanel>
 

@@ -30,6 +30,7 @@ import {
 import JournalFiltersPanel from './JournalFiltersPanel'
 import {
     JOURNAL_TABS,
+    JournalPostingOriginBadge,
     JournalPostingStatus,
     formatJournalDate,
     formatMoney,
@@ -121,8 +122,30 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                 ),
             },
             {
-                header: 'Supplier',
-                id: 'supplier',
+                header: 'Origin',
+                id: 'origin',
+                cell: ({ row }) => (
+                    <JournalPostingOriginBadge origin={row.original.postingOrigin} />
+                ),
+            },
+            {
+                header: 'Source',
+                id: 'source',
+                cell: ({ row }) => (
+                    <FicoTwoLineCell
+                        primary={row.original.sourceModule ?? 'Manual'}
+                        secondary={
+                            row.original.sourceDocumentNumber ??
+                            row.original.sourceDocumentId ??
+                            undefined
+                        }
+                        mono={Boolean(row.original.sourceDocumentNumber)}
+                    />
+                ),
+            },
+            {
+                header: 'Partner',
+                id: 'partner',
                 cell: ({ row }) =>
                     row.original.supplier ? (
                         <FicoTwoLineCell
@@ -130,9 +153,27 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                             secondary={row.original.supplier.supplierName}
                             mono
                         />
+                    ) : row.original.customer ? (
+                        <FicoTwoLineCell
+                            primary={row.original.customer.customerNumber}
+                            secondary={row.original.customer.companyName}
+                            mono
+                        />
                     ) : (
                         <span className="text-sm text-gray-400">—</span>
                     ),
+            },
+            {
+                header: 'Debit / Credit',
+                id: 'drCr',
+                meta: { className: '!text-right' },
+                cell: ({ row }) => (
+                    <span className="block text-right text-xs tabular-nums text-gray-600 dark:text-gray-300">
+                        {row.original.totalDebit && row.original.totalCredit
+                            ? `${formatMoney(row.original.currencyCode, row.original.totalDebit)} · ${formatMoney(row.original.currencyCode, row.original.totalCredit)}`
+                            : '—'}
+                    </span>
+                ),
             },
             {
                 header: 'Posting',

@@ -12,6 +12,7 @@ type PosSaleEvent = {
     orderNumber: string
     receiptNumber?: string
     companyId: string
+    customerId?: string
     branchId?: string
     posSessionId?: string
     currency?: string
@@ -59,6 +60,29 @@ type PosVoidEvent = {
     idempotencyKey?: string
 }
 
+type PosDepositEvent = {
+    depositId: string
+    reference: string
+    companyId: string
+    customerId: string
+    depositAmount: string
+    currency?: string
+    tenders?: Array<{ method: string; amount: string }>
+    idempotencyKey?: string
+}
+
+type PosRefundEvent = {
+    salesOrderId: string
+    orderNumber: string
+    companyId: string
+    customerId?: string | null
+    refundNumber: string
+    totalAmount: string
+    taxAmount?: string
+    tenders?: Array<{ method: string; amount: string }>
+    idempotencyKey?: string
+}
+
 /**
  * POS financial integration — durable accounting events + centralized FICO
  * posting (account determination rules, company defaults, payment-method G/L).
@@ -95,10 +119,12 @@ export class PosRevenuePostingListener {
                     salesOrderId: event.salesOrderId,
                     orderNumber: event.orderNumber,
                     receiptNumber: event.receiptNumber,
+                    customerId: event.customerId,
                     tenders: event.tenders,
                     outstandingBalance: event.outstandingBalance,
                     totalAmount: event.totalAmount,
                     taxAmount: event.taxAmount,
+                    paymentStatus: event.paymentStatus,
                 },
             })
         } catch (err) {
@@ -136,6 +162,8 @@ export class PosRevenuePostingListener {
                 payload: {
                     collectionNumber: event.collectionNumber,
                     orderNumber: event.orderNumber,
+                    salesOrderId: event.salesOrderId,
+                    customerId: event.customerId,
                     collectedAmount: event.collectedAmount,
                     tenders: event.tenders,
                 },
@@ -143,6 +171,80 @@ export class PosRevenuePostingListener {
         } catch (err) {
             this.logger.error(
                 `Collection accounting event failed for ${event.collectionNumber}: ${
+                    err instanceof Error ? err.message : String(err)
+                }`,
+            )
+        }
+    }
+
+    @OnEvent(SD_EVENTS.POS_CUSTOMER_DEPOSIT, { async: true })
+    async handlePosCustomerDeposit(
+        raw: PosDepositEvent | { payload: PosDepositEvent },
+    ): Promise<void> {
+        const event = unwrapSdEventPayload<PosDepositEvent>(raw)
+        if (!event?.depositId || !event?.companyId || !event?.customerId) return
+        const idempotencyKey =
+            (event.idempotencyKey as string | undefined) ??
+            `pos-deposit:${event.depositId}`
+        try {
+            await this.accounting.recordAndDispatch({
+                eventType: 'PosCustomerDepositCompleted',
+                documentType: 'CUSTOMER_DEPOSIT',
+                documentId: event.depositId as string,
+                companyId: event.companyId as string,
+                postingDate: new Date(),
+                currencyCode: (event.currency as string | undefined) ?? 'PHP',
+                idempotencyKey,
+                totalValue: new Decimal(String(event.depositAmount ?? '0')),
+                payload: {
+                    depositId: event.depositId,
+                    reference: event.reference,
+                    customerId: event.customerId,
+                    depositAmount: event.depositAmount,
+                    tenders: event.tenders,
+                },
+            })
+        } catch (err) {
+            this.logger.error(
+                `Customer deposit accounting failed for ${event.reference}: ${
+                    err instanceof Error ? err.message : String(err)
+                }`,
+            )
+        }
+    }
+
+    @OnEvent(SD_EVENTS.POS_SALE_REFUNDED, { async: true })
+    async handlePosSaleRefunded(
+        raw: PosRefundEvent | { payload: PosRefundEvent },
+    ): Promise<void> {
+        const event = unwrapSdEventPayload<PosRefundEvent>(raw)
+        if (!event?.salesOrderId || !event?.companyId) return
+        const idempotencyKey =
+            (event.idempotencyKey as string | undefined) ??
+            `pos-refund:${event.refundNumber ?? event.salesOrderId}`
+        try {
+            await this.accounting.recordAndDispatch({
+                eventType: 'PosSaleRefunded',
+                documentType: 'POS_REFUND',
+                documentId: String(event.refundNumber ?? event.salesOrderId),
+                companyId: event.companyId as string,
+                postingDate: new Date(),
+                currencyCode: 'PHP',
+                idempotencyKey,
+                totalValue: new Decimal(String(event.totalAmount ?? '0')),
+                payload: {
+                    salesOrderId: event.salesOrderId,
+                    orderNumber: event.orderNumber,
+                    customerId: event.customerId,
+                    totalAmount: event.totalAmount,
+                    taxAmount: event.taxAmount,
+                    tenders: event.tenders,
+                    refundNumber: event.refundNumber,
+                },
+            })
+        } catch (err) {
+            this.logger.error(
+                `Refund accounting event failed for ${event.orderNumber}: ${
                     err instanceof Error ? err.message : String(err)
                 }`,
             )

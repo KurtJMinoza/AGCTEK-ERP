@@ -38,6 +38,17 @@ export type AutomaticAccountingEvent = {
     id: string
     eventType: string
     status: string
+    lastError?: string | null
+    lastErrorCode?: string | null
+}
+
+export type ArDocumentSummary = {
+    id: string
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    journalEntryId: string | null
+    receivableAmount: string
 }
 
 export type AutomaticJournalSectionProps = {
@@ -45,6 +56,9 @@ export type AutomaticJournalSectionProps = {
     error: string | null
     companyId: string | null
     journals: AutomaticJournalSummary[]
+    inventoryJournals?: AutomaticJournalSummary[]
+    arDocuments?: ArDocumentSummary[]
+    salesInvoiceId?: string | null
     accountingEvents: AutomaticAccountingEvent[]
     performerLabel: string
     performerName: string | null
@@ -55,6 +69,9 @@ export type AutomaticJournalSectionProps = {
         employeeCode: string | null
     }
     emptyHint?: string
+    onRetryPosting?: () => void
+    retrying?: boolean
+    showPostingErrors?: boolean
 }
 
 const statusTone = (status: string) => {
@@ -75,12 +92,18 @@ export default function AutomaticJournalSection({
     error,
     companyId,
     journals,
+    inventoryJournals = [],
+    arDocuments = [],
+    salesInvoiceId = null,
     accountingEvents,
     performerLabel,
     performerName,
     performerEmployeeCode,
     secondaryPerformer,
     emptyHint,
+    onRetryPosting,
+    retrying = false,
+    showPostingErrors = false,
 }: AutomaticJournalSectionProps) {
     const revenueJournal =
         journals.find((row) => row.documentType === 'SD_REVENUE') ?? journals[0]
@@ -248,25 +271,115 @@ export default function AutomaticJournalSection({
                         </p>
                         <ul className="mt-2 space-y-1.5 text-xs">
                             {accountingEvents.slice(0, 4).map((ev) => (
-                                <li
-                                    key={ev.id}
-                                    className="flex flex-wrap items-center justify-between gap-2"
-                                >
-                                    <span className="font-medium text-gray-700 dark:text-gray-200">
-                                        {ev.eventType}
-                                    </span>
-                                    <StatusBadge tone={statusTone(ev.status)}>
-                                        {ev.status}
-                                    </StatusBadge>
+                                <li key={ev.id} className="space-y-1">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="font-medium text-gray-700 dark:text-gray-200">
+                                            {ev.eventType}
+                                        </span>
+                                        <StatusBadge tone={statusTone(ev.status)}>
+                                            {ev.status}
+                                        </StatusBadge>
+                                    </div>
+                                    {showPostingErrors && ev.lastError ? (
+                                        <p className="text-[11px] text-red-600 dark:text-red-300">
+                                            {ev.lastError}
+                                        </p>
+                                    ) : null}
                                 </li>
                             ))}
                         </ul>
+                        {onRetryPosting &&
+                        accountingEvents.some((ev) =>
+                            ['FAILED', 'RETRY_SCHEDULED', 'DEAD_LETTER'].includes(
+                                ev.status,
+                            ),
+                        ) ? (
+                            <Button
+                                className="mt-2"
+                                size="xs"
+                                variant="solid"
+                                loading={retrying}
+                                onClick={onRetryPosting}
+                            >
+                                Retry posting
+                            </Button>
+                        ) : null}
                     </div>
                 ) : null}
 
                 {journals.length > 1 ? (
                     <p className="text-[11px] text-gray-500">
                         {journals.length} related journals (inventory, collections, reversals, …).
+                    </p>
+                ) : null}
+
+                {inventoryJournals.length > 0 ? (
+                    <div className="border-t border-dashed border-gray-200 pt-3 dark:border-gray-700">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            COGS / inventory (MM)
+                        </p>
+                        <ul className="mt-2 space-y-2 text-xs">
+                            {inventoryJournals.map((row) => (
+                                <li
+                                    key={row.id}
+                                    className="flex flex-wrap items-center justify-between gap-2"
+                                >
+                                    <span className="font-mono font-semibold">
+                                        {row.documentNumber ?? row.id.slice(0, 8)}
+                                    </span>
+                                    <Link
+                                        href={`/modules/fico/journal-entries/${row.id}`}
+                                        className="text-primary hover:underline"
+                                    >
+                                        View journal
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
+
+                {arDocuments.length > 0 ? (
+                    <div className="border-t border-dashed border-gray-200 pt-3 dark:border-gray-700">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            Accounts receivable
+                        </p>
+                        <ul className="mt-2 space-y-2 text-xs">
+                            {arDocuments.map((doc) => (
+                                <li
+                                    key={doc.id}
+                                    className="flex flex-wrap items-center justify-between gap-2"
+                                >
+                                    <span>
+                                        {doc.documentType.replace(/_/g, ' ')} ·{' '}
+                                        {doc.referenceNumber ?? doc.id.slice(0, 8)}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        {doc.journalEntryId ? (
+                                            <Link
+                                                href={`/modules/fico/journal-entries/${doc.journalEntryId}`}
+                                                className="text-primary hover:underline"
+                                            >
+                                                Journal
+                                            </Link>
+                                        ) : null}
+                                        <Link
+                                            href="/modules/fico/accounts-receivable"
+                                            className="text-primary hover:underline"
+                                        >
+                                            AR workbench
+                                        </Link>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
+
+                {salesInvoiceId ? (
+                    <p className="text-[11px] text-gray-500">
+                        SD billing document linked. Invoice-driven revenue posts at delivery (POD)
+                        unless the sale was settled at the register.
                     </p>
                 ) : null}
             </div>

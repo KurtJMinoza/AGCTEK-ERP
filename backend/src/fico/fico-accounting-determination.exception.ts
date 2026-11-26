@@ -6,7 +6,7 @@ import { FICO_ACCOUNTING_ERROR_CODES } from './fico-accounting-event.constants'
  * all required G/L lines. Downstream must not post partial journals.
  */
 export class FicoAccountingDeterminationException extends BadRequestException {
-    readonly errorCode = FICO_ACCOUNTING_ERROR_CODES.DETERMINATION
+    readonly errorCode = FICO_ACCOUNTING_ERROR_CODES.ACCOUNT_DETERMINATION_NOT_FOUND
 
     constructor(
         message: string,

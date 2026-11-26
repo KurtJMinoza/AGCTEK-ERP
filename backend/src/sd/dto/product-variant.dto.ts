@@ -156,4 +156,11 @@ export class UpdateVariantDto {
     @IsInt()
     @Min(0)
     sortOrder?: number
+
+    /** Catalog expiry override (YYYY-MM-DD); null clears the override. */
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsString()
+    @MaxLength(10)
+    catalogExpiryDate?: string | null
 }

@@ -8,6 +8,9 @@ function postingSettings(overrides: Record<string, unknown> = {}) {
         baseCurrency: 'PHP',
         chartOfAccountsId: 'coa-1',
         chartOfAccounts: { id: 'coa-1', code: 'COA', status: 'ACTIVE' },
+        fiscalYearVariant: { id: 'fyv-1', status: 'ACTIVE' },
+        postingPeriodVariant: { id: 'ppv-1', status: 'ACTIVE' },
+        postingPrecision: 4,
         company: { id: 'company-1', name: 'AGCTEK' },
         backdatedPostingAllowed: true,
         maxBackdatedPostingDays: null,
@@ -121,6 +124,61 @@ describe('FicoPostingValidationService posting controls', () => {
             valid: true,
             periodKey: '2026-11',
         })
+    })
+
+    it('blocks companies with an incomplete fiscal calendar', async () => {
+        const { service } = validationService(
+            postingSettings({ fiscalYearVariant: null }),
+        )
+        await expect(
+            service.validate({
+                companyId: 'company-1',
+                postingDate: daysAgo(0),
+            }),
+        ).rejects.toThrow(/no active fiscal calendar/)
+    })
+
+    it('only grants restricted-period posting to authorized roles', async () => {
+        const findUnique = jest
+            .fn()
+            .mockResolvedValue({ permissions: [{ id: 'grant-1' }] })
+        const prisma = {
+            ficoCompanyAccountingSettings: {
+                findUnique: jest.fn().mockResolvedValue(postingSettings()),
+            },
+            role: { findUnique },
+        }
+        const periods = {
+            assertPostingAllowed: jest
+                .fn()
+                .mockResolvedValue({
+                    id: 'period-1',
+                    fiscalYear: 2026,
+                    periodNumber: 11,
+                    status: 'OPEN',
+                }),
+        }
+        const service = new FicoPostingValidationService(
+            prisma as never,
+            periods as never,
+        )
+
+        await service.validate({
+            companyId: 'company-1',
+            postingDate: daysAgo(0),
+            actor: { id: 'u1', role: 'finance_administrator' },
+        })
+        expect(periods.assertPostingAllowed).toHaveBeenCalledWith(
+            'company-1',
+            expect.any(Date),
+            'MANUAL',
+            { allowRestrictedManual: true },
+        )
+        expect(findUnique).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { code: 'finance_administrator' },
+            }),
+        )
     })
 })
 

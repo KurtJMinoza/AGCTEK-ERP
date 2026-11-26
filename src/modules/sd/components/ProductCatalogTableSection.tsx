@@ -333,6 +333,24 @@ const ProductCatalogTableSection = ({
                 },
             },
             {
+                id: 'expiry',
+                header: 'Expiry',
+                enableSorting: false,
+                size: 112,
+                minSize: 96,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v =
+                        variantsSummary[row.original.id]?.displayExpiryDate ??
+                        stockByProductId[row.original.id]?.primaryProductExpiry
+                    return v ? (
+                        <span className="font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
                 id: 'badge',
                 header: 'Badge',
                 enableSorting: true,

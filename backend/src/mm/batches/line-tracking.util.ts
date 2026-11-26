@@ -6,6 +6,7 @@ export type LineBatchTracking = {
     batchId: string | null
     batchNumber: string | null
     lotNumber: string | null
+    expiryDate: Date | null
 }
 
 type Client = Pick<
@@ -23,10 +24,15 @@ export async function resolveMaterialLineTracking(
 ): Promise<LineBatchTracking> {
     const material = await prisma.mmMaterial.findFirst({
         where: { id: materialId, deletedAt: null },
-        select: { batchManaged: true },
+        select: { batchManaged: true, defaultExpiryDate: true },
     })
     if (!material?.batchManaged) {
-        return { batchId: null, batchNumber: null, lotNumber: null }
+        return {
+            batchId: null,
+            batchNumber: null,
+            lotNumber: null,
+            expiryDate: material?.defaultExpiryDate ?? null,
+        }
     }
 
     const balances = await prisma.mmInventoryBalance.findMany({
@@ -65,16 +71,27 @@ export async function resolveMaterialLineTracking(
         (await prisma.mmBatch.findFirst({
             where: { materialId, deletedAt: null },
             orderBy: { createdAt: 'desc' },
-            select: { id: true, batchNumber: true, lotNumber: true },
+            select: {
+                id: true,
+                batchNumber: true,
+                lotNumber: true,
+                expiryDate: true,
+            },
         }))
 
     if (!pick) {
-        return { batchId: null, batchNumber: null, lotNumber: null }
+        return {
+            batchId: null,
+            batchNumber: null,
+            lotNumber: null,
+            expiryDate: material?.defaultExpiryDate ?? null,
+        }
     }
     return {
         batchId: pick.id,
         batchNumber: pick.batchNumber,
         lotNumber: pick.lotNumber ?? null,
+        expiryDate: pick.expiryDate ?? material?.defaultExpiryDate ?? null,
     }
 }
 
@@ -109,7 +126,12 @@ export async function ensureMaterialBatch(
             batchNumber: resolvedBatchNumber,
             deletedAt: null,
         },
-        select: { id: true, batchNumber: true, lotNumber: true },
+        select: {
+            id: true,
+            batchNumber: true,
+            lotNumber: true,
+            expiryDate: true,
+        },
     })
     if (existing) {
         if (lotNumber && existing.lotNumber && existing.lotNumber !== lotNumber) {
@@ -121,18 +143,25 @@ export async function ensureMaterialBatch(
             const updated = await prisma.mmBatch.update({
                 where: { id: existing.id },
                 data: { lotNumber },
-                select: { id: true, batchNumber: true, lotNumber: true },
+                select: {
+                    id: true,
+                    batchNumber: true,
+                    lotNumber: true,
+                    expiryDate: true,
+                },
             })
             return {
                 batchId: updated.id,
                 batchNumber: updated.batchNumber,
                 lotNumber: updated.lotNumber,
+                expiryDate: updated.expiryDate ?? null,
             }
         }
         return {
             batchId: existing.id,
             batchNumber: existing.batchNumber,
             lotNumber: existing.lotNumber ?? lotNumber,
+            expiryDate: existing.expiryDate ?? null,
         }
     }
 
@@ -143,11 +172,17 @@ export async function ensureMaterialBatch(
             lotNumber: lotNumber ?? null,
             status: 'AVAILABLE',
         },
-        select: { id: true, batchNumber: true, lotNumber: true },
+        select: {
+            id: true,
+            batchNumber: true,
+            lotNumber: true,
+            expiryDate: true,
+        },
     })
     return {
         batchId: created.id,
         batchNumber: created.batchNumber,
         lotNumber: created.lotNumber,
+        expiryDate: created.expiryDate ?? null,
     }
 }

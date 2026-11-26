@@ -4,7 +4,10 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
+    Optional,
 } from '@nestjs/common'
+import { SdEventEmitterService } from './sd-event-emitter.service'
+import { SD_EVENTS } from './sd-event.types'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
@@ -172,6 +175,7 @@ export class SalesReturnService {
         private readonly prisma: PrismaService,
         private readonly permissions: PermissionsService,
         private readonly customerReturns: CustomerReturnService,
+        @Optional() private readonly sdEvents?: SdEventEmitterService,
     ) {}
 
     /**
@@ -266,7 +270,7 @@ export class SalesReturnService {
     /**
      * Records the customer's settlement and moves the REQUESTED return accordingly:
      * pay in full → REJECTED (credit 0); credit (with or without return) → AUTHORIZED with the
-     * credit amount at order-line price. Credit memo / FICO posting is out of scope here.
+     * credit amount at order-line price. CREDIT_NO_RETURN triggers automatic AR credit memo.
      */
     async settle(
         id: string,
@@ -300,7 +304,7 @@ export class SalesReturnService {
             )
         }
         const creditAmount = await this.creditAmountFor(id)
-        return this.transition(
+        const row = await this.transition(
             id,
             actor,
             SALES_RETURN_STATUS.REQUESTED,
@@ -313,6 +317,23 @@ export class SalesReturnService {
             },
             { settlement, creditAmount: creditAmount?.toString() ?? null },
         )
+        if (
+            settlement === SALES_RETURN_SETTLEMENT.CREDIT_NO_RETURN &&
+            creditAmount?.gt(0) &&
+            row.customerId &&
+            this.sdEvents
+        ) {
+            await this.sdEvents.emit(SD_EVENTS.SALES_RETURN_CREDIT_AUTHORIZED, {
+                salesReturnId: row.id,
+                returnNumber: row.returnNumber,
+                salesOrderId: row.salesOrderId,
+                companyId: row.companyId,
+                customerId: row.customerId,
+                creditAmount: creditAmount.toString(),
+                idempotencyKey: `sd-return-credit:${row.id}`,
+            })
+        }
+        return row
     }
 
     /** REQUESTED or AUTHORIZED → CANCELLED (nothing was posted, so no reversal is needed). */

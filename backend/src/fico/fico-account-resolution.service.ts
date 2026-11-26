@@ -33,6 +33,11 @@ import {
     ficoResolveTransactionTypeForKey,
     ficoRuleLineSignature,
 } from './fico-account-determination-policy'
+import {
+    ficoCanonicalTransactionKeyCode,
+    ficoTransactionKeyLookupCodes,
+    ficoTransactionKeysEqual,
+} from './fico-phase02-enterprise-keys.policy'
 import { ficoDeterminationDimensionEqual } from './fico-determination-dimension.util'
 import type {
     SimulationCandidateTrace,
@@ -68,6 +73,9 @@ export type AccountResolutionRequest = {
     productionOrderTypeCode?: string | null
     costElementCategoryCode?: string | null
     controllingAreaCode?: string | null
+    materialGroupCode?: string | null
+    taxCodeId?: string | null
+    salesChannelCode?: string | null
 }
 
 export type ResolvedAccountLine = {
@@ -131,6 +139,9 @@ type CandidateRule = {
     productionOrderTypeCode: string | null
     costElementCategoryCode: string | null
     controllingAreaCode: string | null
+    materialGroupCode: string | null
+    taxCodeId: string | null
+    salesChannelCode: string | null
     lines: Array<{
         lineNumber: number
         side: string
@@ -192,7 +203,9 @@ export class FicoAccountResolutionService {
     async resolveDetermination(
         request: AccountDeterminationRequest,
     ): Promise<AccountDeterminationResult> {
-        const transactionKey = normalise(request.transactionKey)
+        const transactionKey = ficoCanonicalTransactionKeyCode(
+            request.transactionKey.trim(),
+        )
         if (!transactionKey) {
             throw new BadRequestException('A transaction key is required.')
         }
@@ -436,11 +449,19 @@ export class FicoAccountResolutionService {
                 },
             ],
         }
-        const key = normalise(request.transactionKeyCode)
+        const key = request.transactionKeyCode?.trim()
+            ? ficoCanonicalTransactionKeyCode(request.transactionKeyCode)
+            : null
         if (key) {
+            const lookupCodes = ficoTransactionKeyLookupCodes(key)
             where.AND = [
                 ...(where.AND as Prisma.FicoAccountDeterminationRuleWhereInput[]),
-                { OR: [{ transactionKeyCode: null }, { transactionKeyCode: key }] },
+                {
+                    OR: [
+                        { transactionKeyCode: null },
+                        { transactionKeyCode: { in: lookupCodes } },
+                    ],
+                },
             ]
         }
         const catalogEntry = key ? ficoCatalogEntryForKey(key) : undefined
@@ -645,11 +666,19 @@ export class FicoAccountResolutionService {
                 },
             ],
         }
-        const key = normalise(request.transactionKeyCode)
+        const key = request.transactionKeyCode?.trim()
+            ? ficoCanonicalTransactionKeyCode(request.transactionKeyCode)
+            : null
         if (key) {
+            const lookupCodes = ficoTransactionKeyLookupCodes(key)
             where.AND = [
                 ...(where.AND as Prisma.FicoAccountDeterminationRuleWhereInput[]),
-                { OR: [{ transactionKeyCode: null }, { transactionKeyCode: key }] },
+                {
+                    OR: [
+                        { transactionKeyCode: null },
+                        { transactionKeyCode: { in: lookupCodes } },
+                    ],
+                },
             ]
         }
 
@@ -704,18 +733,20 @@ export class FicoAccountResolutionService {
     ): SimulationCandidateTrace {
         const unmatched: SimulationUnmatchedCondition[] = []
         const matched: FicoDeterminationDimension[] = []
-        const requestKey = normalise(request.transactionKeyCode)
+        const requestKey = request.transactionKeyCode?.trim()
+            ? ficoCanonicalTransactionKeyCode(request.transactionKeyCode)
+            : null
         let matchedTransactionKey = false
 
         if (rule.transactionKeyCode) {
-            const ruleKey = normalise(rule.transactionKeyCode)
+            const ruleKey = ficoCanonicalTransactionKeyCode(rule.transactionKeyCode)
             if (!requestKey) {
                 unmatched.push({
                     dimension: 'transactionKey',
                     ruleValue: ruleKey,
                     inputValue: null,
                 })
-            } else if (ruleKey !== requestKey) {
+            } else if (!ficoTransactionKeysEqual(ruleKey, requestKey)) {
                 unmatched.push({
                     dimension: 'transactionKey',
                     ruleValue: ruleKey,
@@ -792,12 +823,16 @@ export class FicoAccountResolutionService {
         specificity: number
     } | null {
         const dimensions = new Set<FicoDeterminationDimension>()
-        const requestKey = normalise(request.transactionKeyCode)
+        const requestKey = request.transactionKeyCode?.trim()
+            ? ficoCanonicalTransactionKeyCode(request.transactionKeyCode)
+            : null
 
         let matchedTransactionKey = false
         if (rule.transactionKeyCode) {
-            const ruleKey = normalise(rule.transactionKeyCode)
-            if (!requestKey || ruleKey !== requestKey) return null
+            const ruleKey = ficoCanonicalTransactionKeyCode(rule.transactionKeyCode)
+            if (!requestKey || !ficoTransactionKeysEqual(ruleKey, requestKey)) {
+                return null
+            }
             matchedTransactionKey = true
         }
 

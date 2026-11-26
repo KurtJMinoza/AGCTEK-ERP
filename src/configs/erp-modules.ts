@@ -231,6 +231,69 @@ export const ERP_MODULES: ErpModule[] = [
                 ],
             },
             {
+                code: 'accounts-receivable',
+                title: 'Accounts Receivable',
+                submodules: [
+                    {
+                        code: 'ar-workbench',
+                        permissionCode: 'fico.accounts-receivable',
+                        title: 'Accounts Receivable',
+                        description:
+                            'Customer invoices, collections, open items, credit exposure, and AR reconciliation.',
+                        path: '/modules/fico/accounts-receivable',
+                        icon: 'fileText',
+                    },
+                ],
+            },
+            {
+                code: 'treasury',
+                title: 'Treasury & tax',
+                submodules: [
+                    {
+                        code: 'treasury-accounts',
+                        permissionCode: 'fico.treasury',
+                        title: 'Cash & bank',
+                        description:
+                            'Treasury master data, settlements, and payment account resolution.',
+                        path: '/modules/fico/treasury',
+                        icon: 'landmark',
+                    },
+                    {
+                        code: 'tax-reconciliation',
+                        permissionCode: 'fico.treasury',
+                        title: 'Tax reconciliation',
+                        description:
+                            'Posted tax snapshots vs tax G/L balances (management report, not statutory filing).',
+                        path: '/modules/fico/tax-reconciliation',
+                        icon: 'receipt',
+                    },
+                ],
+            },
+            {
+                code: 'accounts-payable',
+                title: 'Accounts Payable',
+                submodules: [
+                    {
+                        code: 'ap-workbench',
+                        permissionCode: 'fico.accounts-payable',
+                        title: 'Accounts Payable',
+                        description:
+                            'Supplier open items, AP documents, outgoing payments, and clearings (MM match → FICO subledger).',
+                        path: '/modules/fico/accounts-payable',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'grir-clearing',
+                        permissionCode: 'fico.accounts-payable',
+                        title: 'GR/IR clearing',
+                        description:
+                            'Procurement GR/IR open items, invoice verification outcomes, blocked invoices, and G/L reconciliation.',
+                        path: '/modules/fico/grir-clearing',
+                        icon: 'fileText',
+                    },
+                ],
+            },
+            {
                 code: 'master-data',
                 title: 'Master Data',
                 submodules: [

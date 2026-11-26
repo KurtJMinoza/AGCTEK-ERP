@@ -5,11 +5,12 @@ import {
     Inject,
     forwardRef,
 } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { postingKey } from '../common/idempotency.util'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { DisposalService } from './disposal.service'
@@ -86,7 +87,8 @@ export class CustomerReturnService {
         private configService: ReturnsDisposalConfigService,
         @Inject(forwardRef(() => DisposalService))
         private disposalService: DisposalService,
-        private events: EventEmitter2,
+        private domainEvents: MmDomainEventsService,
+        private periodGuard: MmPostingPeriodGuard,
         private permissions: PermissionsService,
     ) {}
 
@@ -593,6 +595,8 @@ export class CustomerReturnService {
             throw new BadRequestException('Duplicate customer return posting blocked')
         }
 
+        await this.periodGuard.assertCanPost(doc.companyId, new Date())
+
         const now = new Date().toISOString()
 
         for (const line of doc.lines) {
@@ -686,34 +690,59 @@ export class CustomerReturnService {
             }
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'CUSTOMER_RETURN_COMPLETED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'CUSTOMER_RETURN',
-                documentId: doc.id,
+        const postedDoc = await this.prisma.mmCustomerReturn.findUnique({
+            where: { id },
+            include: DETAIL_INCLUDE,
+        })
+        const accountingLines = (postedDoc?.lines ?? []).filter(
+            (l) => l.dispositionStatus === 'POSTED' && l.inventoryTxnId,
+        )
+        if (accountingLines.length > 0) {
+            const references: Array<{ entityType: string; entityId: string }> = []
+            if (postedDoc?.sdSalesReturnId) {
+                references.push({
+                    entityType: 'SD_SALES_RETURN',
+                    entityId: postedDoc.sdSalesReturnId,
+                })
+            }
+            if (postedDoc?.damageReportId) {
+                references.push({
+                    entityType: 'SCM_DAMAGE_REPORT',
+                    entityId: postedDoc.damageReportId,
+                })
+            }
+            await this.domainEvents.customerReturnPosted({
                 companyId: doc.companyId,
+                returnId: doc.id,
                 payload: {
                     returnNumber: doc.returnNumber,
-                    lines: doc.lines.map((l) => ({
+                    warehouseId: doc.warehouseId,
+                    postingDate: now,
+                    sdSalesReturnId: postedDoc?.sdSalesReturnId ?? null,
+                    customerRef: doc.customerRef,
+                    lines: accountingLines.map((l) => ({
                         materialId: l.materialId,
+                        warehouseId: doc.warehouseId,
+                        movementType: 'RETURN_IN',
                         quantity: Number(l.quantity),
+                        unitCost: Number(l.unitCost),
+                        totalCost: Number(l.unitCost) * Number(l.quantity),
+                        inventoryTxnId: l.inventoryTxnId,
                         disposition: l.disposition,
                     })),
                 },
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'CUSTOMER_RETURN',
-            documentId: doc.id,
-            companyId: doc.companyId,
-        })
+                documentReferences: references.length ? references : undefined,
+            })
+        }
 
         const updated = await this.prisma.mmCustomerReturn.update({
             where: { id },
-            data: { status: 'CLOSED' },
+            data: {
+                status: 'CLOSED',
+                accountingPostingStatus: accountingLines.length
+                    ? 'PENDING_ACCOUNTING'
+                    : 'NOT_FINANCIALLY_RELEVANT',
+            },
             include: DETAIL_INCLUDE,
         })
         await this.audit(
@@ -761,21 +790,38 @@ export class CustomerReturnService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'CUSTOMER_RETURN_REVERSED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'CUSTOMER_RETURN',
-                documentId: doc.id,
+        const reversalLines = doc.lines.filter(
+            (l) => l.dispositionStatus === 'POSTED' && l.inventoryTxnId,
+        )
+        if (reversalLines.length) {
+            await this.domainEvents.customerReturnReversed({
                 companyId: doc.companyId,
-                payload: { returnNumber: doc.returnNumber },
-                status: 'PENDING',
-            },
-        })
+                returnId: doc.id,
+                payload: {
+                    returnNumber: doc.returnNumber,
+                    warehouseId: doc.warehouseId,
+                    postingDate: new Date().toISOString(),
+                    lines: reversalLines.map((l) => ({
+                        materialId: l.materialId,
+                        warehouseId: doc.warehouseId,
+                        movementType: 'RETURN_IN_REVERSAL',
+                        quantity: Number(l.quantity),
+                        unitCost: Number(l.unitCost),
+                        totalCost: Number(l.unitCost) * Number(l.quantity),
+                        inventoryTxnId: l.inventoryTxnId,
+                    })),
+                },
+            })
+        }
 
         const updated = await this.prisma.mmCustomerReturn.update({
             where: { id },
-            data: { status: 'REVERSED' },
+            data: {
+                status: 'REVERSED',
+                accountingPostingStatus: reversalLines.length
+                    ? 'PENDING_ACCOUNTING'
+                    : doc.accountingPostingStatus,
+            },
             include: DETAIL_INCLUDE,
         })
         await this.audit(

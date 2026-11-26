@@ -93,9 +93,11 @@ const JournalEntryDetailsPage = () => {
         }
     }
 
-    const canEdit = entry?.status === 'DRAFT'
-
-    const canPost = entry?.status === 'DRAFT'
+    const caps = entry?.capabilities
+    const canEdit = caps?.canEdit ?? entry?.status === 'DRAFT'
+    const canPost = caps?.canPost ?? entry?.status === 'DRAFT'
+    const canReverse = caps?.canReverse ?? entry?.status === 'POSTED'
+    const readOnlyPosted = caps?.readOnlyPosted ?? (entry?.status === 'POSTED' && Boolean(entry?.sourceModule))
 
     const route = entryId
         ? `/modules/fico/journal-entries/${entryId}`
@@ -145,7 +147,7 @@ const JournalEntryDetailsPage = () => {
                                 Post
                             </Button>
                         ) : null}
-                        {entry?.status === 'POSTED' ? (
+                        {canReverse ? (
                             <Button
                                 variant="twoTone"
                                 icon={<HiOutlineRefresh />}
@@ -154,6 +156,11 @@ const JournalEntryDetailsPage = () => {
                             >
                                 Reverse
                             </Button>
+                        ) : null}
+                        {readOnlyPosted ? (
+                            <span className="text-xs text-gray-500">
+                                Posted automatic journal — read-only. Reverse from the source module when required.
+                            </span>
                         ) : null}
                         {entry?.status === 'DRAFT' ? (
                             <Button

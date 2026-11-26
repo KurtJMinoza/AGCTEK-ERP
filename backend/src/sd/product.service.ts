@@ -15,6 +15,7 @@ import {
     UpdateProductDto,
 } from './dto/product.dto'
 import { CommercialAvailabilityService } from './commercial-availability.service'
+import { resolveMaterialLineTracking } from '../mm/batches/line-tracking.util'
 import {
     PRODUCT_IMAGE_MAX_BYTES,
     PRODUCT_VIDEO_MAX,
@@ -44,6 +45,8 @@ export type ProductAvailability = {
     hasVariants: boolean
     variantId: string | null
     materialId: string | null
+    /** Company scope used for ledger / FEFO batch (not always returned to clients). */
+    companyId?: string | null
     /** Sellable quantity (MM available = on hand − reserved). */
     availableQuantity: number
     reservedQuantity: number
@@ -52,6 +55,8 @@ export type ProductAvailability = {
     /** Latest MM batch for the resolved material (display only). */
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    /** FEFO batch expiry for the resolved material (YYYY-MM-DD display). */
+    primaryProductExpiry?: string | null
     /** Variant barcode, else the material's primary MM barcode (display only). */
     barcode?: string | null
     state:
@@ -296,6 +301,7 @@ export class ProductService {
                 hasVariants: false,
                 variantId: null,
                 materialId: materialIds.length === 1 ? materialIds[0] : null,
+                companyId,
                 ...numbers,
             },
         ])
@@ -563,6 +569,7 @@ export class ProductService {
                     hasVariants: target.hasVariants,
                     variantId: target.variantId,
                     materialId: target.materialId,
+                    companyId: target.companyId,
                     availableQuantity: unlimited ? 999_999 : 0,
                     reservedQuantity: 0,
                     physicalStock: unlimited ? 999_999 : 0,
@@ -587,6 +594,7 @@ export class ProductService {
                 hasVariants: target.hasVariants,
                 variantId: target.variantId,
                 materialId: target.materialId,
+                companyId: target.companyId,
                 ...this.availabilityFromLedger(ledgers),
             }
         })
@@ -652,11 +660,76 @@ export class ProductService {
     private async attachPrimaryBatchTrackingAsync(
         rows: ProductAvailability[],
     ): Promise<ProductAvailability[]> {
-        const materialIds = rows
-            .map((row) => row.materialId)
-            .filter((id): id is string => Boolean(id))
-        const batchByMaterial = await this.primaryBatchByMaterialIds(materialIds)
-        const tracked = this.attachPrimaryBatchTracking(rows, batchByMaterial)
+        const keys = new Map<
+            string,
+            { materialId: string; companyId: string | null }
+        >()
+        for (const row of rows) {
+            if (!row.materialId) continue
+            const companyId = row.companyId ?? null
+            keys.set(`${row.materialId}:${companyId ?? ''}`, {
+                materialId: row.materialId,
+                companyId,
+            })
+        }
+        const trackingByKey = new Map<
+            string,
+            Awaited<ReturnType<typeof resolveMaterialLineTracking>>
+        >()
+        await Promise.all(
+            [...keys.entries()].map(async ([key, { materialId, companyId }]) => {
+                trackingByKey.set(
+                    key,
+                    await resolveMaterialLineTracking(
+                        this.prisma,
+                        materialId,
+                        companyId,
+                    ),
+                )
+            }),
+        )
+        const variantIds = [
+            ...new Set(rows.map((r) => r.variantId).filter((id): id is string => !!id)),
+        ]
+        const variantRows = variantIds.length
+            ? await this.prisma.sdProductVariant.findMany({
+                  where: { id: { in: variantIds } },
+                  select: { id: true, catalogExpiryDate: true },
+              })
+            : []
+        const variantCatalogExpiry = new Map(
+            variantRows.map((v) => [
+                v.id,
+                v.catalogExpiryDate
+                    ? v.catalogExpiryDate.toISOString().slice(0, 10)
+                    : null,
+            ]),
+        )
+        const tracked = rows.map((row) => {
+            if (!row.materialId) {
+                return {
+                    ...row,
+                    primaryBatchNumber: null,
+                    primaryLotNumber: null,
+                    primaryProductExpiry: null,
+                }
+            }
+            const key = `${row.materialId}:${row.companyId ?? ''}`
+            const tracking = trackingByKey.get(key)
+            const catalogExpiry = row.variantId
+                ? variantCatalogExpiry.get(row.variantId) ?? null
+                : null
+            return {
+                ...row,
+                primaryBatchNumber: tracking?.batchNumber ?? null,
+                primaryLotNumber: tracking?.lotNumber ?? null,
+                primaryProductExpiry:
+                    catalogExpiry ??
+                    (tracking?.expiryDate
+                        ? tracking.expiryDate.toISOString().slice(0, 10)
+                        : null),
+            }
+        })
         return this.attachBarcodes(tracked)
     }
 
@@ -736,6 +809,7 @@ export class ProductService {
             physicalStock: 0,
             primaryBatchNumber: null,
             primaryLotNumber: null,
+            primaryProductExpiry: null,
             state: 'NOT_MAPPED',
         }
         if (!args.materialId || !scopedCompanyId) return notMapped
@@ -751,6 +825,7 @@ export class ProductService {
                 hasVariants: args.hasVariants,
                 variantId: args.variantId,
                 materialId: args.materialId,
+                companyId: scopedCompanyId,
                 ...numbers,
             },
         ])

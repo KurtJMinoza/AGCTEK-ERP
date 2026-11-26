@@ -13,6 +13,7 @@ export type AccountDeterminationDimensions = {
     valuationAreaId?: string
     valuationClassId?: string
     materialGroupId?: string
+    materialGroupCode?: string
     movementTypeId?: string
 
     supplierAccountGroupId?: string
@@ -22,6 +23,7 @@ export type AccountDeterminationDimensions = {
     productAccountAssignmentGroupId?: string
     salesOrganizationId?: string
     distributionChannelId?: string
+    salesChannelCode?: string
 
     taxCodeId?: string
     paymentMethodId?: string
@@ -126,10 +128,13 @@ export function flattenDeterminationDimensions(
     AccountResolutionRequest,
     | 'valuationClassId'
     | 'materialTypeCode'
+    | 'materialGroupCode'
     | 'movementType'
     | 'customerAccountGroup'
     | 'salesOrganization'
     | 'distributionChannel'
+    | 'salesChannelCode'
+    | 'taxCodeId'
     | 'paymentMethodCode'
     | 'bankAccountId'
     | 'paymentProviderCode'
@@ -146,6 +151,7 @@ export function flattenDeterminationDimensions(
         valuationClassId:
             dimensions.valuationClassId ?? dimensions.valuationAreaId ?? null,
         materialTypeCode: dimensions.materialTypeCode ?? null,
+        materialGroupCode: dimensions.materialGroupCode ?? dimensions.materialGroupId ?? null,
         movementType:
             dimensions.movementType ?? dimensions.movementTypeId ?? null,
         customerAccountGroup:
@@ -160,6 +166,8 @@ export function flattenDeterminationDimensions(
             dimensions.distributionChannel ??
             dimensions.distributionChannelId ??
             null,
+        salesChannelCode: dimensions.salesChannelCode ?? null,
+        taxCodeId: dimensions.taxCodeId ?? null,
         paymentMethodCode: dimensions.paymentMethodCode ?? null,
         bankAccountId: dimensions.bankAccountId ?? null,
         paymentProviderCode: dimensions.paymentProviderCode ?? null,

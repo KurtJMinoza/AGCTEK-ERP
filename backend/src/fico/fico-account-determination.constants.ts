@@ -58,6 +58,7 @@ export const FICO_MM_DETERMINATION_TYPES = [
     { code: 'INVENTORY_DECREASE', label: 'Inventory Decrease' },
     { code: 'INVENTORY_WRITE_OFF', label: 'Inventory Write-off' },
     { code: 'SUPPLIER_RETURN', label: 'Supplier Return' },
+    { code: 'INVENTORY_REVALUATION', label: 'Inventory Revaluation' },
 ] as const
 
 /** SD transaction types mapped by Phase 1. */
@@ -243,11 +244,14 @@ export const FICO_TRANSACTION_KEY_ENTITY_TYPE = 'FICO_TRANSACTION_KEY'
 export const FICO_DETERMINATION_DIMENSIONS = [
     'valuationClassId',
     'materialTypeCode',
+    'materialGroupCode',
     'movementType',
     'customerAccountGroup',
     'supplierAccountGroup',
     'salesOrganization',
     'distributionChannel',
+    'salesChannelCode',
+    'taxCodeId',
     'paymentMethodCode',
     'bankAccountId',
     'paymentProviderCode',

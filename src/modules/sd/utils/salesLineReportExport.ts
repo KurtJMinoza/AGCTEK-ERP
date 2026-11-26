@@ -51,6 +51,7 @@ export function downloadSalesLineReportExcel(
             : '',
         'Batch number': row.batchNumber || '',
         'Lot number': row.lotNumber || '',
+        'Product expiry': row.productExpiry || '',
         Remarks: row.remarks || '',
     }))
 

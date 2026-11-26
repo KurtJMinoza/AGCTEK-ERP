@@ -170,6 +170,12 @@ export class CreateMaterialDto {
     @IsBoolean()
     expiryManaged?: boolean
 
+    /** Calendar default expiry (YYYY-MM-DD) for SD / non-batch materials. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    defaultExpiryDate?: string | null
+
     @IsOptional()
     @IsBoolean()
     qualityInspectionRequired?: boolean

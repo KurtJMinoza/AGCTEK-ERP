@@ -21,6 +21,23 @@ const statusOptions = [
     { value: 'REVERSED', label: 'Reversed' },
 ]
 
+const originOptions = [
+    { value: '', label: 'Any origin' },
+    { value: 'MANUAL', label: 'Manual' },
+    { value: 'AUTOMATIC', label: 'Automatic' },
+    { value: 'REVERSAL', label: 'Reversal' },
+    { value: 'SYSTEM_ADJUSTMENT', label: 'System adjustment' },
+]
+
+const sourceModuleOptions = [
+    { value: '', label: 'Any module' },
+    { value: 'MM', label: 'MM' },
+    { value: 'SD', label: 'SD' },
+    { value: 'AP', label: 'AP' },
+    { value: 'AR', label: 'AR' },
+    { value: 'FICO', label: 'FICO' },
+]
+
 function stripAdvancedFilters(
     filters: FicoJournalListQuery,
 ): FicoJournalListQuery {
@@ -48,6 +65,9 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
             page: 1,
         }
         if (draft.status) next.status = draft.status
+        if (draft.postingOrigin) next.postingOrigin = draft.postingOrigin
+        if (draft.sourceModule) next.sourceModule = draft.sourceModule
+        if (draft.sourceDocumentNumber) next.sourceDocumentNumber = draft.sourceDocumentNumber
         if (draft.dateFrom) next.dateFrom = draft.dateFrom
         if (draft.dateTo) next.dateTo = draft.dateTo
         onApply(next)
@@ -90,6 +110,55 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
                 }
             >
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormItem label="Posting origin" className="sm:col-span-2">
+                        <Select
+                            size="sm"
+                            options={originOptions}
+                            value={
+                                originOptions.find(
+                                    (o) => o.value === (draft.postingOrigin ?? ''),
+                                ) ?? null
+                            }
+                            onChange={(opt) =>
+                                setDraft((p) => ({
+                                    ...p,
+                                    postingOrigin:
+                                        (opt as { value: string })?.value || undefined,
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Source module">
+                        <Select
+                            size="sm"
+                            options={sourceModuleOptions}
+                            value={
+                                sourceModuleOptions.find(
+                                    (o) => o.value === (draft.sourceModule ?? ''),
+                                ) ?? null
+                            }
+                            onChange={(opt) =>
+                                setDraft((p) => ({
+                                    ...p,
+                                    sourceModule:
+                                        (opt as { value: string })?.value || undefined,
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Source document #">
+                        <Input
+                            size="sm"
+                            value={draft.sourceDocumentNumber ?? ''}
+                            onChange={(e) =>
+                                setDraft((p) => ({
+                                    ...p,
+                                    sourceDocumentNumber: e.target.value || undefined,
+                                }))
+                            }
+                            placeholder="PO / GR / SO reference"
+                        />
+                    </FormItem>
                     <FormItem label="Posting status" className="sm:col-span-2">
                         <Select
                             size="sm"

@@ -6,7 +6,11 @@ describe('FicoApReconciliationGuardService', () => {
         const service = new FicoApReconciliationGuardService({
             ficoGlAccount: {
                 findMany: jest.fn().mockResolvedValue([
-                    { accountCode: '210000', accountName: 'Trade payables' },
+                    {
+                        accountCode: '210000',
+                        accountName: 'Trade payables',
+                        reconciliationType: 'AP',
+                    },
                 ]),
             },
         } as any)
@@ -29,5 +33,57 @@ describe('FicoApReconciliationGuardService', () => {
             }),
         ).resolves.toBeUndefined()
         expect(findMany).not.toHaveBeenCalled()
+    })
+
+    it('rejects manual posting to AR reconciliation accounts', async () => {
+        const service = new FicoApReconciliationGuardService({
+            ficoGlAccount: {
+                findMany: jest.fn().mockResolvedValue([
+                    {
+                        accountCode: '120000',
+                        accountName: 'Trade receivables',
+                        reconciliationType: 'AR',
+                    },
+                ]),
+            },
+        } as any)
+
+        await expect(
+            service.assertPostingAllowed({ glAccountIds: ['ar-recon'] }),
+        ).rejects.toThrow(/reconciliation accounts is restricted/)
+    })
+
+    it('allows manual posting only when the company policy opts in', async () => {
+        const service = new FicoApReconciliationGuardService({
+            ficoGlAccount: {
+                findMany: jest.fn().mockResolvedValue([
+                    {
+                        accountCode: '120000',
+                        accountName: 'Trade receivables',
+                        reconciliationType: 'AR',
+                    },
+                ]),
+            },
+        } as any)
+
+        await expect(
+            service.assertPostingAllowed({
+                glAccountIds: ['ar-recon'],
+                reconciliationPolicy: 'ALLOW_MANUAL',
+            }),
+        ).resolves.toBeUndefined()
+    })
+
+    it('allows automatic AR subledger posting', async () => {
+        const service = new FicoApReconciliationGuardService({
+            ficoGlAccount: { findMany: jest.fn().mockResolvedValue([]) },
+        } as any)
+
+        await expect(
+            service.assertPostingAllowed({
+                glAccountIds: ['ar-recon'],
+                source: 'AUTOMATIC',
+            }),
+        ).resolves.toBeUndefined()
     })
 })

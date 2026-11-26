@@ -27,6 +27,10 @@ export const FICO_MM_EVENT_TRANSACTION_KEYS: ReadonlyArray<{
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
     },
     {
+        eventTypes: ['CustomerReturnPosted', 'CustomerReturnReversed'],
+        resolve: () => 'GI_COGS',
+    },
+    {
         eventTypes: ['DisposalReversed'],
         resolve: () => 'INVENTORY_LOSS',
     },
@@ -66,6 +70,7 @@ export const FICO_MM_KEY_TO_TRANSACTION_TYPE: Record<string, string> = {
     FREIGHT_CLEARING: 'GOODS_RECEIPT',
     PURCHASE_VARIANCE: 'SUPPLIER_INVOICE',
     PRICE_VARIANCE: 'SUPPLIER_INVOICE',
+    INVENTORY_REVALUATION: 'INVENTORY_REVALUATION',
 }
 
 /**
@@ -145,6 +150,11 @@ export function ficoResolveMmTransactionKey(
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
         )
     }
+    if (
+        ['CustomerReturnPosted', 'CustomerReturnReversed'].includes(payload.eventType)
+    ) {
+        return ficoCanonicalMmTransactionKey('GI_COGS')
+    }
     if (payload.eventType === 'DisposalReversed') {
         return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')
     }
@@ -152,6 +162,9 @@ export function ficoResolveMmTransactionKey(
     if (effects.has('INVENTORY_LOSS')) return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')
     if (effects.has('LANDED_COST')) return ficoCanonicalMmTransactionKey('LANDED_COST')
     if (effects.has('PRICE_VARIANCE')) return ficoCanonicalMmTransactionKey('PURCHASE_VARIANCE')
+    if (effects.has('INVENTORY_REVALUATION')) {
+        return ficoCanonicalMmTransactionKey('INVENTORY_REVALUATION')
+    }
     if (effects.has('INVENTORY_ADJUSTMENT')) {
         const increase = payload.lines.some((line) =>
             line.movementType.toUpperCase().includes('IN'),
@@ -171,6 +184,7 @@ export function ficoMmEventReversesPostingDirection(
         'GoodsReceiptReversed',
         'SupplierReturnPosted',
         'GoodsIssueReversed',
+        'CustomerReturnPosted',
         'DisposalReversed',
     ].includes(payload.eventType)
 }
