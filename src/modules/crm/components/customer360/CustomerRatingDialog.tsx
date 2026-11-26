@@ -5,14 +5,14 @@ import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
 import { FormItem } from '@/components/ui/Form'
 import Input from '@/components/ui/Input'
-import type { SetCustomerRatingInput } from '../../types'
+import type { RateCustomerInput } from '../../types'
 
 type Props = {
     isOpen: boolean
     saving?: boolean
     initialStars?: number | null
     onClose: () => void
-    onSubmit: (input: SetCustomerRatingInput) => void | Promise<void>
+    onSubmit: (input: RateCustomerInput) => void | Promise<void>
 }
 
 const STARS = [1, 2, 3, 4, 5] as const
