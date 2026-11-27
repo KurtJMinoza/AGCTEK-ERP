@@ -25,6 +25,29 @@ function journalStatusTone(status: string) {
     return 'default'
 }
 
+function isSupersededPostingJournal(journal: SalesOrderAccountingJournal) {
+    const docType = journal.documentType?.toUpperCase() ?? ''
+  const docNo = journal.documentNumber?.toUpperCase() ?? ''
+    return (
+        docType.includes('REVERSAL') ||
+        docNo.startsWith('SR-') ||
+        docNo.startsWith('VP-')
+    )
+}
+
+function accountingScopeLabel(scope: SalesOrderAccountingJournal['accountingScope']) {
+    switch (scope) {
+        case 'INVENTORY':
+            return 'Goods issue (COGS / inventory)'
+        case 'REVENUE':
+            return 'Sales revenue'
+        case 'COLLECTION':
+            return 'Payment collection'
+        default:
+            return null
+    }
+}
+
 function eventStatusTone(status: string) {
     if (status === 'CONSUMED') return 'success'
     if (status === 'FAILED') return 'danger'
@@ -43,7 +66,9 @@ function JournalBlock({
         (sum, line) => sum + line.credit,
         0,
     )
+    const scopeLabel = accountingScopeLabel(journal.accountingScope)
     const typeLabel =
+        scopeLabel ||
         journal.documentTypeCode ||
         journal.documentTypeName ||
         journal.documentType
@@ -74,6 +99,14 @@ function JournalBlock({
                             </>
                         ) : null}
                     </p>
+                    {journal.goodsIssueNumber ? (
+                        <p className="mt-1 text-xs text-gray-500">
+                            MM goods issue{' '}
+                            <span className="font-mono font-medium text-gray-700 dark:text-gray-200">
+                                {journal.goodsIssueNumber}
+                            </span>
+                        </p>
+                    ) : null}
                     {journal.headerText ? (
                         <p className="mt-1 text-xs text-gray-500">
                             {journal.headerText}
@@ -238,6 +271,14 @@ const SalesOrderAccountingSection = ({ orderId, companyId }: Props) => {
     }
 
     const journals = data?.journals ?? []
+    const activeJournals = journals.filter(
+        (journal) =>
+            journal.status === 'POSTED' && !isSupersededPostingJournal(journal),
+    )
+    const historicalJournals = journals.filter(
+        (journal) =>
+            journal.status !== 'POSTED' || isSupersededPostingJournal(journal),
+    )
     const events = data?.events ?? []
     const pendingOrFailed = events.filter(
         (event) =>
@@ -261,15 +302,19 @@ const SalesOrderAccountingSection = ({ orderId, companyId }: Props) => {
                 <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             ) : null}
 
-            {!loading && !error && journals.length === 0 && pendingOrFailed.length === 0 ? (
+            {!loading &&
+            !error &&
+            activeJournals.length === 0 &&
+            historicalJournals.length === 0 &&
+            pendingOrFailed.length === 0 ? (
                 <p className="text-sm text-gray-500">
                     No accounting document for this order
                 </p>
             ) : null}
 
-            {!loading && journals.length > 0 ? (
+            {!loading && activeJournals.length > 0 ? (
                 <div className="space-y-3">
-                    {journals.map((journal) => (
+                    {activeJournals.map((journal) => (
                         <JournalBlock
                             key={journal.id}
                             journal={journal}
@@ -277,6 +322,23 @@ const SalesOrderAccountingSection = ({ orderId, companyId }: Props) => {
                         />
                     ))}
                 </div>
+            ) : null}
+
+            {!loading && historicalJournals.length > 0 ? (
+                <details className="mt-3 rounded-xl border border-dashed border-gray-200 px-3 py-2 dark:border-gray-700">
+                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Prior / reversed postings ({historicalJournals.length})
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                        {historicalJournals.map((journal) => (
+                            <JournalBlock
+                                key={journal.id}
+                                journal={journal}
+                                showAmounts={showAmounts}
+                            />
+                        ))}
+                    </div>
+                </details>
             ) : null}
 
             {!loading && pendingOrFailed.length > 0 ? (

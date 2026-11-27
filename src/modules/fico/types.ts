@@ -323,6 +323,8 @@ export type FicoCompany = {
     code: string
     name: string
     tin?: string | null
+    /** Org master logo from MM Organization → Companies. */
+    logoUrl?: string | null
 }
 
 export type FicoChartRef = {

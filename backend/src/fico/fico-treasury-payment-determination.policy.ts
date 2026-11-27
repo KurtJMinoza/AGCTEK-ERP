@@ -14,6 +14,13 @@ export type FicoTreasuryPaymentMethodHint = {
     notes?: string
 }
 
+export function ficoTransactionKeyForPaymentMethod(code: string): string {
+    const hint = FICO_TREASURY_PAYMENT_METHOD_HINTS.find(
+        (row) => row.paymentMethodCode.toUpperCase() === code.trim().toUpperCase(),
+    )
+    return hint?.typicalTransactionKeys[0] ?? 'PAYMENT_CLEARING'
+}
+
 export const FICO_TREASURY_PAYMENT_METHOD_HINTS: FicoTreasuryPaymentMethodHint[] = [
     {
         paymentMethodCode: 'CASH',
@@ -27,6 +34,12 @@ export const FICO_TREASURY_PAYMENT_METHOD_HINTS: FicoTreasuryPaymentMethodHint[]
         typicalTransactionKeys: ['BANK_CLEARING', 'BANK_ACCOUNT', 'PAYMENT_CLEARING'],
         settlementPattern: 'CLEARING_THEN_BANK',
         notes: 'Use clearing when settlement is confirmed separately from customer payment capture.',
+    },
+    {
+        paymentMethodCode: 'CARD',
+        label: 'Card (POS)',
+        typicalTransactionKeys: ['PAYMENT_CLEARING', 'BANK_CLEARING'],
+        settlementPattern: 'CLEARING_THEN_BANK',
     },
     {
         paymentMethodCode: 'CREDIT_CARD',

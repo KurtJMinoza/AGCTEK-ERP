@@ -178,14 +178,20 @@ export const orgService = {
                 params: companyId ? { companyId } : {},
             }).then((r) => r.data),
         ),
-    branches: (params?: { companyId?: string; activeOnly?: boolean }) =>
+    branches: (params?: {
+        companyId?: string
+        activeOnly?: boolean
+        /** Limit to the signed-in user's company memberships (POS / SD). */
+        scoped?: boolean
+    }) =>
         mmCachedFetch(
-            `org:branches:${params?.companyId ?? 'all'}:${params?.activeOnly ? '1' : '0'}`,
+            `org:branches:${params?.companyId ?? 'all'}:${params?.activeOnly ? '1' : '0'}:${params?.scoped ? 'scoped' : 'all'}`,
             () =>
                 ErpAxiosBase.get<MmBranch[]>(`${API}/org/branches`, {
                     params: {
                         ...(params?.companyId ? { companyId: params.companyId } : {}),
                         ...(params?.activeOnly ? { activeOnly: 'true' } : {}),
+                        ...(params?.scoped ? { scoped: 'true' } : {}),
                     },
                 }).then((r) => r.data),
         ),

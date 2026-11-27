@@ -366,6 +366,43 @@ export class FicoJournalService {
             return { created: false, duplicate: false }
         }
 
+        if (payload.eventType === 'GoodsIssuePosted' && payload.documentId) {
+            const existingGiJournal = await this.prisma.ficoJournalEntry.findFirst({
+                where: {
+                    companyId: payload.companyId,
+                    sourceDocumentId: payload.documentId,
+                    documentType: 'MM_GI',
+                    status: 'POSTED',
+                },
+                select: { id: true, idempotencyKey: true },
+            })
+            if (
+                existingGiJournal &&
+                existingGiJournal.idempotencyKey !== idempotencyKey
+            ) {
+                this.logger.warn(
+                    `Duplicate GoodsIssuePosted suppressed for GI ${payload.documentId} ` +
+                        `(existing ${existingGiJournal.idempotencyKey}).`,
+                )
+                if (payload.mmAccountingEventId) {
+                    await this.prisma.mmAccountingEvent.update({
+                        where: { id: payload.mmAccountingEventId },
+                        data: {
+                            status: 'CONSUMED',
+                            journalEntryId: existingGiJournal.id,
+                            consumedAt: new Date(),
+                            processingStartedAt: null,
+                        },
+                    })
+                }
+                return {
+                    created: false,
+                    duplicate: true,
+                    journalEntryId: existingGiJournal.id,
+                }
+            }
+        }
+
         if (payload.eventType === 'PosSaleVoided' && payload.reversalOfJournalId) {
             const reversal = await this.reverseEntry(
                 payload.reversalOfJournalId,

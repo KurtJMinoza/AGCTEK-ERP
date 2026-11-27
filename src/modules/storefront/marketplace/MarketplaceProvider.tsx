@@ -191,6 +191,8 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
         variants: ProductVariantDefinition[]
     } | null>(null)
     const checkoutIdRef = useRef<string | null>(null)
+    /** Guards Buy Now confirm against double-clicks while hard-navigating. */
+    const buyNowNavigatingRef = useRef(false)
 
     useEffect(() => setHydrated(true), [])
     const signedInClient = hydrated ? client : null
@@ -207,15 +209,22 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             const query = searchParams.toString()
             const next =
                 intent === 'checkout'
-                    ? CHECKOUT_PATH
+                    ? // Keep Buy Now / cart query when already on checkout.
+                      pathname.startsWith(CHECKOUT_PATH) && query
+                          ? `${CHECKOUT_PATH}?${query}`
+                          : CHECKOUT_PATH
                     : intent === 'orders'
                       ? MARKETPLACE_ORDERS_PATH
                       : query
                         ? `${pathname}?${query}`
                         : pathname
-            router.push(marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, next))
+            // Hard navigation — soft pushes from the header were getting lost
+            // under sticky bars / open menus after repeated clicks.
+            window.location.assign(
+                marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, next),
+            )
         },
-        [pathname, router, searchParams],
+        [pathname, searchParams],
     )
 
     /** Legacy `?auth=` links now go to the full-page sign-in / sign-up. */
@@ -339,16 +348,19 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const openOrders = useCallback(() => {
         if (signedInClient) {
-            router.push(MARKETPLACE_ORDERS_PATH)
+            window.location.assign(MARKETPLACE_ORDERS_PATH)
             return
         }
         openAuth('orders')
-    }, [signedInClient, openAuth, router])
+    }, [signedInClient, openAuth])
 
     const openAccount = useCallback(() => {
-        if (signedInClient) router.push(MARKETPLACE_ACCOUNT_PATH)
-        else openAuth(null)
-    }, [signedInClient, router, openAuth])
+        if (signedInClient) {
+            window.location.assign(MARKETPLACE_ACCOUNT_PATH)
+            return
+        }
+        openAuth(null)
+    }, [signedInClient, openAuth])
 
     const placeOrder = async (
         shipping: SalesOrderShippingDetails,
@@ -476,8 +488,11 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
 
     const confirmAdd = () => {
         if (!requestedAdd) return
-        const { product, quantity, buyNow, variantInfo } = requestedAdd
+        const pending = requestedAdd
+        const { product, quantity, buyNow, variantInfo } = pending
         if (buyNow) {
+            if (buyNowNavigatingRef.current) return
+            buyNowNavigatingRef.current = true
             const params = new URLSearchParams({
                 buyNow: '1',
                 division: product.divisionId,
@@ -487,16 +502,25 @@ const MarketplaceProvider = ({ children }: { children: ReactNode }) => {
             if (variantInfo?.variantId) {
                 params.set('variantId', variantInfo.variantId)
             }
-            cancelAdd()
-            router.push(`${CHECKOUT_PATH}?${params.toString()}`)
+            const href = `${CHECKOUT_PATH}?${params.toString()}`
+            // Keep the modal mounted through the current pointer gesture so the
+            // sticky product bar under it cannot receive a click-through and
+            // reopen as "Add to cart?" — which cancels checkout navigation.
+            window.setTimeout(() => {
+                setRequestedAdd(null)
+                window.location.assign(href)
+            }, 0)
             return
         }
-        addItem(product, quantity, variantInfo)
-        cancelAdd()
-        const displayName = variantInfo?.variantName
-            ? `${product.name} — ${variantInfo.variantName}`
-            : product.name
-        notify('success', 'Added to cart', `${quantity} × ${displayName}`)
+        // Same click-through guard for Add to cart confirms over the sticky bar.
+        window.setTimeout(() => {
+            addItem(product, quantity, variantInfo)
+            setRequestedAdd(null)
+            const displayName = variantInfo?.variantName
+                ? `${product.name} — ${variantInfo.variantName}`
+                : product.name
+            notify('success', 'Added to cart', `${quantity} × ${displayName}`)
+        }, 0)
     }
 
     const increaseItem = useCallback(

@@ -309,7 +309,13 @@ const MarketplaceCheckoutPageContent = () => {
         } catch (error) {
             if (error instanceof RetailSessionExpiredError) {
                 logout()
-                router.push(marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, CHECKOUT_PATH))
+                const q = searchParams.toString()
+                router.push(
+                    marketplaceAuthHref(
+                        MARKETPLACE_SIGN_IN_PATH,
+                        q ? `${CHECKOUT_PATH}?${q}` : CHECKOUT_PATH,
+                    ),
+                )
                 return
             }
             setSubmitError(
@@ -337,6 +343,16 @@ const MarketplaceCheckoutPageContent = () => {
             })),
         ) ?? []
     const storeCount = pricing?.divisions.length ?? 0
+
+    /** Keep Buy Now / cart query when sending the shopper to sign-in. */
+    const checkoutReturnPath = useMemo(() => {
+        const q = searchParams.toString()
+        return q ? `${CHECKOUT_PATH}?${q}` : CHECKOUT_PATH
+    }, [searchParams])
+
+    const goSignIn = () => {
+        router.push(marketplaceAuthHref(MARKETPLACE_SIGN_IN_PATH, checkoutReturnPath))
+    }
 
     return (
         <div className="min-h-screen">
@@ -403,28 +419,6 @@ const MarketplaceCheckoutPageContent = () => {
                             </Button>
                         </div>
                     </section>
-                ) : !signedInClient ? (
-                    <section className="mx-auto mt-10 max-w-md rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
-                        <HiOutlineShoppingBag
-                            className="mx-auto text-4xl text-gray-300"
-                            aria-hidden
-                        />
-                        <h1 className="mt-3 text-xl font-bold text-gray-900">
-                            Sign in to check out
-                        </h1>
-                        <p className="mt-1 text-sm text-gray-500">
-                            Your selection is saved. Sign in to review and
-                            place your order.
-                        </p>
-                        <Button
-                            block
-                            className="mt-5"
-                            customColorClass={PRIMARY_BUTTON}
-                            onClick={openAccount}
-                        >
-                            Sign in
-                        </Button>
-                    </section>
                 ) : !catalog.ready ? (
                     <section className="mx-auto mt-10 max-w-md rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
                         <h1 className="text-xl font-bold text-gray-900">
@@ -485,6 +479,35 @@ const MarketplaceCheckoutPageContent = () => {
                 ) : (
                     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
                         <div className="flex flex-col gap-6">
+                            {!signedInClient ? (
+                                <section className="rounded-2xl border border-shop-100 bg-shop-50/60 p-5 shadow-sm">
+                                    <div className="flex items-start gap-3">
+                                        <HiOutlineShoppingBag
+                                            className="mt-0.5 shrink-0 text-2xl text-shop-500"
+                                            aria-hidden
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                            <h2 className="text-sm font-semibold text-gray-900">
+                                                Sign in to place this order
+                                            </h2>
+                                            <p className="mt-1 text-sm text-gray-600">
+                                                Your selection below is ready.
+                                                Sign in to confirm delivery and
+                                                payment.
+                                            </p>
+                                            <Button
+                                                className="mt-3"
+                                                customColorClass={PRIMARY_BUTTON}
+                                                onClick={goSignIn}
+                                            >
+                                                Sign in to continue
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </section>
+                            ) : null}
+                            {signedInClient ? (
+                            <>
                             <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                                 <div className="mb-3 flex items-center justify-between gap-2">
                                     <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
@@ -622,6 +645,8 @@ const MarketplaceCheckoutPageContent = () => {
                                     />
                                 </div>
                             </section>
+                            </>
+                            ) : null}
 
                             <section className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                                 <h2 className="mb-4 text-sm font-semibold text-gray-900">
@@ -710,26 +735,50 @@ const MarketplaceCheckoutPageContent = () => {
                                 </p>
                             ) : null}
 
-                            <Button
-                                block
-                                className={classNames(
-                                    'mt-4',
-                                    PRIMARY_BUTTON_CLASS,
-                                )}
-                                customColorClass={PRIMARY_BUTTON}
-                                disabled={
-                                    !shipping || !paymentMethod || submitting
-                                }
-                                loading={submitting}
-                                onClick={() => void placeOrder()}
-                            >
-                                Place Order
-                            </Button>
-                            <p className="mt-2 text-center text-xs text-gray-400">
-                                {paymentMethod
-                                    ? `Selected: ${PAYMENT_METHOD_LABEL[paymentMethod]}`
-                                    : 'Select a payment method to place your order.'}
-                            </p>
+                            {signedInClient ? (
+                                <>
+                                    <Button
+                                        block
+                                        className={classNames(
+                                            'mt-4',
+                                            PRIMARY_BUTTON_CLASS,
+                                        )}
+                                        customColorClass={PRIMARY_BUTTON}
+                                        disabled={
+                                            !shipping ||
+                                            !paymentMethod ||
+                                            submitting
+                                        }
+                                        loading={submitting}
+                                        onClick={() => void placeOrder()}
+                                    >
+                                        Place Order
+                                    </Button>
+                                    <p className="mt-2 text-center text-xs text-gray-400">
+                                        {paymentMethod
+                                            ? `Selected: ${PAYMENT_METHOD_LABEL[paymentMethod]}`
+                                            : 'Select a payment method to place your order.'}
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <Button
+                                        block
+                                        className={classNames(
+                                            'mt-4',
+                                            PRIMARY_BUTTON_CLASS,
+                                        )}
+                                        customColorClass={PRIMARY_BUTTON}
+                                        onClick={goSignIn}
+                                    >
+                                        Sign in to place order
+                                    </Button>
+                                    <p className="mt-2 text-center text-xs text-gray-400">
+                                        Review your items, then sign in to
+                                        finish checkout.
+                                    </p>
+                                </>
+                            )}
                         </aside>
                     </div>
                 )}

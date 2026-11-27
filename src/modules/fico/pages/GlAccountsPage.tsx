@@ -159,14 +159,9 @@ const GlAccountsPage = () => {
         return () => window.clearTimeout(handle)
     }, [searchInput])
 
-    /**
-     * The company select is the page-wide scope shared by every tab. A chosen
-     * chart of accounts spans companies, so switching company clears the chart
-     * filter instead of leaving the two filters fighting over the same list.
-     */
+    /** Company is the page-wide scope; chart/type/status filters AND with it. */
     const changeCompany = (value: string) => {
         setCompanyId(value)
-        setChartFilter('')
     }
 
     const [importOpen, setImportOpen] = useState(false)
@@ -197,7 +192,9 @@ const GlAccountsPage = () => {
             accountType: typeFilter || undefined,
             status: statusFilter || undefined,
             search: search || undefined,
-            companyId: chartFilter ? undefined : (companyId || undefined),
+            // Always honor the company select — chart filter ANDs with it
+            // (do not drop companyId when a chart is selected).
+            companyId: companyId || undefined,
         }),
         [chartFilter, typeFilter, statusFilter, search, companyId],
     )
@@ -725,10 +722,12 @@ const GlAccountsPage = () => {
                 <p className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
                     <HiOutlineHashtag />
                     {accounts.length} account{accounts.length === 1 ? '' : 's'}{' '}
-                    {chartFilter
-                        ? 'in the selected chart of accounts (all companies)'
-                        : companyId
-                          ? 'assigned to the selected company'
+                    {companyId
+                        ? chartFilter
+                            ? 'assigned to the selected company in this chart'
+                            : 'assigned to the selected company'
+                        : chartFilter
+                          ? 'in the selected chart of accounts'
                           : 'across all charts of accounts'}
                 </p>
 
@@ -740,10 +739,10 @@ const GlAccountsPage = () => {
                     noData={!loading && !accounts.length}
                     customNoDataIcon={
                         <p className="max-w-md py-8 text-center text-sm text-gray-500">
-                            {chartFilter
-                                ? 'No accounts in this chart of accounts match these filters.'
-                                : companyId
-                                  ? 'No accounts match these filters for the selected company. Pick a chart of accounts to see the full master list.'
+                            {companyId
+                                ? 'No accounts match these filters for the selected company.'
+                                : chartFilter
+                                  ? 'No accounts in this chart of accounts match these filters.'
                                   : 'No accounts match these filters.'}
                         </p>
                     }

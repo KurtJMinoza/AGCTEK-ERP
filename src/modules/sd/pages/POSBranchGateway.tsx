@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { HiOutlineArrowLeft, HiOutlineOfficeBuilding } from 'react-icons/hi'
 import Button from '@/components/ui/Button'
@@ -18,8 +19,17 @@ import {
 const POSBranchGateway = () => {
     const router = useRouter()
     const selectBranch = usePOSBranchStore((s) => s.selectBranch)
+    const clearBranch = usePOSBranchStore((s) => s.clearBranch)
     const { branch: current } = useActivePOSBranch()
-    const { branches, loading, error } = useSalesBranches()
+    const { branches, loading, error } = useSalesBranches({ scoped: true })
+
+    // Drop a persisted "last used" branch that is outside this user's company scope.
+    useEffect(() => {
+        if (loading || !current?.id) return
+        if (!branches.some((b) => b.id === current.id)) {
+            clearBranch()
+        }
+    }, [loading, branches, current?.id, clearBranch])
 
     const open = (branch: SalesBranch) => {
         selectBranch(branch)
@@ -59,16 +69,20 @@ const POSBranchGateway = () => {
                     </p>
                 ) : branches.length === 0 ? (
                     <p className="mt-10 max-w-md text-center text-sm text-gray-500">
-                        No active branches yet. Create one in{' '}
+                        No branches for your company assignment. Ask an admin to
+                        assign your user to a company in{' '}
+                        <span className="font-medium">User Management</span>, or
+                        create a branch under{' '}
                         <span className="font-medium">
                             Materials Management → Organization → Branches
-                        </span>{' '}
-                        and it will appear here.
+                        </span>
+                        .
                     </p>
                 ) : (
                     <div className="mt-10 grid w-full max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
                         {branches.map((branch) => {
                             const isCurrent = current?.id === branch.id
+                            const logo = branch.companyLogoUrl?.trim() || ''
                             return (
                                 <Card
                                     key={branch.id}
@@ -86,8 +100,16 @@ const POSBranchGateway = () => {
                                         }
                                     }}
                                 >
-                                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 text-3xl text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                                        <HiOutlineOfficeBuilding />
+                                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-white text-3xl text-gray-700 shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
+                                        {logo ? (
+                                            <img
+                                                src={logo}
+                                                alt=""
+                                                className="h-full w-full object-contain p-2"
+                                            />
+                                        ) : (
+                                            <HiOutlineOfficeBuilding />
+                                        )}
                                     </div>
                                     <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                                         {branch.label}

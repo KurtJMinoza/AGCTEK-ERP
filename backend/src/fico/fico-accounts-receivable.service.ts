@@ -39,6 +39,26 @@ type ArPostingResult = {
     journalEntryId?: string
 }
 
+/** Local AR delegates for typed transaction clients. */
+type ArDocumentDelegate = {
+    findUnique: (args: unknown) => Promise<any>
+    findFirst: (args: unknown) => Promise<any>
+    findMany: (args: unknown) => Promise<any[]>
+    create: (args: unknown) => Promise<any>
+    update: (args: unknown) => Promise<any>
+}
+
+type ArOpenItemDelegate = {
+    findMany: (args: unknown) => Promise<any[]>
+    create: (args: unknown) => Promise<any>
+    update: (args: unknown) => Promise<any>
+}
+
+type ArTx = Prisma.TransactionClient & {
+    ficoArDocument: ArDocumentDelegate
+    ficoArOpenItem: ArOpenItemDelegate
+}
+
 function day(value: Date | string) {
     const date = typeof value === 'string' ? new Date(value) : new Date(value)
     if (Number.isNaN(date.getTime())) {
@@ -1009,30 +1029,502 @@ export class FicoAccountsReceivableService {
         outstandingBalance?: string | number | null
         currencyCode?: string
         postingDate?: string | Date
+    }): Promise<ArPostingResult> {
+        const outstandingHint = money(input.outstandingBalance)
+        if (
+            input.outstandingBalance != null &&
+            !outstandingHint.gt(MONEY_TOLERANCE)
+        ) {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason: 'POS sale has no outstanding receivable balance.',
+            }
+        }
+
+        const existingByOrder = await this.prisma.ficoArDocument.findUnique({
+            where: { sourceSalesOrderId: input.salesOrderId },
+            select: { id: true, journalEntryId: true, status: true },
+        })
+        if (existingByOrder) {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: existingByOrder.journalEntryId,
+            }
+        }
+
+        const existingByJournal = await this.prisma.ficoArDocument.findUnique({
+            where: { journalEntryId: input.journalEntryId },
+            select: { id: true, journalEntryId: true },
+        })
+        if (existingByJournal) {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: existingByJournal.journalEntryId,
+            }
+        }
+
+        const order = await this.prisma.sdSalesOrder.findUnique({
+            where: { id: input.salesOrderId },
+            select: {
+                id: true,
+                orderNumber: true,
+                companyId: true,
+                customerId: true,
+                currency: true,
+                totalAmount: true,
+                taxAmount: true,
+                outstandingBalance: true,
+                dueDate: true,
+                createdAt: true,
+                lines: { select: { taxAmount: true } },
+            },
+        })
+        if (!order) {
+            throw new NotFoundException('Sales order not found for POS AR open item.')
+        }
+        if (order.companyId && order.companyId !== input.companyId) {
+            throw new BadRequestException(
+                'Sales order company does not match the accounting event.',
+            )
+        }
+        if (!order.customerId) {
+            throw new BadRequestException(
+                'POS sale has no customer identity for Accounts Receivable.',
+            )
+        }
+
+        const receivable = await this.prisma.sdPosReceivable.findFirst({
+            where: { salesOrderId: order.id },
+            select: {
+                id: true,
+                originalAmount: true,
+                balance: true,
+                dueDate: true,
+                status: true,
+            },
+        })
+
+        const openAmount = money(
+            receivable?.balance ??
+                order.outstandingBalance ??
+                input.outstandingBalance ??
+                0,
+        )
+        if (!openAmount.gt(MONEY_TOLERANCE)) {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason: 'POS sale has no outstanding receivable balance.',
+            }
+        }
+
+        const customer = await this.prisma.sdCustomer.findUnique({
+            where: { id: order.customerId },
+            select: { id: true },
+        })
+        if (!customer) {
+            throw new BadRequestException(
+                'Customer master not found for POS Accounts Receivable.',
+            )
+        }
+
+        const journal = await this.prisma.ficoJournalEntry.findUnique({
+            where: { id: input.journalEntryId },
+            select: {
+                id: true,
+                companyId: true,
+                postingDate: true,
+                documentDate: true,
+                currencyCode: true,
+                status: true,
+                lines: {
+                    select: {
+                        glAccountId: true,
+                        debitAmount: true,
+                        creditAmount: true,
+                    },
+                },
+            },
+        })
+        if (!journal || journal.companyId !== input.companyId) {
+            throw new NotFoundException(
+                'POS revenue journal not found for AR open-item attach.',
+            )
+        }
+        if (journal.status !== 'POSTED') {
+            throw new BadRequestException(
+                'POS revenue journal must be posted before AR open-item attach.',
+            )
+        }
+
+        const settings = await this.loadCompanyAccounts(input.companyId)
+        const arLine = journal.lines.find((line) =>
+            money(line.debitAmount).gt(MONEY_TOLERANCE),
+        )
+        const receivableAccountId =
+            arLine?.glAccountId ??
+            settings.defaultReceivableAccountId ??
+            (await this.resolveRuleAccount(
+                input.companyId,
+                day(journal.postingDate),
+                (journal.currencyCode || 'PHP').toUpperCase(),
+                'ACCOUNTS_RECEIVABLE',
+                'DEBIT',
+                settings.defaultReceivableAccountId,
+            ))
+        const receivableGl = await this.prisma.ficoGlAccount.findUnique({
+            where: { id: receivableAccountId },
+            select: { id: true, accountCode: true },
+        })
+        if (!receivableGl) {
+            throw new BadRequestException('Receivable G/L account was not found.')
+        }
+
+        const postingDate = day(
+            input.postingDate ?? journal.postingDate ?? order.createdAt,
+        )
+        const documentDate = day(journal.documentDate ?? postingDate)
+        const baselineDate = postingDate
+        const dueDate = day(
+            receivable?.dueDate ?? order.dueDate ?? this.addDays(baselineDate, 7),
+        )
+        const currencyCode = (
+            input.currencyCode ||
+            order.currency ||
+            journal.currencyCode ||
+            'PHP'
+        ).toUpperCase()
+        const taxAmount = (order.lines ?? []).reduce(
+            (sum, line) => sum.plus(line.taxAmount ?? 0),
+            new Decimal(0),
+        )
+        const grossAmount = money(receivable?.originalAmount ?? openAmount)
+        const netAmount = Decimal.max(grossAmount.minus(taxAmount), new Decimal(0))
+
+        await this.prisma.$transaction(async (tx) => {
+            const arTx = tx as ArTx
+            const document = await arTx.ficoArDocument.create({
+                data: {
+                    companyId: input.companyId,
+                    customerId: order.customerId,
+                    sourceSalesInvoiceId: null,
+                    sourceSalesOrderId: order.id,
+                    sourcePosReceivableId: receivable?.id ?? null,
+                    journalEntryId: journal.id,
+                    documentType: 'POS_CHARGE',
+                    status: 'POSTED',
+                    referenceNumber: order.orderNumber,
+                    documentDate,
+                    postingDate,
+                    baselineDate,
+                    dueDate,
+                    currencyCode,
+                    netAmount,
+                    taxAmount,
+                    grossAmount,
+                    receivableAmount: openAmount,
+                    reconciliationAccountId: receivableGl.id,
+                    reconciliationAccountCode: receivableGl.accountCode,
+                    createdBy: null,
+                },
+            })
+            const openStatus =
+                openAmount.plus(MONEY_TOLERANCE).lt(grossAmount)
+                    ? 'PARTIALLY_CLEARED'
+                    : 'OPEN'
+            await arTx.ficoArOpenItem.create({
+                data: {
+                    companyId: input.companyId,
+                    customerId: order.customerId,
+                    documentId: document.id,
+                    reconciliationAccountId: receivableGl.id,
+                    itemType: 'POS_CHARGE',
+                    direction: 'DEBIT',
+                    originalAmount: grossAmount,
+                    openAmount,
+                    currencyCode,
+                    baselineDate,
+                    dueDate,
+                    status: openStatus,
+                },
+            })
+            await arTx.ficoAccountingAuditLog.create({
+                data: {
+                    companyId: input.companyId,
+                    actorId: null,
+                    action: 'AR_POS_CHARGE_ATTACH',
+                    entityType: 'FicoArDocument',
+                    entityId: document.id,
+                    newValues: {
+                        salesOrderId: order.id,
+                        orderNumber: order.orderNumber,
+                        journalEntryId: journal.id,
+                        receivableAmount: openAmount.toString(),
+                        dueDate: dueDate.toISOString().slice(0, 10),
+                        sourcePosReceivableId: receivable?.id ?? null,
+                    },
+                },
+            })
+        })
+
+        return {
+            created: true,
+            duplicate: false,
+            journalEntryId: journal.id,
+        }
     }
+
+    /**
+     * After PosCollectionCompleted journal posts: reduce/clear the POS AR open
+     * item. Does not post a second clearing journal (POS collection owns GL).
+     */
     async applyPosCollectionToOpenItem(input: {
         companyId: string
         collectionId: string
         journalEntryId: string
         collectedAmount?: string | number | null
+    }): Promise<ArPostingResult> {
+        const collection = await this.prisma.sdPosCollection.findUnique({
+            where: { id: input.collectionId },
+            select: {
+                id: true,
+                companyId: true,
+                salesOrderId: true,
+                totalAmount: true,
+                status: true,
+                collectionNumber: true,
+            },
+        })
+        if (!collection) {
+            throw new NotFoundException('POS collection not found for AR open-item sync.')
+        }
+        if (collection.companyId !== input.companyId) {
+            throw new BadRequestException(
+                'POS collection company does not match the accounting event.',
+            )
+        }
+        if (collection.status === 'CANCELLED') {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason: 'Cancelled POS collection; AR open item unchanged.',
+            }
+        }
+
+        const document = await this.prisma.ficoArDocument.findUnique({
+            where: { sourceSalesOrderId: collection.salesOrderId },
+            include: { openItem: true },
+        })
+        if (!document?.openItem) {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason:
+                    'No FICO AR open item for this POS sale; nothing to clear.',
+            }
+        }
+        if (document.status === 'REVERSED') {
+            throw new BadRequestException(
+                'Cannot clear a reversed Accounts Receivable document.',
+            )
+        }
+
+        const openItem = document.openItem
+        if (openItem.status === 'CLEARED') {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: document.clearingJournalEntryId ?? document.journalEntryId,
+            }
+        }
+
+        const collected = money(
+            input.collectedAmount ?? collection.totalAmount ?? 0,
+        )
+        if (!collected.gt(0)) {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason: 'Collection amount is zero; AR open item unchanged.',
+            }
+        }
+
+        const nextOpen = Decimal.max(
+            money(openItem.openAmount).minus(collected),
+            new Decimal(0),
+        )
+        const cleared = !nextOpen.gt(MONEY_TOLERANCE)
+        const nextStatus = cleared ? 'CLEARED' : 'PARTIALLY_CLEARED'
+
+        await this.prisma.$transaction(async (tx) => {
+            const arTx = tx as ArTx
+            await arTx.ficoArOpenItem.update({
+                where: { id: openItem.id },
+                data: {
+                    openAmount: nextOpen,
+                    status: nextStatus,
+                    clearedAt: cleared ? new Date() : null,
+                },
+            })
+            if (cleared && !document.clearingJournalEntryId) {
+                await arTx.ficoArDocument.update({
+                    where: { id: document.id },
+                    data: { clearingJournalEntryId: input.journalEntryId },
+                })
+            }
+            await arTx.ficoAccountingAuditLog.create({
+                data: {
+                    companyId: input.companyId,
+                    actorId: null,
+                    action: 'AR_POS_COLLECTION_CLEAR',
+                    entityType: 'FicoArDocument',
+                    entityId: document.id,
+                    newValues: {
+                        collectionId: collection.id,
+                        collectionNumber: collection.collectionNumber,
+                        collectedAmount: collected.toString(),
+                        openAmount: nextOpen.toString(),
+                        status: nextStatus,
+                        clearingJournalEntryId: cleared
+                            ? input.journalEntryId
+                            : document.clearingJournalEntryId,
+                    },
+                },
+            })
+        })
+
+        return {
+            created: true,
+            duplicate: false,
+            journalEntryId: input.journalEntryId,
+        }
     }
+
+    /**
+     * Backfill: attach AR open items for open POS receivables that already have
+     * a posted pos-revenue journal.
+     */
     async backfillPosChargeOpenItems(companyId?: string): Promise<{
         scanned: number
         created: number
         skipped: number
         errors: Array<{ salesOrderId: string; message: string }>
+    }> {
+        const receivables = await this.prisma.sdPosReceivable.findMany({
+            where: {
+                ...(companyId ? { companyId } : {}),
+                status: { in: ['OPEN'] },
+                balance: { gt: 0 },
+            },
+            select: {
+                id: true,
+                companyId: true,
+                salesOrderId: true,
+                balance: true,
+            },
+        })
+
+        let created = 0
+        let skipped = 0
+        const errors: Array<{ salesOrderId: string; message: string }> = []
+
+        for (const row of receivables) {
+            const journal = await this.prisma.ficoJournalEntry.findUnique({
+                where: { idempotencyKey: `pos-revenue:${row.salesOrderId}` },
+                select: { id: true, status: true },
+            })
+            if (!journal || journal.status !== 'POSTED') {
+                skipped += 1
+                continue
+            }
+            try {
+                const result = await this.registerPosChargeOpenItemFromJournal({
+                    companyId: row.companyId,
+                    salesOrderId: row.salesOrderId,
+                    journalEntryId: journal.id,
+                    outstandingBalance: row.balance.toString(),
+                })
+                if (result.created) created += 1
+                else skipped += 1
+            } catch (error) {
+                errors.push({
+                    salesOrderId: row.salesOrderId,
+                    message:
+                        error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
+
+        return {
+            scanned: receivables.length,
+            created,
+            skipped,
+            errors,
+        }
     }
+
+    /**
+     * POS owns revenue/AR GL for channel POS (and any SO with pos-revenue journal
+     * or SdPosReceivable). Skip *invoice* AR posting to avoid dual journals.
+     * POS charge open items are attached separately via registerPosChargeOpenItemFromJournal.
+     */
     private async shouldSkipPosOwnedOrder(order: {
         id: string
         channel: string | null
+    }): Promise<string | null> {
+        if (order.channel === 'POS') {
+            return 'POS channel owns GL via PosSaleCompleted; invoice AR journal skipped.'
+        }
+        const [posRevenue, receivable] = await Promise.all([
+            this.prisma.mmAccountingEvent.findUnique({
+                where: { idempotencyKey: `pos-revenue:${order.id}` },
+                select: { id: true, status: true },
+            }),
+            this.prisma.sdPosReceivable.findFirst({
+                where: { salesOrderId: order.id },
+                select: { id: true },
+            }),
+        ])
+        if (posRevenue && posRevenue.status !== 'SKIPPED') {
+            return 'POS revenue accounting event exists; invoice AR journal skipped.'
+        }
+        if (receivable) {
+            return 'SdPosReceivable exists for sales order; invoice AR journal skipped.'
+        }
+        return null
     }
+
     private agingBucket(
         dueOrBaseline: Date,
         asOfDate: Date,
     ): {
         bucket: 'CURRENT' | 'D1_30' | 'D31_60' | 'D61_90' | 'D90_PLUS'
         daysPastDue: number
+    } {
+        const due = day(dueOrBaseline)
+        const asOf = day(asOfDate)
+        const daysPastDue = Math.floor((asOf.getTime() - due.getTime()) / 86_400_000)
+        if (daysPastDue <= 0) return { bucket: 'CURRENT', daysPastDue: Math.max(0, daysPastDue) }
+        if (daysPastDue <= 30) return { bucket: 'D1_30', daysPastDue }
+        if (daysPastDue <= 60) return { bucket: 'D31_60', daysPastDue }
+        if (daysPastDue <= 90) return { bucket: 'D61_90', daysPastDue }
+        return { bucket: 'D90_PLUS', daysPastDue }
     }
+
+    private addDays(value: Date, days: number) {
+        const next = new Date(value)
+        next.setUTCDate(next.getUTCDate() + days)
+        return day(next)
+    }
+
     private async loadCompanyAccounts(companyId: string) {
         const settings = await this.prisma.ficoCompanyAccountingSettings.findFirst({
             where: { companyId, status: 'ACTIVE' },
@@ -1051,6 +1543,7 @@ export class FicoAccountsReceivableService {
         }
         return settings
     }
+
 
     private transactionKeyForType(transactionType: string): string {
         const map: Record<string, string> = {
@@ -2283,12 +2776,6 @@ export class FicoAccountsReceivableService {
                 lastRecalculatedAt: new Date(),
             },
         })
-    }
-
-    private addDays(date: Date, days: number) {
-        const next = new Date(date)
-        next.setUTCDate(next.getUTCDate() + days)
-        return next
     }
 
     private async resolveCustomerReconciliation(input: {

@@ -46,6 +46,7 @@ import {
     ficoStatusTone,
     FICO_RECORD_STATUS,
 } from '../components/ficoTableUi'
+import { OrgCompanyCell } from '@/modules/mm/organization/components/organizationTableUi'
 import type {
     FicoChart,
     FicoCompanySettingsRow,
@@ -590,10 +591,10 @@ const CompanySettingsPage = () => {
                 header: 'Company',
                 accessorKey: 'company.name',
                 cell: ({ row }) => (
-                    <FicoCodeCell
-                        icon="group"
+                    <OrgCompanyCell
                         code={row.original.company.code}
                         name={row.original.company.name}
+                        logoUrl={row.original.company.logoUrl}
                     />
                 ),
             },

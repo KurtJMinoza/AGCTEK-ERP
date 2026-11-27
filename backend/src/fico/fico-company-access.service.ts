@@ -10,13 +10,22 @@ import { PrismaService } from '../prisma/prisma.service'
 /**
  * Company scope for every FICO company-owned resource.
  *
- * `super_admin` bypasses the membership check. Every other role must have an
- * explicit `user_companies` row; the server never trusts a company id supplied
- * by the browser.
+ * Companies are the same org master MM uses (`Company` / Organization).
+ * `super_admin` and `admin` see and configure all org companies (same surface as
+ * MM Organization → Companies). Every other role needs an explicit
+ * `user_companies` row; the server never trusts a company id from the browser.
  */
 @Injectable()
 export class FicoCompanyAccessService {
     constructor(private readonly prisma: PrismaService) {}
+
+    /** Org-wide FICO configuration access (matches MM company master visibility). */
+    private hasOrgWideCompanyAccess(user: AuthRequestUser): boolean {
+        return (
+            user.role === USER_ROLES.SUPER_ADMIN ||
+            user.role === USER_ROLES.ADMIN
+        )
+    }
 
     async assertAccess(
         user: AuthRequestUser | undefined,
@@ -28,7 +37,7 @@ export class FicoCompanyAccessService {
         if (!companyId) {
             throw new ForbiddenException('A company is required for this action')
         }
-        if (user.role === USER_ROLES.SUPER_ADMIN) return
+        if (this.hasOrgWideCompanyAccess(user)) return
 
         const company = await this.prisma.company.findUnique({
             where: { id: companyId },
@@ -53,7 +62,7 @@ export class FicoCompanyAccessService {
         user: AuthRequestUser | undefined,
     ): Promise<string[] | null> {
         if (!user?.id) return []
-        if (user.role === USER_ROLES.SUPER_ADMIN) return null
+        if (this.hasOrgWideCompanyAccess(user)) return null
         const rows = await this.prisma.userCompany.findMany({
             where: { userId: user.id },
             select: { companyId: true },
@@ -66,7 +75,14 @@ export class FicoCompanyAccessService {
         return this.prisma.company.findMany({
             where: ids === null ? {} : { id: { in: ids } },
             orderBy: { name: 'asc' },
-            select: { id: true, code: true, name: true, tin: true },
+            select: {
+                id: true,
+                code: true,
+                name: true,
+                tin: true,
+                // Same logo master as MM Organization → Companies.
+                logoUrl: true,
+            },
         })
     }
 }

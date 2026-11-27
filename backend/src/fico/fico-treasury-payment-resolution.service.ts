@@ -77,19 +77,31 @@ export class FicoTreasuryPaymentResolutionService {
         }
 
         const kind = kindForMethod(method)
-        const treasury = await this.prisma.ficoTreasuryAccount.findFirst({
-            where: {
-                companyId: input.companyId,
-                status: 'ACTIVE',
-                postingBlocked: false,
-                currencyCode: input.currencyCode.toUpperCase(),
-                ...(kind ? { accountKind: kind } : {}),
-                ...(input.branchId ? { OR: [{ branchId: input.branchId }, { branchId: null }] } : {}),
-                paymentMethodCode: method,
-            },
+        const treasuryScope = {
+            companyId: input.companyId,
+            status: 'ACTIVE' as const,
+            postingBlocked: false,
+            currencyCode: input.currencyCode.toUpperCase(),
+            ...(kind ? { accountKind: kind } : {}),
+            ...(input.branchId
+                ? { OR: [{ branchId: input.branchId }, { branchId: null }] }
+                : {}),
+        }
+        let treasury = await this.prisma.ficoTreasuryAccount.findFirst({
+            where: { ...treasuryScope, paymentMethodCode: method },
             orderBy: [{ branchId: 'desc' }, { updatedAt: 'desc' }],
             include: { glAccount: { select: { id: true, accountCode: true } } },
         })
+        if (!treasury && kind && kind !== 'CASH_ON_HAND') {
+            treasury = await this.prisma.ficoTreasuryAccount.findFirst({
+                where: {
+                    ...treasuryScope,
+                    paymentMethodCode: null,
+                },
+                orderBy: [{ branchId: 'desc' }, { updatedAt: 'desc' }],
+                include: { glAccount: { select: { id: true, accountCode: true } } },
+            })
+        }
         if (treasury) {
             return {
                 glAccountId: treasury.glAccountId,

@@ -122,14 +122,40 @@ export class MmOutboxService {
     private async emitAccountingRequested(
         envelope: MmIntegrationEventEnvelope,
     ): Promise<void> {
-        const idempotencyKey = this.accountingEvents.buildIdempotencyKey(
+        const recorded = await this.prisma.mmAccountingEvent.findFirst({
+            where: {
+                eventType: envelope.eventType,
+                documentType: envelope.sourceEntityType,
+                documentId: envelope.sourceEntityId,
+                companyId: envelope.companyId,
+            },
+            orderBy: { createdAt: 'desc' },
+        })
+        if (recorded) {
+            if (recorded.status === 'CONSUMED' || recorded.status === 'SKIPPED') {
+                return
+            }
+            const payload = {
+                ...(recorded.payload as object),
+                mmAccountingEventId: recorded.id,
+                idempotencyKey: recorded.idempotencyKey,
+                eventType: envelope.eventType,
+                correlationId: envelope.correlationId,
+                sourceEventId: envelope.eventId,
+            }
+            this.events.emit('accounting.entry.requested', payload)
+            return
+        }
+
+        const legacyKey = this.accountingEvents.buildIdempotencyKey(
             envelope.eventType,
             envelope.sourceEntityType,
             envelope.sourceEntityId,
         )
-        const existing = await this.prisma.mmAccountingEvent.findUnique({
-            where: { idempotencyKey },
+        const legacy = await this.prisma.mmAccountingEvent.findUnique({
+            where: { idempotencyKey: legacyKey },
         })
+        const existing = legacy
         const payload = existing
             ? {
                   ...(existing.payload as object),
@@ -143,7 +169,7 @@ export class MmOutboxService {
             correlationId: envelope.correlationId,
             sourceEventId: envelope.eventId,
             mmAccountingEventId: existing?.id,
-            idempotencyKey: existing?.idempotencyKey ?? idempotencyKey,
+            idempotencyKey: existing?.idempotencyKey ?? legacyKey,
         })
     }
 

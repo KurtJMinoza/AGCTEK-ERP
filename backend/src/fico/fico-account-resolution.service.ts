@@ -538,9 +538,17 @@ export class FicoAccountResolutionService {
         }
         const debitLines = lines.filter((line) => line.side === 'DEBIT')
         const creditLines = lines.filter((line) => line.side === 'CREDIT')
-        if (!debitLines.length || !creditLines.length) {
+        const requiresPairedRuleLines =
+            !catalogEntry || catalogEntry.inventorySide !== 'NONE'
+        if (requiresPairedRuleLines) {
+            if (!debitLines.length || !creditLines.length) {
+                throw new BadRequestException(
+                    `Account determination rule ${winner.rule.determinationCode} must contain at least one debit and one credit line.`,
+                )
+            }
+        } else if (!debitLines.length && !creditLines.length) {
             throw new BadRequestException(
-                `Account determination rule ${winner.rule.determinationCode} must contain at least one debit and one credit line.`,
+                `Account determination rule ${winner.rule.determinationCode} has no G/L lines for single-sided posting.`,
             )
         }
 
@@ -561,8 +569,21 @@ export class FicoAccountResolutionService {
                 postingDate,
             )
             if (catalogEntry) {
+                // Paired inventory / COGS rules debit one category and credit
+                // the other. Validate each line by side using inventorySide.
+                const category = catalogEntry.accountingCategory.toUpperCase()
+                let lineCategory = catalogEntry.accountingCategory
+                if (category === 'COGS' || category === 'INVENTORY') {
+                    const inventoryOnDebit =
+                        catalogEntry.inventorySide === 'DEBIT_INVENTORY'
+                    if (line.side === 'DEBIT') {
+                        lineCategory = inventoryOnDebit ? 'INVENTORY' : 'COGS'
+                    } else {
+                        lineCategory = inventoryOnDebit ? 'COGS' : 'INVENTORY'
+                    }
+                }
                 ficoAssertAccountTypeForCategory(
-                    catalogEntry.accountingCategory,
+                    lineCategory,
                     account.accountType,
                     account.accountCode,
                 )

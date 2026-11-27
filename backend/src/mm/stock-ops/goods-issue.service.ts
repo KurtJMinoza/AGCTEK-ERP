@@ -605,9 +605,6 @@ export class GoodsIssueService {
                             },
                         },
                     },
-                    documentTypeRef: {
-                        select: { id: true, code: true, name: true },
-                    },
                 },
                 orderBy: [{ postingDate: 'asc' }, { createdAt: 'asc' }],
             }),
@@ -659,9 +656,6 @@ export class GoodsIssueService {
                                   },
                               },
                           },
-                          documentTypeRef: {
-                              select: { id: true, code: true, name: true },
-                          },
                       },
                   })
                 : []
@@ -681,15 +675,15 @@ export class GoodsIssueService {
                 documentNumber: journal.documentNumber,
                 status: journal.status,
                 documentType: journal.documentType,
-                documentTypeCode: journal.documentTypeRef?.code ?? null,
-                documentTypeName: journal.documentTypeRef?.name ?? null,
+                documentTypeCode: journal.documentType ?? null,
+                documentTypeName: null,
                 postingDate: journal.postingDate,
                 currencyCode: journal.currencyCode,
                 sourceModule: journal.sourceModule,
                 sourceDocumentType: journal.sourceDocumentType,
                 sourceDocumentId: journal.sourceDocumentId,
                 mmAccountingEventId: journal.mmAccountingEventId,
-                headerText: journal.headerText ?? journal.description,
+                headerText: journal.description,
                 lines: journal.lines.map((line) => ({
                     lineNumber: line.lineNumber,
                     glAccountId: line.glAccountId,
@@ -1181,19 +1175,17 @@ export class GoodsIssueService {
     private async retryGoodsIssueAccountingIfPending(
         doc: Awaited<ReturnType<typeof this.findOneOrFail>>,
     ): Promise<void> {
-        const idempotencyKey = this.accountingEvents.buildIdempotencyKey(
-            'GoodsIssuePosted',
-            'GOODS_ISSUE',
-            doc.id,
-        )
-        const event = await this.prisma.mmAccountingEvent.findUnique({
-            where: { idempotencyKey },
+        const event = await this.prisma.mmAccountingEvent.findFirst({
+            where: {
+                eventType: 'GoodsIssuePosted',
+                documentType: 'GOODS_ISSUE',
+                documentId: doc.id,
+            },
+            orderBy: { createdAt: 'desc' },
         })
-        if (
-            !event ||
-            event.status === 'CONSUMED' ||
-            event.status === 'SKIPPED'
-        ) {
+        const idempotencyKey = event?.idempotencyKey ?? null
+        if (!event || !idempotencyKey) return
+        if (event.status === 'CONSUMED' || event.status === 'SKIPPED') {
             return
         }
         const enrichedLines = doc.lines.map((l) => ({

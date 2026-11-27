@@ -589,6 +589,27 @@ export class AllocationEngineService {
         )
     }
 
+    /**
+     * Allocation converts an existing reservation into bin picks. Reservation
+     * already moved free ATP into `reservedQuantity` on the same bin rows, so
+     * candidates must include reserved bin stock — not only `availableQuantity`.
+     * Filtering on available alone left fully-reserved bins invisible and
+     * ecommerce orders stuck as RESERVED with zero picking tasks.
+     */
+    private allocableBinQuantity(balance: {
+        availableQuantity: Decimal | number | string
+        reservedQuantity: Decimal | number | string
+        quantity: Decimal | number | string
+    }): Decimal {
+        const available = new Decimal(balance.availableQuantity)
+        const reserved = new Decimal(balance.reservedQuantity)
+        const onHand = new Decimal(balance.quantity)
+        // Prefer the accounting identity available + reserved; fall back to
+        // on-hand when legacy rows drifted out of sync.
+        const fromBuckets = available.plus(reserved)
+        return Decimal.max(fromBuckets, onHand, new Decimal(0))
+    }
+
     private async loadCandidates(
         tx: import('@prisma/client').Prisma.TransactionClient,
         companyId: string,
@@ -617,12 +638,20 @@ export class AllocationEngineService {
         })
 
         return balances
-            .filter((b) => new Decimal(b.availableQuantity).gt(0))
+            .filter((b) => {
+                if (b.storageBin && b.storageBin.pickingAllowed === false) {
+                    return false
+                }
+                if (b.storageBin && b.storageBin.status && b.storageBin.status !== 'ACTIVE') {
+                    return false
+                }
+                return this.allocableBinQuantity(b).gt(0)
+            })
             .map((b) => ({
                 storageBinId: b.storageBinId!,
                 batchId: b.batchId,
                 serialNumberId: b.serialNumberId,
-                availableQuantity: new Decimal(b.availableQuantity),
+                availableQuantity: this.allocableBinQuantity(b),
                 binCode: b.storageBin?.code,
                 batchExpiry: b.batch?.expiryDate ?? null,
                 priority:
@@ -650,7 +679,7 @@ export class AllocationEngineService {
         })
         if (
             !bal ||
-            new Decimal(bal.availableQuantity).lt(pick.availableQuantity)
+            this.allocableBinQuantity(bal).lt(pick.availableQuantity)
         ) {
             throw new BadRequestException(
                 `Insufficient bin stock at ${pick.storageBinId} for allocation`,

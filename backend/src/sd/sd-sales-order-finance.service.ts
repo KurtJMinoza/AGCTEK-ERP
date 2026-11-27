@@ -107,7 +107,7 @@ export class SdSalesOrderFinanceService {
                 companyId: resolvedCompanyId,
                 OR: [
                     { documentId: salesOrderId },
-                    { idempotencyKey: revenueIdempotency },
+                    { idempotencyKey: { startsWith: revenueIdempotency } },
                 ],
             },
             orderBy: { createdAt: 'desc' },
@@ -140,7 +140,7 @@ export class SdSalesOrderFinanceService {
                 companyId: resolvedCompanyId,
                 OR: [
                     { sourceDocumentId: salesOrderId },
-                    { idempotencyKey: revenueIdempotency },
+                    { idempotencyKey: { startsWith: revenueIdempotency } },
                     ...(goodsIssueIds.length
                         ? [{ sourceDocumentId: { in: goodsIssueIds } }]
                         : []),

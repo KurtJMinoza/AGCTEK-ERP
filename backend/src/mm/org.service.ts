@@ -5,6 +5,7 @@ import {
     NotFoundException,
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { USER_ROLES } from '../auth/auth.constants'
 import { PrismaService } from '../prisma/prisma.service'
 import {
     deleteCompanyLogoByUrl,
@@ -194,13 +195,25 @@ export class OrgService {
         })
     }
 
-    findAllBranches(companyId?: string, activeOnly?: boolean) {
+    findAllBranches(args?: {
+        companyId?: string
+        /** When set, only branches whose company is in this list (user membership scope). */
+        companyIds?: string[]
+        activeOnly?: boolean
+    }) {
+        const companyId = args?.companyId
+        const companyIds = args?.companyIds
+        const activeOnly = args?.activeOnly
         const where: {
-            companyId?: string
+            companyId?: string | { in: string[] }
             status?: string
             deletedAt: null
         } = { deletedAt: null }
-        if (companyId) where.companyId = companyId
+        if (companyId) {
+            where.companyId = companyId
+        } else if (companyIds) {
+            where.companyId = { in: companyIds }
+        }
         if (activeOnly) where.status = 'ACTIVE'
         return this.prisma.branch.findMany({
             where,
@@ -210,7 +223,15 @@ export class OrgService {
                 name: true,
                 companyId: true,
                 status: true,
-                company: { select: { id: true, code: true, name: true } },
+                company: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        // Same org logo master as MM Companies / FICO settings.
+                        logoUrl: true,
+                    },
+                },
             },
             orderBy: { name: 'asc' },
             take: 500,
@@ -221,11 +242,43 @@ export class OrgService {
         const branch = await this.prisma.branch.findFirst({
             where: { id, deletedAt: null },
             include: {
-                company: { select: { id: true, code: true, name: true } },
+                company: {
+                    select: { id: true, code: true, name: true, logoUrl: true },
+                },
             },
         })
         if (!branch) throw new NotFoundException('Branch not found')
         return branch
+    }
+
+    /**
+     * Company ids the signed-in user may sell for on POS / SD (`scoped=true`).
+     *
+     * Always driven by `user_companies` membership — an AWIC cashier (or admin
+     * assigned only to AWIC) only gets AWIC branches. Empty membership ⇒ no
+     * branches on the POS picker (assign the user in User Management).
+     *
+     * Returns `null` only for admin/super_admin with zero memberships so
+     * unassigned platform admins are not locked out of the terminal during
+     * setup; once they have memberships, those become the exclusive scope.
+     */
+    async accessibleCompanyIdsForUser(user: {
+        id: string
+        role: string
+    }): Promise<string[] | null> {
+        const rows = await this.prisma.userCompany.findMany({
+            where: { userId: user.id },
+            select: { companyId: true },
+        })
+        const ids = rows.map((row) => row.companyId)
+        if (ids.length > 0) return ids
+        if (
+            user.role === USER_ROLES.SUPER_ADMIN ||
+            user.role === USER_ROLES.ADMIN
+        ) {
+            return null
+        }
+        return []
     }
 
     async createBranch(data: {

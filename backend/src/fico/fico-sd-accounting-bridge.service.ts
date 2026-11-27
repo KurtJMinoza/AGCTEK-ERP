@@ -143,35 +143,72 @@ export class FicoSdAccountingBridgeService {
         reason: string,
         voidIdempotencyKey: string,
     ): Promise<void> {
-        const revenueKey = `pos-revenue:${salesOrderId}`
-        const original = await this.prisma.ficoJournalEntry.findUnique({
-            where: { idempotencyKey: revenueKey },
-            select: { id: true, status: true },
-        })
-        if (!original || original.status !== 'POSTED') {
+        const active = this.revenueGuard
+            ? await this.revenueGuard.listPostedRevenueJournalsForOrder(
+                  salesOrderId,
+              )
+            : await this.listPostedRevenueJournalsFallback(salesOrderId)
+
+        const forCompany = active.filter((j) => j.companyId === companyId)
+        if (!forCompany.length) {
             this.logger.debug(
                 `No posted POS revenue journal to reverse for order ${salesOrderId}`,
             )
             return
         }
-        const existingVoid = await this.prisma.ficoJournalEntry.findUnique({
-            where: { idempotencyKey: voidIdempotencyKey },
-        })
-        if (existingVoid) return
 
-        await this.recordAndDispatch({
-            eventType: 'PosSaleVoided',
-            documentType: 'POS_VOID',
-            documentId: salesOrderId,
-            companyId,
-            postingDate: new Date(),
-            currencyCode: 'PHP',
-            idempotencyKey: voidIdempotencyKey,
-            payload: {
-                reversalOfJournalId: original.id,
-                reversalReason: reason,
-                salesOrderId,
+        for (const journal of forCompany) {
+            const eventKey = `${voidIdempotencyKey}:je:${journal.id}`
+            const existingEvent =
+                await this.prisma.mmAccountingEvent.findUnique({
+                    where: { idempotencyKey: eventKey },
+                    select: { status: true },
+                })
+            if (
+                existingEvent &&
+                ['CONSUMED', 'SKIPPED'].includes(existingEvent.status)
+            ) {
+                continue
+            }
+
+            await this.recordAndDispatch({
+                eventType: 'PosSaleVoided',
+                documentType: 'POS_VOID',
+                documentId: salesOrderId,
+                companyId,
+                postingDate: new Date(),
+                currencyCode: 'PHP',
+                idempotencyKey: eventKey,
+                payload: {
+                    reversalOfJournalId: journal.id,
+                    reversalReason: reason,
+                    salesOrderId,
+                    reversedRevenueJournalNumber: journal.documentNumber,
+                },
+            })
+        }
+    }
+
+    private async listPostedRevenueJournalsFallback(salesOrderId: string) {
+        const prefix = `pos-revenue:${salesOrderId}`
+        return this.prisma.ficoJournalEntry.findMany({
+            where: {
+                status: 'POSTED',
+                OR: [
+                    { idempotencyKey: { startsWith: prefix } },
+                    {
+                        sourceDocumentId: salesOrderId,
+                        documentType: 'SD_REVENUE',
+                    },
+                ],
             },
+            select: {
+                id: true,
+                documentNumber: true,
+                idempotencyKey: true,
+                companyId: true,
+            },
+            orderBy: { createdAt: 'asc' },
         })
     }
 

@@ -719,6 +719,10 @@ export type SalesOrderAccountingJournal = {
     sourceDocumentId: string | null
     mmAccountingEventId: string | null
     headerText: string | null
+    /** REVENUE = SD/POS sale; INVENTORY = MM goods issue (COGS). */
+    accountingScope?: 'REVENUE' | 'INVENTORY' | 'COLLECTION' | 'OTHER'
+    goodsIssueId?: string | null
+    goodsIssueNumber?: string | null
     lines: SalesOrderAccountingLine[]
 }
 

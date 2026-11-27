@@ -7,7 +7,7 @@ import {
 import Avatar from '@/components/ui/Avatar'
 import Button from '@/components/ui/Button'
 import Dialog from '@/components/ui/Dialog'
-import type { ReactNode } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import type { DialogProps } from '@/components/ui/Dialog'
 import type { ButtonProps } from '@/components/ui/Button'
 
@@ -90,13 +90,30 @@ const ConfirmDialog = (props: ConfirmDialogProps) => {
         ...rest
     } = props
 
-    const handleCancel = () => {
+    const handleCancel = (e: MouseEvent<HTMLButtonElement>) => {
+        // Stop the same gesture from landing on controls under the modal
+        // after it closes (e.g. sticky Buy now / Add to cart bars).
+        e.preventDefault()
+        e.stopPropagation()
         onCancel?.()
+        cancelButtonProps?.onClick?.(e)
     }
 
-    const handleConfirm = () => {
+    const handleConfirm = (e: MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault()
+        e.stopPropagation()
         onConfirm?.()
+        confirmButtonProps?.onClick?.(e)
     }
+
+    const {
+        onClick: _omitConfirmClick,
+        ...confirmRest
+    } = confirmButtonProps ?? {}
+    const {
+        onClick: _omitCancelClick,
+        ...cancelRest
+    } = cancelButtonProps ?? {}
 
     return (
         <Dialog contentClassName="pb-0 px-0" {...rest}>
@@ -113,16 +130,16 @@ const ConfirmDialog = (props: ConfirmDialogProps) => {
                 <div className="flex justify-end items-center gap-2">
                     <Button
                         size="sm"
+                        {...cancelRest}
                         onClick={handleCancel}
-                        {...cancelButtonProps}
                     >
                         {cancelText}
                     </Button>
                     <Button
                         size="sm"
                         variant="solid"
+                        {...confirmRest}
                         onClick={handleConfirm}
-                        {...confirmButtonProps}
                     >
                         {confirmText}
                     </Button>

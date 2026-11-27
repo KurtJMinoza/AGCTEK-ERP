@@ -12,21 +12,32 @@ export const toSalesBranch = (branch: MmBranch): SalesBranch => ({
     code: branch.code,
     companyName: branch.company?.name ?? null,
     companyId: branch.companyId,
+    companyLogoUrl: branch.company?.logoUrl ?? null,
 })
 
+export type UseSalesBranchesOptions = {
+    /**
+     * When true (default), only branches for the signed-in user's assigned
+     * companies are returned. Admins/super_admins still see org-wide.
+     */
+    scoped?: boolean
+}
+
 /**
- * Active branches from the MM Organization Branch master (created per company),
- * newest store list — no hardcoded stores. Used by POS terminal + sales orders.
+ * Active branches from the MM Organization Branch master (created per company).
+ * POS terminal + sales orders use membership-scoped results by default.
  */
-export function useSalesBranches() {
+export function useSalesBranches(options?: UseSalesBranchesOptions) {
+    const scoped = options?.scoped !== false
     const [branches, setBranches] = useState<SalesBranch[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         let alive = true
+        setLoading(true)
         orgService
-            .branches({ activeOnly: true })
+            .branches({ activeOnly: true, scoped })
             .then((rows: MmBranch[]) => {
                 if (!alive) return
                 setBranches(rows.map(toSalesBranch))
@@ -46,7 +57,7 @@ export function useSalesBranches() {
         return () => {
             alive = false
         }
-    }, [])
+    }, [scoped])
 
     return { branches, loading, error }
 }

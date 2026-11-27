@@ -687,6 +687,14 @@ export class SalesOrderService {
                 lineNumber: idx + 1,
             })),
         )) {
+            // Must resolve before verify — otherwise `_resolvedUnitPrice` is
+            // undefined → Number(...) is NaN and the condition branch misfires.
+            await this.resolveAndSetUnitPrices(
+                divisionId,
+                items,
+                master.channel,
+                dto.promoCode,
+            )
             await this.verifyCatalogPrices(divisionId, items)
         }
         const totals = this.verifyRetailTotals(master)
@@ -1888,13 +1896,14 @@ export class SalesOrderService {
         const pricePromises = lines.map(async (line, idx) => {
             const lineNumber = line.lineNumber ?? idx + 1
 
-            // Use resolved price from pricing conditions; falls back to catalog base if no conditions
-            const resolvedPrice = Number(
-                (line as any)?._resolvedUnitPrice,
-            )
+            // Use resolved price from pricing conditions; falls back to catalog base if no conditions.
+            // Treat missing/NaN as "not resolved" — `NaN <= 0` is false in JS and used to
+            // incorrectly enter the conditions branch (showing "resolved price is NaN").
+            const resolvedRaw = (line as any)?._resolvedUnitPrice
+            const resolvedPrice = Number(resolvedRaw)
 
-            if (resolvedPrice <= 0) {
-                // No conditions applied; verify against catalog base price
+            if (!Number.isFinite(resolvedPrice) || resolvedPrice <= 0) {
+                // No usable resolved price; verify against catalog base price
                 const prices = await this.products.activePriceMap(
                     divisionId,
                     lines.map((l) => l.sku),
@@ -1913,7 +1922,7 @@ export class SalesOrderService {
                     )
                 }
             } else {
-                // Conditions applied; verify submitted unitPrice matches resolved price
+                // Conditions applied (or resolver returned base); verify submitted unitPrice
                 if (!new Decimal(line.unitPrice).toDecimalPlaces(2).eq(resolvedPrice)) {
                     throw new BadRequestException(
                         `Line ${lineNumber}: price for ${line.sku} is ${line.unitPrice.toFixed(
@@ -2154,12 +2163,23 @@ export class SalesOrderService {
         })
         const collectionIds = collections.map((row) => row.id)
 
-        // Commercial / SD accounting only (revenue, collections).
-        // MM Goods Issue → COGS/Inventory journals belong on the GI document
-        // in Stock Ops / Goods Issue — not on the sales order Accounting card.
-        const documentIds = [order.id, ...collectionIds]
+        const goodsIssues = await this.prisma.mmGoodsIssue.findMany({
+            where: {
+                sourceDocumentType: 'SALES_ORDER',
+                sourceDocumentId: order.id,
+            },
+            select: { id: true, documentNumber: true },
+            orderBy: { createdAt: 'asc' },
+        })
+        const goodsIssueIds = goodsIssues.map((row) => row.id)
+        const goodsIssueNumberById = new Map(
+            goodsIssues.map((row) => [row.id, row.documentNumber]),
+        )
 
-        const [directJournals, events] = await Promise.all([
+        const documentIds = [order.id, ...collectionIds]
+        const revenueKeyPrefix = `pos-revenue:${order.id}`
+
+        const [directJournals, giJournals, events, giEvents] = await Promise.all([
             this.prisma.ficoJournalEntry.findMany({
                 where: {
                     OR: [
@@ -2169,8 +2189,10 @@ export class SalesOrderService {
                             // id somehow matched (defensive — GI ids are omitted).
                             NOT: { sourceModule: 'STOCK_OPS' },
                         },
-                        { idempotencyKey: `pos-revenue:${order.id}` },
-                        { sourcePostingKey: `pos-revenue:${order.id}` },
+                        {
+                            idempotencyKey: { startsWith: revenueKeyPrefix },
+                        },
+                        { sourcePostingKey: { startsWith: revenueKeyPrefix } },
                         ...collectionIds.map((collectionId) => ({
                             idempotencyKey: `pos-collection:${collectionId}`,
                         })),
@@ -2192,12 +2214,29 @@ export class SalesOrderService {
                             },
                         },
                     },
-                    documentTypeRef: {
-                        select: { id: true, code: true, name: true },
-                    },
                 },
                 orderBy: [{ postingDate: 'asc' }, { createdAt: 'asc' }],
             }),
+            goodsIssueIds.length
+                ? this.prisma.ficoJournalEntry.findMany({
+                      where: { sourceDocumentId: { in: goodsIssueIds } },
+                      include: {
+                          lines: {
+                              orderBy: { lineNumber: 'asc' },
+                              include: {
+                                  glAccount: {
+                                      select: {
+                                          id: true,
+                                          accountCode: true,
+                                          accountName: true,
+                                      },
+                                  },
+                              },
+                          },
+                      },
+                      orderBy: [{ postingDate: 'asc' }, { createdAt: 'asc' }],
+                  })
+                : Promise.resolve([]),
             this.prisma.mmAccountingEvent.findMany({
                 where: {
                     OR: [
@@ -2205,7 +2244,9 @@ export class SalesOrderService {
                             documentId: { in: documentIds },
                             NOT: { sourceModule: 'STOCK_OPS' },
                         },
-                        { idempotencyKey: `pos-revenue:${order.id}` },
+                        {
+                            idempotencyKey: { startsWith: revenueKeyPrefix },
+                        },
                     ],
                 },
                 orderBy: { createdAt: 'asc' },
@@ -2222,6 +2263,27 @@ export class SalesOrderService {
                     consumedAt: true,
                 },
             }),
+            goodsIssueIds.length
+                ? this.prisma.mmAccountingEvent.findMany({
+                      where: {
+                          documentId: { in: goodsIssueIds },
+                          eventType: 'GoodsIssuePosted',
+                      },
+                      orderBy: { createdAt: 'asc' },
+                      select: {
+                          id: true,
+                          eventType: true,
+                          sourceModule: true,
+                          documentType: true,
+                          documentId: true,
+                          status: true,
+                          lastError: true,
+                          journalEntryId: true,
+                          createdAt: true,
+                          consumedAt: true,
+                      },
+                  })
+                : Promise.resolve([]),
         ])
 
         // Journals referenced only via SD accounting events (not MM GI).
@@ -2253,50 +2315,91 @@ export class SalesOrderService {
                                   },
                               },
                           },
-                          documentTypeRef: {
-                              select: { id: true, code: true, name: true },
-                          },
                       },
                   })
                 : []
 
+        const mapJournalRow = (journal: (typeof directJournals)[number]) => {
+            const giId =
+                journal.documentType === 'MM_GI' &&
+                journal.sourceDocumentId &&
+                goodsIssueNumberById.has(journal.sourceDocumentId)
+                    ? journal.sourceDocumentId
+                    : null
+            const accountingScope =
+                journal.documentType === 'MM_GI' ||
+                journal.sourceModule === 'STOCK_OPS'
+                    ? ('INVENTORY' as const)
+                    : journal.documentType === 'SD_REVENUE' ||
+                        journal.idempotencyKey?.startsWith('pos-revenue:')
+                      ? ('REVENUE' as const)
+                      : journal.idempotencyKey?.startsWith('pos-collection:')
+                        ? ('COLLECTION' as const)
+                        : ('OTHER' as const)
+            return {
+                id: journal.id,
+                documentNumber: journal.documentNumber,
+                status: journal.status,
+                documentType: journal.documentType,
+                documentTypeCode: journal.documentType ?? null,
+                documentTypeName: null,
+                postingDate: journal.postingDate,
+                currencyCode: journal.currencyCode,
+                sourceModule: journal.sourceModule,
+                sourceDocumentType: journal.sourceDocumentType,
+                sourceDocumentId: journal.sourceDocumentId,
+                mmAccountingEventId: journal.mmAccountingEventId,
+                headerText: journal.description,
+                accountingScope,
+                goodsIssueId: giId,
+                goodsIssueNumber: giId
+                    ? (goodsIssueNumberById.get(giId) ?? null)
+                    : null,
+                lines: journal.lines.map((line) => ({
+                    lineNumber: line.lineNumber,
+                    glAccountId: line.glAccountId,
+                    accountCode: line.glAccount?.accountCode ?? null,
+                    accountName: line.glAccount?.accountName ?? null,
+                    debit: Number(line.debitAmount),
+                    credit: Number(line.creditAmount),
+                    description: line.description,
+                })),
+            }
+        }
+
         const journalsById = new Map(
-            [...directJournals, ...eventJournals].map((journal) => [
-                journal.id,
-                journal,
-            ]),
+            [...directJournals, ...eventJournals, ...giJournals].map(
+                (journal) => [journal.id, journal],
+            ),
         )
 
-        const journals = Array.from(journalsById.values()).map((journal) => ({
-            id: journal.id,
-            documentNumber: journal.documentNumber,
-            status: journal.status,
-            documentType: journal.documentType,
-            documentTypeCode: journal.documentTypeRef?.code ?? null,
-            documentTypeName: journal.documentTypeRef?.name ?? null,
-            postingDate: journal.postingDate,
-            currencyCode: journal.currencyCode,
-            sourceModule: journal.sourceModule,
-            sourceDocumentType: journal.sourceDocumentType,
-            sourceDocumentId: journal.sourceDocumentId,
-            mmAccountingEventId: journal.mmAccountingEventId,
-            headerText: journal.headerText ?? journal.description,
-            lines: journal.lines.map((line) => ({
-                lineNumber: line.lineNumber,
-                glAccountId: line.glAccountId,
-                accountCode: line.glAccount?.accountCode ?? null,
-                accountName: line.glAccount?.accountName ?? null,
-                debit: Number(line.debitAmount),
-                credit: Number(line.creditAmount),
-                description: line.description,
-            })),
-        }))
+        const journals = Array.from(journalsById.values())
+            .map(mapJournalRow)
+            .sort((left, right) => {
+                const statusRank = (status: string) =>
+                    status === 'POSTED' ? 0 : status === 'REVERSED' ? 1 : 2
+                const scopeRank = (scope: string) =>
+                    scope === 'REVENUE' ? 0 : scope === 'INVENTORY' ? 1 : 2
+                const statusDelta =
+                    statusRank(left.status) - statusRank(right.status)
+                if (statusDelta !== 0) return statusDelta
+                const scopeDelta =
+                    scopeRank(left.accountingScope) -
+                    scopeRank(right.accountingScope)
+                if (scopeDelta !== 0) return scopeDelta
+                return (
+                    new Date(right.postingDate).getTime() -
+                    new Date(left.postingDate).getTime()
+                )
+            })
+
+        const allEvents = [...events, ...giEvents]
 
         return {
             salesOrderId: order.id,
             orderNumber: order.orderNumber,
             journals,
-            events: events.map((event) => ({
+            events: allEvents.map((event) => ({
                 id: event.id,
                 eventType: event.eventType,
                 sourceModule: event.sourceModule,

@@ -78,12 +78,7 @@ const MarketplaceGmailAuthForm = ({
     const buildTimeClientId =
         process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim() || ''
     const [runtimeClientId, setRuntimeClientId] = useState('')
-    const [pageOrigin, setPageOrigin] = useState('')
     const clientId = runtimeClientId || buildTimeClientId
-
-    useEffect(() => {
-        setPageOrigin(window.location.origin)
-    }, [])
 
     useEffect(() => {
         let cancelled = false
@@ -253,18 +248,6 @@ const MarketplaceGmailAuthForm = ({
                         Continue with Google
                     </Button>
                 )}
-                {clientId && pageOrigin ? (
-                    <p className="mt-2 text-center text-xs text-gray-400">
-                        Google OAuth must allow this origin:{' '}
-                        <code className="rounded bg-gray-100 px-1">
-                            {pageOrigin}
-                        </code>
-                        . Use port{' '}
-                        <code className="rounded bg-gray-100 px-1">3010</code>{' '}
-                        locally (erp-edge), not{' '}
-                        <code className="rounded bg-gray-100 px-1">3020</code>.
-                    </p>
-                ) : null}
                 {!clientId ? (
                     <p className="mt-2 text-center text-xs text-gray-400">
                         Set{' '}

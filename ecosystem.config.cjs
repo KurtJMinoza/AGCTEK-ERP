@@ -34,7 +34,7 @@ module.exports = {
                 AUTH_TRUST_HOST: 'true',
                 // Canonical public origin for this machine (edge proxy :3010).
                 // Without this, Auth.js may redirect to the internal Next :3020 host.
-                AUTH_URL: 'http://localhost:3010',
+                AUTH_URL: 'https://erp.agctek.co',
                 // Keep session cookies readable in RSC (see src/auth.ts).
                 AUTH_SECURE_COOKIES: 'false',
             },

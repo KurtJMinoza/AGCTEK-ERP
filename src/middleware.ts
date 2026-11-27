@@ -17,6 +17,9 @@ import {
     MARKETPLACE_SIGN_IN_PATH,
     MARKETPLACE_SIGN_UP_PATH,
     MARKETPLACE_OTP_PATH,
+    MARKETPLACE_ORDERS_PATH,
+    CART_PATH,
+    CHECKOUT_PATH,
     isMarketplaceHost,
     isMarketplaceProductPath,
     isMarketplaceTrackPath,
@@ -120,12 +123,18 @@ export default auth(async (req) => {
             return
         }
 
+        // Clean-path allowlist on the dedicated shop host (`/checkout`, `/cart`,
+        // …). Buy Now pushes `/shop/checkout?…`; without checkout here the host
+        // redirected back to `/` and the place-order page never opened.
         const shopPages = [
             MARKETPLACE_PRODUCTS_PATH,
             MARKETPLACE_ACCOUNT_PATH,
             MARKETPLACE_SIGN_IN_PATH,
             MARKETPLACE_SIGN_UP_PATH,
             MARKETPLACE_OTP_PATH,
+            MARKETPLACE_ORDERS_PATH,
+            CART_PATH,
+            CHECKOUT_PATH,
         ].map((page) => page.slice(MARKETPLACE_PATH.length))
         const isShopPage = (shopPath: string) =>
             shopPages.includes(shopPath) ||

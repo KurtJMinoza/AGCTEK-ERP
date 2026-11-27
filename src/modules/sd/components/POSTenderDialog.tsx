@@ -954,7 +954,7 @@ const POSTenderDialog = ({
                                 : 'Payment method'}
                         </div>
                     <div className="grid grid-cols-2 gap-2">
-                            {methods.map((row) => (
+                        {methods.map((row) => (
                             <button
                                 key={row.method}
                                 type="button"

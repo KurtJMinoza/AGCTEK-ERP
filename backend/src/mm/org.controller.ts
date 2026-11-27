@@ -19,6 +19,7 @@ import {
 import { readCompanyPayload } from './org-company-payload'
 import { OrgService } from './org.service'
 import { MmMutation, MmRead } from './common/mm-mutation.decorator'
+import { MmUser, type MmRequestUser } from './common/mm-auth.decorator'
 import { MM_REFERENCE_READ, mmFeatures } from '../permissions/permissions.constants'
 
 @Controller('mm/org')
@@ -62,11 +63,28 @@ export class OrgController {
 
     @Get('branches')
     @MmRead(MM_REFERENCE_READ)
-    branches(
+    async branches(
+        @MmUser() user: MmRequestUser | undefined,
         @Query('companyId') companyId?: string,
         @Query('activeOnly') activeOnly?: string,
+        /**
+         * When true, non-admin cashiers only see branches for companies they
+         * are assigned to (`user_companies`). Admins/super_admins stay org-wide.
+         */
+        @Query('scoped') scoped?: string,
     ) {
-        return this.service.findAllBranches(companyId, activeOnly === 'true')
+        let companyIds: string[] | undefined
+        if (scoped === 'true' && user && !companyId) {
+            const accessible = await this.service.accessibleCompanyIdsForUser(user)
+            if (accessible !== null) {
+                companyIds = accessible
+            }
+        }
+        return this.service.findAllBranches({
+            companyId,
+            companyIds,
+            activeOnly: activeOnly === 'true',
+        })
     }
 
     @Post('branches')

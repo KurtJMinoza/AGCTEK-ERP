@@ -16,7 +16,15 @@ describe('FicoSdPostingService partial POS sale', () => {
             },
             sdSalesOrder: {
                 findUnique: jest.fn().mockResolvedValue({
-                    lines: [{ taxAmount: new Prisma.Decimal('739.29') }],
+                    branchId: null,
+                    lines: [
+                        {
+                            taxAmount: new Prisma.Decimal('739.29'),
+                            lineTotal: new Prisma.Decimal('6900'),
+                            materialId: null,
+                            material: { valuationClassId: null },
+                        },
+                    ],
                 }),
             },
             sdPaymentMethod: {

@@ -16,6 +16,30 @@ describe('FicoSdRevenueGuardService', () => {
         expect(result.reason).toBe('POS_REVENUE_AT_REGISTER')
     })
 
+    it('lists all posted revenue journals including repost idempotency keys', async () => {
+        const findMany = jest.fn().mockResolvedValue([
+            { id: 'je-2', documentNumber: 'PS-2026-000002' },
+        ])
+        const prisma = {
+            ficoJournalEntry: { findMany },
+        }
+        const guard = new FicoSdRevenueGuardService(prisma as never)
+        const rows = await guard.listPostedRevenueJournalsForOrder('so-1')
+        expect(rows).toHaveLength(1)
+        expect(findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    status: 'POSTED',
+                    OR: expect.arrayContaining([
+                        expect.objectContaining({
+                            idempotencyKey: { startsWith: 'pos-revenue:so-1' },
+                        }),
+                    ]),
+                }),
+            }),
+        )
+    })
+
     it('skips invoice posting when revenue journal already exists', async () => {
         const prisma = {
             sdSalesOrder: {
@@ -24,7 +48,7 @@ describe('FicoSdRevenueGuardService', () => {
                     .mockResolvedValue({ channel: 'ECOMMERCE', paymentStatus: 'Unpaid' }),
             },
             ficoJournalEntry: {
-                findFirst: jest.fn().mockResolvedValue({ id: 'je-1' }),
+                findMany: jest.fn().mockResolvedValue([{ id: 'je-1' }]),
             },
         }
         const guard = new FicoSdRevenueGuardService(prisma as never)

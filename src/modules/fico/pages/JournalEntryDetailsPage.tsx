@@ -97,13 +97,13 @@ const JournalEntryDetailsPage = () => {
     const caps = entry?.capabilities
     const canEdit = caps?.canEdit ?? entry?.status === 'DRAFT'
     const canPost = caps?.canPost ?? entry?.status === 'DRAFT'
-    const canReverse = caps?.canReverse ?? entry?.status === 'POSTED'
     const readOnlyPosted = caps?.readOnlyPosted ?? (entry?.status === 'POSTED' && Boolean(entry?.sourceModule))
-
-    const canReverse = canManuallyReverseJournal({
-        status: entry?.status,
-        sourceModule: entry?.sourceModule,
-    })
+    const canReverse =
+        (caps?.canReverse ?? entry?.status === 'POSTED') &&
+        canManuallyReverseJournal({
+            status: entry?.status,
+            sourceModule: entry?.sourceModule,
+        })
 
     const route = entryId
         ? `/modules/fico/journal-entries/${entryId}`

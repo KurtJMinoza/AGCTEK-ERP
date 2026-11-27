@@ -13,20 +13,33 @@ export class FicoSdRevenueGuardService {
         return `pos-revenue:${salesOrderId}`
     }
 
-    async findPostedRevenueJournal(salesOrderId: string) {
-        return this.prisma.ficoJournalEntry.findFirst({
+    /** All still-posted SD revenue journals for an order (incl. repost / repair keys). */
+    async listPostedRevenueJournalsForOrder(salesOrderId: string) {
+        const prefix = this.revenueIdempotencyKey(salesOrderId)
+        return this.prisma.ficoJournalEntry.findMany({
             where: {
                 status: 'POSTED',
                 OR: [
-                    { idempotencyKey: this.revenueIdempotencyKey(salesOrderId) },
+                    { idempotencyKey: { startsWith: `${prefix}` } },
                     {
                         sourceDocumentId: salesOrderId,
                         documentType: { in: ['SD_REVENUE', 'CUSTOMER_INVOICE'] },
                     },
                 ],
             },
-            select: { id: true, documentNumber: true, idempotencyKey: true },
+            select: {
+                id: true,
+                documentNumber: true,
+                idempotencyKey: true,
+                companyId: true,
+            },
+            orderBy: { createdAt: 'asc' },
         })
+    }
+
+    async findPostedRevenueJournal(salesOrderId: string) {
+        const rows = await this.listPostedRevenueJournalsForOrder(salesOrderId)
+        return rows[0] ?? null
     }
 
     async shouldSkipInvoiceFinancialPosting(salesOrderId: string) {
