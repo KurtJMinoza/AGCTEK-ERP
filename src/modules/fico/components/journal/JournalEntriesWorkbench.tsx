@@ -253,6 +253,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                 id: 'actions',
                 size: 52,
                 cell: ({ row }) => (
+                    <div data-stop-row-nav>
                     <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
                         <Dropdown.Item
                             eventKey="view"
@@ -275,6 +276,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                             </Dropdown.Item>
                         ) : null}
                     </Dropdown>
+                    </div>
                 ),
             },
         ],
@@ -491,6 +493,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                     mobile={mobile}
                     loading={loading}
                     noData={!loading && items.length === 0}
+                    onRowClick={(row) => openDetail(row.id)}
                     compact
                     tableMinWidthClass="min-w-[1080px]"
                     pagingData={{
