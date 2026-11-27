@@ -7,10 +7,6 @@ existing AGCTEK ERP. It follows `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`: FICO ow
 financial effect, MM owns physical stock, and the two are bridged by exactly one
 synchronous posting engine.
 
-For the end-to-end view — MM flow, shared ledger structure (charts → groups → G/L accounts →
-posting controls), transaction-key coverage and the fiscal-calendar gate — see
-[MM_FICO_LEDGER_MAP.md](./MM_FICO_LEDGER_MAP.md).
-
 ---
 
 ## 1. Ownership boundaries
@@ -44,6 +40,10 @@ Follow-up (additive): `20261116120000_fico_coa_ranges_fyv_year_assignment` adds
 and `fico_fiscal_year_variants.yearAssignment` (default `YEAR_START`, so existing
 calendars are unchanged), each guarded by a `CHECK` constraint.
 
+Follow-up (additive): `20261117120000_fico_document_types_manual_journal` adds the
+`fico_document_types` master table and nullable `documentTypeId`, `reference`, and
+`headerText` columns on `fico_journal_entries` for manual journals.
+
 New tables (Prisma models in `backend/prisma/schema.prisma`):
 
 * `fico_company_accounting_settings`, `fico_chart_of_accounts`, `fico_gl_account_groups`,
@@ -52,6 +52,7 @@ New tables (Prisma models in `backend/prisma/schema.prisma`):
   `fico_posting_period_controls`, `fico_posting_period_audit_logs`
 * `fico_account_determination_profiles`, `fico_mm_account_mappings`, `fico_transaction_keys`
 * `fico_journal_entries` (extended), `fico_journal_entry_lines`, `fico_document_sequences`
+* `fico_document_types` (manual journal numbering and manual-entry control)
 * `fico_accounting_audit_logs`, `fico_historical_backposting_runs`
 
 Database guarantees:
@@ -184,26 +185,23 @@ Starter mappings seeded for AGCTEK (`PH_MM_STARTER` COA, `DEFAULT` profile):
 Resolution rejects missing mappings, inactive accounts, non-posting accounts, blocked
 company assignments and wrong-company accounts. There is **no** silent fallback.
 
-Mappings are maintained on `/modules/fico/account-determination`
-(`FicoAccountMappingService`; resolution stays in `FicoAccountDeterminationService`).
-One row per transaction key and valuation scope (`*` = all classes; a class-specific row
-wins). Saving applies the posting engine's account checks up front — same chart as the
-company, active, posting + automatic posting allowed, assigned to the company with posting
-enabled, debit ≠ credit — and audits `ACCOUNT_MAPPING_CREATE/UPDATE/DELETE`. The page flags
-keys MM posts through (`FICO_RESOLVED_TRANSACTION_KEYS`) that have no active default
-mapping, since those postings are rejected.
-
 ## 7. Journal posting engine
 
-`FicoJournalService` is the single posting engine (manual + automatic + reversal).
+`FicoJournalService` posts automatic documents from MM accounting events.
+Manual documents are handled by `JournalEntryService` (`journal-entries`), which reuses
+`FicoPostingValidationService`, `FicoAuditService`, and the same immutable journal tables.
 
-* Double entry enforced by `assertValidJournalLines` (≥2 lines, debit XOR credit, no
-  negative amounts, debits = credits, total > 0).
-* Journals are inserted as `DRAFT` and flipped to `POSTED` in the same transaction (the
-  database immutability trigger forbids line inserts on a posted document).
+* Double entry enforced by `JournalEntryService.validateLines` (≥2 lines, debit XOR credit,
+  no negative amounts, debits = credits, total > 0).
+* Manual journals are inserted as `DRAFT`, with the document number allocated atomically
+  from the selected `FiDocumentType` number range; posting (immediate or later) validates
+  the active company configuration, open fiscal period, and posting controls.
+* Automatic journals are inserted as `DRAFT` and flipped to `POSTED` in the same
+  transaction (the database immutability trigger forbids line inserts on a posted document).
 * Idempotency is enforced by unique `idempotencyKey` / `sourcePostingKey` /
-  `mmAccountingEventId` columns; a repeated request returns the existing document.
-* Document numbers come from `fico_document_sequences` (per company, document type, year).
+  `mmAccountingEventId` columns; a repeated automatic request returns the existing document.
+* Manual document numbers come from `fico_document_types` (per type prefix and range);
+  automatic `fico_document_sequences` allocation remains a follow-up.
 * Posted documents cannot be edited or deleted; corrections are reversals that reference
   the original in both directions (`reversalOfId` / `reversedBy`).
 * Audit entry `JOURNAL_POST` / `JOURNAL_REVERSE` stores actor, company, entity, values and reason.
@@ -237,7 +235,7 @@ Coverage:
 | Goods Issue (other) | `GI_EXPENSE` | Dr 510400 / Cr 120100 |
 | Inventory adjustment (loss) | `INVENTORY_SHRINKAGE` | Dr 520100 / Cr 120100 |
 | Inventory adjustment (gain) | `INVENTORY_INCREASE_ADJ` | Dr 120100 / Cr 310200 |
-| Supplier invoice (three-way match) | `SUPPLIER_INVOICE` (+ optional `SUPPLIER_INVOICE_VAT`) | **Not posted yet.** Mappings exist (Dr 210200 / Cr 210100, + Dr 130100), but `FicoAccountDeterminationService.transactionKey()` has no rule for the `SupplierInvoiceMatched` event, so such an event fails instead of posting. |
+| Supplier invoice (three-way match) | `SUPPLIER_INVOICE` (+ optional `SUPPLIER_INVOICE_VAT`) | Dr 210200 / Cr 210100 (+ Dr 130100) |
 
 Reversals of GR/GI/adjustment create the accounting reversal first, then unwind stock, and
 close any pending accounting event so the legacy consumer cannot post a second document.
@@ -251,9 +249,9 @@ close any pending accounting event so the legacy consumer cannot post a second d
 | G/L accounts | `GET/POST /fico/gl-accounts`, `POST /fico/gl-accounts/import`, `GET/PATCH/DELETE /fico/gl-accounts/:id`, `GET /fico/gl-accounts/:id/usage`, `PUT/DELETE /fico/gl-accounts/:id/companies...` |
 | Fiscal years | `GET /fico/fiscal-years`, `GET/POST /fico/fiscal-years/variants`, `PATCH /fico/fiscal-years/variants/:id`, `POST /fico/fiscal-years/variants/:id/duplicate`, `POST /fico/fiscal-years/preview`, `POST /fico/fiscal-years/generate` |
 | Posting periods | `GET /fico/posting-periods`, `GET /fico/posting-periods/resolve`, `POST /fico/posting-periods/:id/open|restrict|close|lock|reopen|unlock` |
-| Account determination | `GET /fico/account-determination?companyId=` (keys with coverage, valuation classes, mappings), `POST /fico/account-determination/mappings`, `PATCH/DELETE /fico/account-determination/mappings/:id` |
-| General ledger | `GET /fico/journals`, `GET /fico/journals/:id`, `POST /fico/journals`, `POST /fico/journals/:id/reverse`, `GET /fico/journal-lines`, `GET /fico/reports/trial-balance`, `GET /fico/overview` |
-| MM accounting events (read-only) | `GET /fico/accounting-events?companyId=&status=&sourceModule=&search=&page=&pageSize=`, `GET /fico/accounting-events/:id` (`fico.journal-entries` read; company-scoped) |
+| Account determination | `GET /fico/account-determination/transaction-keys|profiles|mappings`, `POST/PATCH/DELETE .../mappings` |
+| General ledger | `GET/POST /fico/journal-entries`, `GET /fico/journal-entries/:id`, `PATCH /fico/journal-entries/:id/post`, `POST /fico/journal-entries/:id/reverse`, `GET /fico/overview` |
+| FI document types | `GET/POST /fico/document-types`, `PATCH/DELETE /fico/document-types/:id` |
 | Audit | `GET /fico/audit` |
 | Dashboard | `GET /fico/dashboard` |
 | Legacy (kept) | `GET/POST /fico/periods`, `POST /fico/periods/status`, `GET /fico/reconciliation` |
@@ -271,12 +269,12 @@ company membership.
 | `/modules/fico/overview` | Finance Overview (live metrics, warnings, recent activity) |
 | `/modules/fico/company-settings` | Company table + configuration form, validate, activate/deactivate |
 | `/modules/fico/chart-of-accounts` | COA list, duplicate, activate/deactivate, assign, group tree |
-| `/modules/fico/gl-accounts` | G/L master with posting controls and company assignment. The chart-of-accounts filter defaults to **All charts** (so the page-level company scope applies); choosing a chart shows that chart across all companies, and switching company clears the chart filter so the two scopes never fight |
+| `/modules/fico/gl-accounts` | G/L master with posting controls and company assignment |
 | `/modules/fico/fiscal-years` | Variants + period generation |
 | `/modules/fico/fiscal-periods` | Period table, open/restrict/close/lock/reopen, history |
-| `/modules/fico/gl-accounts?tab=determination` | Account Determination: transaction keys, profiles, mappings |
-| `/modules/fico/gl-accounts?tab=events` | Transaction - FICO Posting Monitor: read-only `mm_accounting_events` view of **every** module's postings (MM, SD, PP) with a module filter (`All modules` / MM / SD / PP / Other), posted / pending / failed events, readable error summary, source lines, resulting journal |
+| `/modules/fico/account-determination` | Transaction keys, profiles, mappings |
 | `/modules/fico/journal-entries` | Journal list, manual posting, reversal, document detail |
+| `/modules/fico/document-types-fi` | FI document types and number ranges |
 | `/modules/fico/journal-details` | Line-level drill-down |
 | `/modules/fico/account-balances` | Trial balance / account balances |
 | `/modules/fico/audit-log` | Accounting audit trail |
@@ -370,13 +368,6 @@ the documented approval flow.
 
 ## 14. Known limitations (Phase 1)
 
-* Supplier invoices from three-way match do not post yet (see §8 coverage); the
-  `SUPPLIER_INVOICE` / `SUPPLIER_INVOICE_VAT` mappings are configuration only.
-* As of 2026-11-05 the database holds 53 `FAILED` MM accounting events: 52 inventory
-  valuation events failing on `fico_journal_entries_mmAccountingEventId_fkey` and one goods
-  receipt rejected by the posted-journal immutability trigger. They need investigation and
-  replay; the account-determination screen does not change them.
-
 * Single currency per company: no FX engine, no exchange rates. Foreign-currency source
   documents are rejected instead of being converted.
 * No VAT calculation engine: `SUPPLIER_INVOICE_VAT` uses the tax amount supplied on the
@@ -395,57 +386,3 @@ the documented approval flow.
   default and requires explicit approval.
 * Journal documents are stored with a `LEGACY` marker for the 57 pre-existing header-only
   journals; they are excluded from the trial balance and from G/L balances.
-
----
-
-## Centralized G/L account determination (MM + SD + PP)
-
-Implemented 2026-11-05 alongside the existing transaction-key mappings, which stay in
-place for MM journal posting.
-
-**Model** — `fico_account_determination_rules` (unique `determinationCode`, company,
-`sourceModule` MM|SD|PP, `transactionType`, optional `transactionKeyCode`, `priority`,
-effective window, lifecycle status, dimensions) and `fico_account_determination_lines`
-(multiple DEBIT/CREDIT lines per rule, `lineNumber` unique per rule). Dimensions:
-`valuationClassId`, `materialTypeCode`, `movementType` (MM); `customerAccountGroup`,
-`salesOrganization`, `distributionChannel` (SD). Foreign keys cover company, chart
-accounts, transaction keys, valuation classes and material types; CHECK constraints
-enforce module, status, side, priority, effective-date order and the rule that an ACTIVE
-row must carry approval and activation evidence.
-
-**Lifecycle** — `DRAFT → PENDING_APPROVAL → APPROVED → ACTIVE → INACTIVE`, with
-`PENDING_APPROVAL → REJECTED` (reason required) and `REJECTED → PENDING_APPROVAL` on
-resubmit. Only drafts are editable or deletable. Every transition writes the previous and
-new values, actor, timestamp and reason to the append-only
-`fico_accounting_audit_logs` (`entityType = FICO_ACCOUNT_DETERMINATION_RULE`).
-
-**Resolution** — `FicoAccountResolutionService` rejects unknown modules/types, requires
-active company accounting settings and chart, matches only ACTIVE rules effective on the
-posting date, requires every constrained dimension to be supplied and equal, then orders
-candidates by specificity (matched dimensions) → lowest priority → latest effective-from
-→ newest. Two rules that tie on all four raise a conflict instead of guessing. Every
-resolved account is validated through `FicoPostingValidationService` (chart, status,
-posting flags, company assignment, currency, effectivity).
-
-**API** (`/api/v1/fico/account-determination`, permission `fico.account-determination`) —
-`GET rules`, `GET rules/:id`, `POST rules`, `PATCH rules/:id`, `DELETE rules/:id`,
-`POST rules/:id/{submit,resubmit,approve,reject,activate,deactivate}`,
-`GET rules/:id/history`, `GET rules/history`, `POST resolve`, `GET summary`, `GET reference`.
-
-**UI** — `/modules/fico/account-determination-rules`: overview counters, one tab per
-module (MM, SD, PP — built from `GET reference`, so a new module appears without a UI
-change) with status/search filters, create/edit (multi-line debit/credit, dimensions,
-effective dates), details with approval trail and change history, and the approval actions.
-MM and PP rules use the material dimensions (valuation class, material type, movement
-type); SD rules use the customer dimensions (account group, sales organization,
-distribution channel).
-
-**Seed** — `npm run prisma:seed-account-determination` from `backend/`. Creates the missing
-groups/accounts on the existing chart, enables posting for the accounts it needs, and
-upserts MM-001…MM-005 / SD-001…SD-005 as **drafts**. It never fabricates approvals and
-never overwrites a rule that has left draft.
-
-**Known limitation** — the MM journal path (`FicoJournalService`) still resolves through
-the legacy `FicoMmAccountMapping` pairs, which cannot express multi-line rules. The
-centralized resolver is the resolution API for MM, SD and PP consumers; adapting the journal
-writer to rule lines (and any SD GL posting, which does not exist yet) is the next phase.
