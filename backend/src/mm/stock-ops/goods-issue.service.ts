@@ -58,10 +58,19 @@ export class GoodsIssueService {
 
         const docNumber = await this.generateDocNumber('GI')
 
+        const costByMaterial = await this.resolveIssueUnitCosts(
+            dto.companyId,
+            dto.warehouseId,
+            resolvedLines.map((l) => l.materialId),
+        )
+
         const lines = resolvedLines.map((l) => {
-            const unitCost = new Decimal(l.unitCost ?? 0)
+            const provided = new Decimal(l.unitCost ?? 0)
+            const unitCost = provided.gt(0)
+                ? provided
+                : new Decimal(costByMaterial.get(l.materialId) ?? 0)
             const totalCost =
-                l.totalCost !== undefined
+                l.totalCost !== undefined && new Decimal(l.totalCost).gt(0)
                     ? new Decimal(l.totalCost)
                     : unitCost.mul(l.quantity)
             return {
@@ -346,7 +355,7 @@ export class GoodsIssueService {
         const integrationLines = sdLines.length
             ? sdLines
             : await this.buildProductionIssueLines(doc)
-        const enrichedLines = integrationLines.length
+        let enrichedLines = integrationLines.length
             ? integrationLines
             : doc.lines.map((l) => ({
                   materialId: l.materialId,
@@ -354,6 +363,28 @@ export class GoodsIssueService {
                   unitCost: Number(l.unitCost),
                   totalCost: Number(l.totalCost),
               }))
+
+        // Heal zero-valued lines so automatic COGS/expense posting can resolve.
+        if (enrichedLines.some((l) => !(Number(l.totalCost) > 0))) {
+            const costByMaterial = await this.resolveIssueUnitCosts(
+                doc.companyId,
+                doc.warehouseId,
+                enrichedLines.map((l) => l.materialId),
+            )
+            enrichedLines = enrichedLines.map((l) => {
+                const qty = Number(l.quantity)
+                let unitCost = Number(l.unitCost)
+                let totalCost = Number(l.totalCost)
+                if (!(totalCost > 0)) {
+                    unitCost =
+                        unitCost > 0
+                            ? unitCost
+                            : Number(costByMaterial.get(l.materialId) ?? 0)
+                    totalCost = unitCost * qty
+                }
+                return { ...l, unitCost, totalCost }
+            })
+        }
 
         // FICO: emit COGS/expense accounting event — do not hardcode GL accounts
         const payload = {
@@ -513,6 +544,148 @@ export class GoodsIssueService {
         return this.findOneOrFail(id)
     }
 
+    /**
+     * Read-only FICO journals + accounting events for this goods issue.
+     * COGS / inventory effect lives here — not on the sales order Accounting card.
+     */
+    async findAccounting(id: string) {
+        const doc = await this.findOneOrFail(id)
+
+        const [directJournals, events] = await Promise.all([
+            this.prisma.ficoJournalEntry.findMany({
+                where: {
+                    OR: [
+                        { sourceDocumentId: doc.id },
+                        {
+                            idempotencyKey: {
+                                contains: doc.id,
+                            },
+                        },
+                    ],
+                },
+                include: {
+                    lines: {
+                        orderBy: { lineNumber: 'asc' },
+                        include: {
+                            glAccount: {
+                                select: {
+                                    id: true,
+                                    accountCode: true,
+                                    accountName: true,
+                                },
+                            },
+                        },
+                    },
+                    documentTypeRef: {
+                        select: { id: true, code: true, name: true },
+                    },
+                },
+                orderBy: [{ postingDate: 'asc' }, { createdAt: 'asc' }],
+            }),
+            this.prisma.mmAccountingEvent.findMany({
+                where: {
+                    OR: [
+                        { documentId: doc.id },
+                        { documentType: 'GOODS_ISSUE', documentId: doc.id },
+                    ],
+                },
+                orderBy: { createdAt: 'asc' },
+                select: {
+                    id: true,
+                    eventType: true,
+                    sourceModule: true,
+                    documentType: true,
+                    documentId: true,
+                    status: true,
+                    lastError: true,
+                    journalEntryId: true,
+                    createdAt: true,
+                    consumedAt: true,
+                },
+            }),
+        ])
+
+        const missingJournalIds = events
+            .map((event) => event.journalEntryId)
+            .filter(
+                (journalId): journalId is string =>
+                    Boolean(journalId) &&
+                    !directJournals.some((journal) => journal.id === journalId),
+            )
+
+        const eventJournals =
+            missingJournalIds.length > 0
+                ? await this.prisma.ficoJournalEntry.findMany({
+                      where: { id: { in: missingJournalIds } },
+                      include: {
+                          lines: {
+                              orderBy: { lineNumber: 'asc' },
+                              include: {
+                                  glAccount: {
+                                      select: {
+                                          id: true,
+                                          accountCode: true,
+                                          accountName: true,
+                                      },
+                                  },
+                              },
+                          },
+                          documentTypeRef: {
+                              select: { id: true, code: true, name: true },
+                          },
+                      },
+                  })
+                : []
+
+        const journalsById = new Map(
+            [...directJournals, ...eventJournals].map((journal) => [
+                journal.id,
+                journal,
+            ]),
+        )
+
+        return {
+            goodsIssueId: doc.id,
+            documentNumber: doc.documentNumber,
+            journals: Array.from(journalsById.values()).map((journal) => ({
+                id: journal.id,
+                documentNumber: journal.documentNumber,
+                status: journal.status,
+                documentType: journal.documentType,
+                documentTypeCode: journal.documentTypeRef?.code ?? null,
+                documentTypeName: journal.documentTypeRef?.name ?? null,
+                postingDate: journal.postingDate,
+                currencyCode: journal.currencyCode,
+                sourceModule: journal.sourceModule,
+                sourceDocumentType: journal.sourceDocumentType,
+                sourceDocumentId: journal.sourceDocumentId,
+                mmAccountingEventId: journal.mmAccountingEventId,
+                headerText: journal.headerText ?? journal.description,
+                lines: journal.lines.map((line) => ({
+                    lineNumber: line.lineNumber,
+                    glAccountId: line.glAccountId,
+                    accountCode: line.glAccount?.accountCode ?? null,
+                    accountName: line.glAccount?.accountName ?? null,
+                    debit: Number(line.debitAmount),
+                    credit: Number(line.creditAmount),
+                    description: line.description,
+                })),
+            })),
+            events: events.map((event) => ({
+                id: event.id,
+                eventType: event.eventType,
+                sourceModule: event.sourceModule,
+                documentType: event.documentType,
+                documentId: event.documentId,
+                status: event.status,
+                lastError: event.lastError,
+                journalEntryId: event.journalEntryId,
+                createdAt: event.createdAt,
+                consumedAt: event.consumedAt,
+            })),
+        }
+    }
+
     private async validatePackageForIssue(packageId: string) {
         const pkg = await this.prisma.wmPackage.findUnique({
             where: { id: packageId },
@@ -591,6 +764,13 @@ export class GoodsIssueService {
             })
             return order?.orderNumber ?? null
         }
+        if (doc.sourceDocumentType === 'EXT_PLATFORM_SALE' && doc.sourceDocumentId) {
+            const sale = await this.prisma.sdExtPlatformTransaction.findUnique({
+                where: { id: doc.sourceDocumentId },
+                select: { transactionNumber: true },
+            })
+            return sale?.transactionNumber ?? null
+        }
         if (doc.sourceDocumentType === 'PRODUCTION_ORDER' && doc.sourceDocumentId) {
             const order = await this.prisma.ppProductionOrder.findUnique({
                 where: { id: doc.sourceDocumentId },
@@ -620,16 +800,17 @@ export class GoodsIssueService {
                 'Sales goods issue requires issuePurpose=SALES',
             )
         }
-        // Sales issues originate from a sales order (SD) or a released package
-        // (warehouse / SCM trip start). Both must carry a traceable source id.
-        const salesSources = ['SALES_ORDER', 'PACKAGE']
+        // Sales issues originate from a sales order (SD), a released package
+        // (warehouse / SCM trip start) or an approved external platform sale
+        // (SD, company-owned stock). All must carry a traceable source id.
+        const salesSources = ['SALES_ORDER', 'PACKAGE', 'EXT_PLATFORM_SALE']
         if (
             !dto.sourceDocumentType ||
             !salesSources.includes(dto.sourceDocumentType) ||
             !dto.sourceDocumentId
         ) {
             throw new BadRequestException(
-                'Sales goods issue requires sourceDocumentType=SALES_ORDER or PACKAGE, and sourceDocumentId',
+                'Sales goods issue requires sourceDocumentType=SALES_ORDER, PACKAGE or EXT_PLATFORM_SALE, and sourceDocumentId',
             )
         }
     }
@@ -729,6 +910,52 @@ export class GoodsIssueService {
         return this.prisma.mmInventoryReservationLine.findFirst({
             where: { headerId: reservationHeaderId, materialId },
         })
+    }
+
+    /**
+     * Resolve inventory issue unit cost from valuation (MAP → standard) then
+     * material master standard cost. Used when callers omit unitCost.
+     */
+    private async resolveIssueUnitCosts(
+        companyId: string,
+        warehouseId: string,
+        materialIds: string[],
+    ): Promise<Map<string, number>> {
+        const unique = [...new Set(materialIds.filter(Boolean))]
+        const costs = new Map<string, number>()
+        if (!unique.length) return costs
+
+        const [valuations, materials] = await Promise.all([
+            this.prisma.mmMaterialValuation.findMany({
+                where: {
+                    companyId,
+                    warehouseId,
+                    materialId: { in: unique },
+                    isActive: true,
+                },
+                select: {
+                    materialId: true,
+                    movingAverageCost: true,
+                    standardCost: true,
+                },
+            }),
+            this.prisma.mmMaterial.findMany({
+                where: { id: { in: unique } },
+                select: { id: true, standardCost: true },
+            }),
+        ])
+        const valuationByMaterial = new Map(
+            valuations.map((row) => [row.materialId, row]),
+        )
+        for (const material of materials) {
+            const valuation = valuationByMaterial.get(material.id)
+            const map = Number(valuation?.movingAverageCost ?? 0)
+            const std = Number(
+                valuation?.standardCost ?? material.standardCost ?? 0,
+            )
+            costs.set(material.id, map > 0 ? map : std > 0 ? std : 0)
+        }
+        return costs
     }
 
     private async buildSdIssueLines(

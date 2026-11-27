@@ -27,13 +27,24 @@ export const CHECKOUT_PAYMENT_METHODS = [
 ] as const
 export type CheckoutPaymentMethod = (typeof CHECKOUT_PAYMENT_METHODS)[number]
 
-export const PAYMENT_METHOD_LABEL: Record<CheckoutPaymentMethod, string> = {
+export const PAYMENT_METHOD_LABEL: Record<string, string> = {
     COD: 'Cash on Delivery',
     CARD_DEMO: 'Credit or Debit Card',
     WALLET_DEMO: 'Digital Wallet',
     QR_DEMO: 'QR Payment',
     BANK_TRANSFER_DEMO: 'Bank Transfer',
+    CASH: 'Cash',
+    GCASH: 'GCash',
+    BANK_TRANSFER: 'Bank transfer',
+    CARD: 'Card',
+    CHEQUE: 'Cheque',
+    SALARY_LOAN: 'Salary deduction',
+    SPLIT: 'Split payment',
+    CHARGE: 'Charge',
 }
+
+export const paymentMethodLabel = (method: string | null | undefined) =>
+    method ? (PAYMENT_METHOD_LABEL[method] ?? method) : '—'
 
 /** Customer's checkout selection, sent to the backend with the order. */
 export type CheckoutPaymentSelection = {
@@ -74,8 +85,21 @@ export type SalesOrderRecord = {
         productImage: string | null
         productName: string | null
         variantName?: string
+        /** Scannable barcode snapshot of the sold variant. */
+        variantBarcode?: string
         /** OPEN | RESERVED | SHORT | FULFILLED | CANCELLED */
         integrationStatus: string | null
+        /** MM material standard cost; 0 when the line has no material. */
+        unitCost: number
+        /** VAT frozen at sale time (POS): VATABLE | VAT_EXEMPT | ZERO_RATED; null = none. */
+        taxClassification: string | null
+        taxRate: number | null
+        /** VAT_INCLUSIVE | VAT_EXCLUSIVE */
+        taxTreatment: string | null
+        taxAmount: number
+        taxableAmount: number | null
+        batchNumber?: string | null
+        lotNumber?: string | null
     })[]
     subtotal: number
     promoCode: string | null
@@ -98,7 +122,13 @@ export type SalesOrderRecord = {
     /** POS only — cash tendered and change given. */
     paymentReceived: number | null
     change: number | null
-    /** Demo payment snapshot (null for non-checkout orders). */
+    /** Outstanding balance of a partially paid POS sale (0 when fully paid). */
+    outstandingBalance: number | null
+    downPaymentType: string | null
+    downPaymentPct: number | null
+    downPaymentAmount: number | null
+    dueDate: string | null
+    /** Demo / POS payment snapshot (null for non-checkout orders). */
     payment: {
         method: string | null
         provider: string | null
@@ -106,6 +136,18 @@ export type SalesOrderRecord = {
         reference: string | null
         isDemo: boolean
     } | null
+    /** Individual POS tenders (Cash + GCash, …). Empty for non-POS / single-header demos. */
+    tenders: Array<{
+        method: string
+        amount: number
+        tenderAmount: number
+        changeAmount: number
+        status: string
+        verificationStatus: string | null
+        referenceNumber: string | null
+        employeeName: string | null
+        bankName: string | null
+    }>
     /** Snapshot of the delivery address taken at checkout. */
     shippingAddress: {
         name: string | null
@@ -156,10 +198,21 @@ type ApiSalesOrderLine = {
     productNameSnapshot: string | null
     productImageSnapshot: string | null
     variantName: string | null
+    variantSku: string | null
+    variantBarcode: string | null
     integrationStatus: string | null
     quantity: DecimalString
     unitPrice: DecimalString
     lineTotal: DecimalString
+    /** Nested MM material from the sales-order include (cost source). */
+    material?: { id?: string; standardCost?: DecimalString } | null
+    taxClassification?: string | null
+    taxRate?: DecimalString
+    taxTreatment?: string | null
+    taxAmount?: DecimalString
+    taxableAmount?: DecimalString
+    batchNumber?: string | null
+    lotNumber?: string | null
 }
 
 type ApiSalesOrder = {
@@ -180,11 +233,27 @@ type ApiSalesOrder = {
     totalAmount: DecimalString
     paymentReceived: DecimalString
     changeAmount: DecimalString
+    outstandingBalance?: DecimalString | null
+    downPaymentType?: string | null
+    downPaymentPct?: DecimalString | null
+    downPaymentAmount?: DecimalString | null
+    dueDate?: string | null
     paymentMethod: string | null
     paymentStatus: string | null
     paymentReference: string | null
     paymentProvider: string | null
     isDemoPayment: boolean | null
+    payments?: Array<{
+        paymentMethod: string
+        amount: DecimalString
+        tenderAmount?: DecimalString
+        changeAmount?: DecimalString
+        status: string
+        verificationStatus?: string | null
+        referenceNumber?: string | null
+        employeeName?: string | null
+        bankName?: string | null
+    }>
     shipToName: string | null
     shipToPhone: string | null
     shipToAddressLine1: string | null
@@ -279,10 +348,19 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             productImage: line.productImageSnapshot,
             productName: line.productNameSnapshot,
             variantName: line.variantName ?? undefined,
+            variantBarcode: line.variantBarcode ?? undefined,
             integrationStatus: line.integrationStatus ?? null,
             quantity: num(line.quantity),
             unitPrice: num(line.unitPrice),
             lineTotal: num(line.lineTotal),
+            unitCost: num(line.material?.standardCost ?? 0),
+            taxClassification: line.taxClassification ?? null,
+            taxRate: numOrNull(line.taxRate ?? null),
+            taxTreatment: line.taxTreatment ?? null,
+            taxAmount: num(line.taxAmount ?? 0),
+            taxableAmount: numOrNull(line.taxableAmount ?? null),
+            batchNumber: line.batchNumber ?? null,
+            lotNumber: line.lotNumber ?? null,
         })),
         subtotal: num(order.subtotal),
         promoCode: order.promoCode,
@@ -300,6 +378,11 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
             })) ?? [],
         paymentReceived: numOrNull(order.paymentReceived),
         change: numOrNull(order.changeAmount),
+        outstandingBalance: numOrNull(order.outstandingBalance ?? null),
+        downPaymentType: order.downPaymentType ?? null,
+        downPaymentPct: numOrNull(order.downPaymentPct ?? null),
+        downPaymentAmount: numOrNull(order.downPaymentAmount ?? null),
+        dueDate: order.dueDate ?? null,
         payment:
             order.paymentMethod !== undefined && order.paymentMethod !== null
                 ? {
@@ -310,6 +393,17 @@ function toRecord(order: ApiSalesOrder): SalesOrderRecord {
                       isDemo: Boolean(order.isDemoPayment),
                   }
                 : null,
+        tenders: (order.payments ?? []).map((tender) => ({
+            method: tender.paymentMethod,
+            amount: num(tender.amount),
+            tenderAmount: num(tender.tenderAmount ?? tender.amount),
+            changeAmount: num(tender.changeAmount ?? 0),
+            status: tender.status,
+            verificationStatus: tender.verificationStatus ?? null,
+            referenceNumber: tender.referenceNumber ?? null,
+            employeeName: tender.employeeName ?? null,
+            bankName: tender.bankName ?? null,
+        })),
         shippingAddress:
             order.shipToName !== undefined && order.shipToName !== null
                 ? {
@@ -600,6 +694,74 @@ const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> =
         Completed: 'COMPLETED',
         Cancelled: 'CANCELLED',
     }
+
+export type SalesOrderAccountingLine = {
+    lineNumber: number
+    glAccountId: string
+    accountCode: string | null
+    accountName: string | null
+    debit: number
+    credit: number
+    description: string | null
+}
+
+export type SalesOrderAccountingJournal = {
+    id: string
+    documentNumber: string | null
+    status: string
+    documentType: string
+    documentTypeCode: string | null
+    documentTypeName: string | null
+    postingDate: string
+    currencyCode: string
+    sourceModule: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    mmAccountingEventId: string | null
+    headerText: string | null
+    lines: SalesOrderAccountingLine[]
+}
+
+export type SalesOrderAccountingEvent = {
+    id: string
+    eventType: string
+    sourceModule: string
+    documentType: string
+    documentId: string
+    status: string
+    lastError: string | null
+    journalEntryId: string | null
+    createdAt: string
+    consumedAt: string | null
+}
+
+export type SalesOrderAccounting = {
+    salesOrderId: string
+    orderNumber: string
+    journals: SalesOrderAccountingJournal[]
+    events: SalesOrderAccountingEvent[]
+}
+
+/** Read-only FICO journals / events for a sales order (GET /sd/sales-orders/:id/accounting). */
+export async function getSalesOrderAccounting(
+    id: string,
+    companyId?: string,
+): Promise<SalesOrderAccounting> {
+    try {
+        const { data } = await ErpAxiosBase.get<SalesOrderAccounting>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/accounting`,
+            {
+                params: {
+                    companyId:
+                        companyId && companyId !== 'all' ? companyId : undefined,
+                },
+            },
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to load order accounting')
+    }
+}
 
 /** Lists persisted sales orders, newest first (GET /sd/sales-orders). */
 export async function getSalesOrders(

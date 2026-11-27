@@ -61,6 +61,12 @@ type DataTableProps<T> = {
     /** Hide pagination controls (e.g. embedded line tables in modals) */
     hidePagination?: boolean
     /**
+     * Use when the table sits in a horizontal scroll container: the footer then
+     * wraps on narrow screens and the page-size select stays pinned to the right
+     * edge while the table is scrolled.
+     */
+    stickyPageSize?: boolean
+    /**
      * Stable row identity, used as the React key and to keep row state (such as
      * expansion) attached to the same record across refetches. Defaults to the
      * row index, which drifts when a list is reordered by a refresh.
@@ -74,6 +80,8 @@ type DataTableProps<T> = {
     renderSubRow?: (row: T) => ReactNode
     /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
     rowClassName?: (row: T, index: number) => string | undefined
+    /** Optional row click (ignored when the click target is a nested control). */
+    onRowClick?: (row: T, index: number) => void
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -153,9 +161,11 @@ function DataTable<T>(props: DataTableProps<T>) {
         instanceId = 'data-table',
         fit = false,
         hidePagination = false,
+        stickyPageSize = false,
         getRowId,
         renderSubRow,
         rowClassName,
+        onRowClick,
         ref,
         ...rest
     } = props
@@ -302,20 +312,34 @@ function DataTable<T>(props: DataTableProps<T>) {
         }
     }
 
+    const isNestedControlClick = (event: MouseEvent<HTMLTableRowElement>) =>
+        Boolean(
+            (event.target as HTMLElement).closest(
+                'button, a, input, select, textarea, label',
+            ),
+        )
+
     const handleRowExpansion = (
         event: MouseEvent<HTMLTableRowElement>,
         rowId: string,
     ) => {
         if (loading) return
         // Controls living inside a cell own their click; do not toggle on them.
-        if (
-            (event.target as HTMLElement).closest(
-                'button, a, input, select, textarea, label',
-            )
-        ) {
+        if (isNestedControlClick(event)) {
             return
         }
         setExpandedRowId((current) => (current === rowId ? null : rowId))
+    }
+
+    const handleRowClick = (
+        event: MouseEvent<HTMLTableRowElement>,
+        row: Row<T>,
+    ) => {
+        if (loading || isNestedControlClick(event)) return
+        if (renderSubRow) {
+            handleRowExpansion(event, row.id)
+        }
+        onRowClick?.(row.original as T, row.index)
     }
 
     const totalSize = table.getTotalSize() || 1
@@ -368,7 +392,7 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                 className={classNames(
                                                     'inline-flex items-center gap-1.5',
                                                     fit
-                                                        ? 'max-w-full truncate'
+                                                        ? 'max-w-full text-left leading-tight'
                                                         : 'whitespace-nowrap',
                                                     header.column.getCanSort() &&
                                                         'cursor-pointer select-none point',
@@ -434,7 +458,8 @@ function DataTable<T>(props: DataTableProps<T>) {
                                             <Tr
                                                 className={
                                                     classNames(
-                                                        renderSubRow &&
+                                                        (renderSubRow ||
+                                                            onRowClick) &&
                                                             'cursor-pointer',
                                                         rowClassName?.(
                                                             row.original as T,
@@ -443,11 +468,11 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                     ) || undefined
                                                 }
                                                 onClick={
-                                                    renderSubRow
+                                                    renderSubRow || onRowClick
                                                         ? (event) =>
-                                                              handleRowExpansion(
+                                                              handleRowClick(
                                                                   event,
-                                                                  row.id,
+                                                                  row as Row<T>,
                                                               )
                                                         : undefined
                                                 }
@@ -522,14 +547,22 @@ function DataTable<T>(props: DataTableProps<T>) {
                 )}
             </Table>
             {!hidePagination ? (
-                <div className="flex items-center justify-between mt-4">
+                <div
+                    className={classNames(
+                        'flex items-center justify-between mt-4',
+                        stickyPageSize && 'flex-wrap gap-3',
+                    )}
+                >
                     <Pagination
                         pageSize={pageSize}
                         currentPage={pageIndex}
                         total={total}
                         onChange={handlePaginationChange}
                     />
-                    <div style={{ minWidth: 130 }}>
+                    <div
+                        style={{ minWidth: 130 }}
+                        className={classNames(stickyPageSize && 'sticky right-0 ml-auto')}
+                    >
                         <Select
                             instanceId={instanceId}
                             size="sm"
