@@ -695,6 +695,74 @@ const STATUS_TARGET_API: Record<RetailStatusTarget, 'COMPLETED' | 'CANCELLED'> =
         Cancelled: 'CANCELLED',
     }
 
+export type SalesOrderAccountingLine = {
+    lineNumber: number
+    glAccountId: string
+    accountCode: string | null
+    accountName: string | null
+    debit: number
+    credit: number
+    description: string | null
+}
+
+export type SalesOrderAccountingJournal = {
+    id: string
+    documentNumber: string | null
+    status: string
+    documentType: string
+    documentTypeCode: string | null
+    documentTypeName: string | null
+    postingDate: string
+    currencyCode: string
+    sourceModule: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    mmAccountingEventId: string | null
+    headerText: string | null
+    lines: SalesOrderAccountingLine[]
+}
+
+export type SalesOrderAccountingEvent = {
+    id: string
+    eventType: string
+    sourceModule: string
+    documentType: string
+    documentId: string
+    status: string
+    lastError: string | null
+    journalEntryId: string | null
+    createdAt: string
+    consumedAt: string | null
+}
+
+export type SalesOrderAccounting = {
+    salesOrderId: string
+    orderNumber: string
+    journals: SalesOrderAccountingJournal[]
+    events: SalesOrderAccountingEvent[]
+}
+
+/** Read-only FICO journals / events for a sales order (GET /sd/sales-orders/:id/accounting). */
+export async function getSalesOrderAccounting(
+    id: string,
+    companyId?: string,
+): Promise<SalesOrderAccounting> {
+    try {
+        const { data } = await ErpAxiosBase.get<SalesOrderAccounting>(
+            `/sd/sales-orders/${encodeURIComponent(id)}/accounting`,
+            {
+                params: {
+                    companyId:
+                        companyId && companyId !== 'all' ? companyId : undefined,
+                },
+            },
+        )
+        return data
+    } catch (error) {
+        throw toError(error, 'Unable to load order accounting')
+    }
+}
+
 /** Lists persisted sales orders, newest first (GET /sd/sales-orders). */
 export async function getSalesOrders(
     params: SalesOrderListParams = {},

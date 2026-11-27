@@ -5,7 +5,7 @@ import Dialog from '@/components/ui/Dialog'
 import Button from '@/components/ui/Button'
 import type { PosReceipt } from '../services/posService'
 import { reconcilePosSaleAccounting } from '../services/posService'
-import SalesOrderAccountingPanel from './SalesOrderAccountingPanel'
+import SalesOrderAccountingSection from './SalesOrderAccountingSection'
 
 type Props = {
     receipt: PosReceipt | null
@@ -106,14 +106,10 @@ export default function PosTransactionAccountingDialog({
                     </div>
                 </div>
 
-                <SalesOrderAccountingPanel
+                <SalesOrderAccountingSection
                     key={accountingKey}
-                    salesOrderId={receipt.salesOrderId}
+                    orderId={receipt.salesOrderId}
                     companyId={companyId}
-                    channel="POS"
-                    showPostingErrors={canRetryPosting}
-                    onRetryPosting={canRetryPosting ? () => void handleRetry() : undefined}
-                    retrying={retrying}
                 />
 
                 {retryMessage ? (
@@ -121,6 +117,16 @@ export default function PosTransactionAccountingDialog({
                 ) : null}
 
                 <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+                    {canRetryPosting ? (
+                        <Button
+                            size="sm"
+                            variant="plain"
+                            loading={retrying}
+                            onClick={() => void handleRetry()}
+                        >
+                            Retry posting
+                        </Button>
+                    ) : null}
                     {onCollect && outstanding > 0.005 ? (
                         <Button
                             size="sm"

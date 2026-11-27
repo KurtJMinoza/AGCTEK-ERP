@@ -95,6 +95,13 @@ export class GoodsIssueController {
         return this.service.findAll(query)
     }
 
+    /** Read-only FICO journals + accounting events linked to this goods issue. */
+    @Get(':id/accounting')
+    @MmRead(READERS)
+    findAccounting(@Param('id') id: string) {
+        return this.service.findAccounting(id)
+    }
+
     @Get(':id')
     @MmRead(READERS)
     findOne(@Param('id') id: string) {

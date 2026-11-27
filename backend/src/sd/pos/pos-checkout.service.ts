@@ -1,4 +1,4 @@
-import {
+﻿import {
     BadRequestException,
     ConflictException,
     Injectable,
@@ -1243,6 +1243,8 @@ export class PosCheckoutService {
             quantity: number
             uomId: string
             storageBinId: string
+            unitCost: number
+            totalCost: number
         }> = []
 
         for (const line of lines) {
@@ -1253,8 +1255,24 @@ export class PosCheckoutService {
             }
             const material = await this.prisma.mmMaterial.findUnique({
                 where: { id: line.materialId },
-                select: { baseUomId: true },
+                select: { baseUomId: true, standardCost: true },
             })
+            const valuation = await this.prisma.mmMaterialValuation.findFirst({
+                where: {
+                    companyId,
+                    materialId: line.materialId,
+                    warehouseId: header.warehouseId,
+                    isActive: true,
+                },
+                select: { movingAverageCost: true, standardCost: true },
+            })
+            // COGS needs a non-zero valued GI line. Prefer moving average, then
+            // valuation standard, then material master standard cost.
+            const map = Number(valuation?.movingAverageCost ?? 0)
+            const std = Number(
+                valuation?.standardCost ?? material?.standardCost ?? 0,
+            )
+            const unitCost = map > 0 ? map : std > 0 ? std : 0
             // Prefer quantity in base UOM when enrichment stamped it.
             const requiredQty = Number(
                 line.baseQuantity != null ? line.baseQuantity : line.quantity,
@@ -1286,6 +1304,8 @@ export class PosCheckoutService {
                     quantity: take,
                     uomId: material?.baseUomId ?? '',
                     storageBinId: balance.storageBinId,
+                    unitCost,
+                    totalCost: round2(unitCost * take),
                 })
                 remaining = round2(remaining - take)
             }
@@ -1314,7 +1334,8 @@ export class PosCheckoutService {
         // The cashier verified the sale at the register; the source reference
         // must match the sales order number.
         await this.goodsIssue.verifySupervisor(gi.id, {
-            verifiedBy: order.createdBy ?? 'POS_CASHIER',            sourceDocumentReference: order.orderNumber,
+            verifiedBy: order.createdBy ?? 'POS_CASHIER',
+            sourceDocumentReference: order.orderNumber,
             verificationNotes: 'POS counter sale verified at checkout',
         })
 

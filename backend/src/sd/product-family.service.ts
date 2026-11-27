@@ -50,63 +50,79 @@ export class ProductFamilyService {
 
         this.validateDto(dto)
 
-        const createdProductId = await this.prisma.$transaction(
-            async (tx) => {
-                // 2. Validate company
-                const company = await tx.company.findUnique({
-                    where: { id: dto.materialDefaults.companyId },
-                })
-                if (!company) {
-                    throw new BadRequestException(
-                        `Company ${dto.materialDefaults.companyId} not found`,
-                    )
-                }
+        let createdProductId: string
+        try {
+            createdProductId = await this.prisma.$transaction(
+                async (tx) => {
+                    // 2. Validate company
+                    const company = await tx.company.findUnique({
+                        where: { id: dto.materialDefaults.companyId },
+                    })
+                    if (!company) {
+                        throw new BadRequestException(
+                            `Company ${dto.materialDefaults.companyId} not found`,
+                        )
+                    }
 
-                // 3. Create parent product
-                const productSku =
-                    dto.sku?.trim() ||
-                    (await this.generateNextProductSku(dto.divisionId, tx))
+                    // 3. Create parent product
+                    const productSku =
+                        dto.sku?.trim() ||
+                        (await this.generateNextProductSku(dto.divisionId, tx))
 
-                const category =
-                    dto.category?.trim() ||
-                    (await this.materialCategoryName(
-                        dto.materialDefaults.materialCategoryId,
-                        tx,
-                    )) ||
-                    'General'
+                    const category =
+                        dto.category?.trim() ||
+                        (await this.materialCategoryName(
+                            dto.materialDefaults.materialCategoryId,
+                            tx,
+                        )) ||
+                        'General'
 
-                const product = await tx.sdProduct.create({
-                    data: {
-                        divisionId: dto.divisionId,
-                        sku: productSku,
-                        name: dto.name,
-                        description: dto.description ?? '',
-                        price: new Decimal(dto.price),
-                        originalPrice: dto.originalPrice != null
-                            ? new Decimal(dto.originalPrice)
-                            : null,
-                        category,
-                        imageUrl: dto.imageUrl ?? '',
-                        badge: dto.badge ?? null,
-                        productType: 'STOCK_ITEM',
-                        productConfig: dto.productConfig,
-                        salesUomId: dto.salesUomId ?? null,
-                        idempotencyKey: dto.idempotencyKey ?? null,
-                        status: 'ACTIVE',
-                        isActive: true,
-                    },
-                })
+                    const product = await tx.sdProduct.create({
+                        data: {
+                            divisionId: dto.divisionId,
+                            sku: productSku,
+                            name: dto.name,
+                            description: dto.description ?? '',
+                            price: new Decimal(dto.price),
+                            originalPrice: dto.originalPrice != null
+                                ? new Decimal(dto.originalPrice)
+                                : null,
+                            category,
+                            imageUrl: dto.imageUrl ?? '',
+                            badge: dto.badge ?? null,
+                            productType: 'STOCK_ITEM',
+                            productConfig: dto.productConfig,
+                            salesUomId: dto.salesUomId ?? null,
+                            idempotencyKey: dto.idempotencyKey ?? null,
+                            status: 'ACTIVE',
+                            isActive: true,
+                        },
+                    })
 
-                if (dto.productConfig === 'SIMPLE') {
-                    await this.createSimpleVariant(tx, product, dto)
-                } else {
-                    await this.createVariableVariants(tx, product, dto)
-                }
+                    if (dto.productConfig === 'SIMPLE') {
+                        await this.createSimpleVariant(tx, product, dto)
+                    } else {
+                        await this.createVariableVariants(tx, product, dto)
+                    }
 
-                return product.id
-            },
-            { timeout: 60_000 },
-        )
+                    return product.id
+                },
+                { timeout: 60_000 },
+            )
+        } catch (error) {
+            if (
+                error instanceof Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2002'
+            ) {
+                const target = Array.isArray(error.meta?.target)
+                    ? (error.meta?.target as string[]).join(', ')
+                    : String(error.meta?.target ?? 'unique field')
+                throw new ConflictException(
+                    `Product could not be created because ${target} is already in use. If you archived the previous listing, retry — or pick another material.`,
+                )
+            }
+            throw error
+        }
 
         return this.loadFullProduct(createdProductId)
     }
@@ -431,12 +447,40 @@ export class ProductFamilyService {
                 isActive: true,
                 id: { not: variant.id },
             },
-            select: { id: true },
+            select: {
+                id: true,
+                sku: true,
+                product: { select: { sku: true, name: true, status: true } },
+            },
         })
         if (linked) {
             throw new ConflictException(
-                'This material is already linked to another variant.',
+                `This material is already linked to active catalog product ${linked.product.sku} (${linked.product.name}). Archive or deactivate that product first.`,
             )
+        }
+
+        // Inactive/archived variants can still hold the material SKU (unique).
+        // Release those codes so re-listing the same material succeeds.
+        const skuHolders = await tx.sdProductVariant.findMany({
+            where: {
+                sku: material.sku!,
+                id: { not: variant.id },
+            },
+            select: { id: true, isActive: true, sku: true },
+        })
+        for (const holder of skuHolders) {
+            if (holder.isActive) {
+                throw new ConflictException(
+                    `Material SKU ${material.sku} is already used by another active catalog variant.`,
+                )
+            }
+            await tx.sdProductVariant.update({
+                where: { id: holder.id },
+                data: {
+                    sku: `${holder.sku}__released__${holder.id.slice(-6)}`,
+                    barcode: null,
+                },
+            })
         }
 
         // Record the catalog origin so the audit report can tell manually

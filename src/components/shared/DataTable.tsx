@@ -81,7 +81,7 @@ type DataTableProps<T> = {
     /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
     rowClassName?: (row: T, index: number) => string | undefined
     /** Navigate or open detail when the row is clicked (controls are ignored). */
-    onRowClick?: (row: T) => void
+    onRowClick?: (row: T, index?: number) => void
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -323,10 +323,11 @@ function DataTable<T>(props: DataTableProps<T>) {
         event: MouseEvent<HTMLTableRowElement>,
         row: T,
         rowId: string,
+        index: number,
     ) => {
         if (loading || isInteractiveRowTarget(event)) return
         if (onRowClick) {
-            onRowClick(row)
+            onRowClick(row, index)
             return
         }
         if (renderSubRow) {
@@ -465,6 +466,7 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                                   event,
                                                                   row.original as T,
                                                                   row.id,
+                                                                  row.index,
                                                               )
                                                         : undefined
                                                 }

@@ -23,7 +23,6 @@ import {
     UpdateRetailSalesOrderStatusDto,
 } from './dto/sales-order.dto'
 import { SalesOrderService } from './sales-order.service'
-import { SdSalesOrderFinanceService } from './sd-sales-order-finance.service'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
 import { RequirePermission } from '../permissions/permission.guard'
 import { RetailSessionService } from '../retail/retail-session.service'
@@ -46,7 +45,6 @@ export class SalesOrderController {
         private retailSessions: RetailSessionService,
         private returnRequests: ReturnRequestService,
         private orderTracking: OrderTrackingService,
-        private salesOrderFinance: SdSalesOrderFinanceService,
     ) {}
 
     @Get()
@@ -209,13 +207,14 @@ export class SalesOrderController {
         return { imageUrl: saveDeliveryProofImage(buffer) }
     }
 
+    /** Read-only FICO journals + accounting events linked to this sales order. */
     @Get(':id/accounting')
     @RequirePermission(['sd.sales-orders', 'sd.pos', 'fico.journal-entries'], 'read')
-    accountingSnapshot(
+    findAccounting(
         @Param('id') id: string,
         @Query('companyId') companyId?: string,
     ) {
-        return this.salesOrderFinance.getAccountingForSalesOrder(id, companyId)
+        return this.salesOrders.findAccounting(id, companyId)
     }
 
     @Get(':id')
