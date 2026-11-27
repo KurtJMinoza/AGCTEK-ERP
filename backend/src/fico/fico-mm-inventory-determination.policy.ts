@@ -27,6 +27,10 @@ export const FICO_MM_EVENT_TRANSACTION_KEYS: ReadonlyArray<{
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
     },
     {
+        eventTypes: ['CustomerReturnRestocked', 'CustomerReturnPosted'],
+        resolve: () => 'SALES_RETURN',
+    },
+    {
         eventTypes: ['DisposalReversed'],
         resolve: () => 'INVENTORY_LOSS',
     },
@@ -55,6 +59,7 @@ export const FICO_MM_KEY_TO_TRANSACTION_TYPE: Record<string, string> = {
     INVENTORY: 'GOODS_RECEIPT',
     GI_COGS: 'INVENTORY_CONSUMPTION',
     COGS: 'INVENTORY_CONSUMPTION',
+    SALES_RETURN: 'SALES_RETURN',
     CONSUMPTION_EXPENSE: 'INVENTORY_DECREASE',
     GI_EXPENSE: 'INVENTORY_DECREASE',
     INVENTORY_GAIN: 'INVENTORY_INCREASE',
@@ -95,6 +100,12 @@ export const FICO_MM_POSTING_ROLE_GUIDE: ReadonlyArray<{
         transactionKey: 'GI_COGS',
         debitRole: 'COGS',
         creditRole: 'INVENTORY',
+    },
+    {
+        scenario: 'Customer sales return restock',
+        transactionKey: 'SALES_RETURN',
+        debitRole: 'INVENTORY',
+        creditRole: 'COGS',
     },
     {
         scenario: 'Inventory shortage',
@@ -144,6 +155,13 @@ export function ficoResolveMmTransactionKey(
         return ficoCanonicalMmTransactionKey(
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
         )
+    }
+    if (
+        ['CustomerReturnRestocked', 'CustomerReturnPosted'].includes(
+            payload.eventType,
+        )
+    ) {
+        return ficoCanonicalMmTransactionKey('SALES_RETURN')
     }
     if (payload.eventType === 'DisposalReversed') {
         return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')

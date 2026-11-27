@@ -68,6 +68,11 @@ const EFFECTS_BY_EVENT: Record<string, MmAccountingEffectHint[]> = {
     PriceVariancePosted: [MM_ACCOUNTING_EFFECT_HINTS.PRICE_VARIANCE],
     CustomerReturnPosted: [
         MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+        MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
+    ],
+    CustomerReturnRestocked: [
+        MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+        MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
     ],
     InventoryTransactionReversed: [MM_ACCOUNTING_EFFECT_HINTS.REVERSAL],
 }
@@ -89,6 +94,7 @@ const MOVEMENT_BY_EVENT: Record<string, string> = {
     LandedCostAllocated: 'LANDED_COST',
     PriceVariancePosted: 'PRICE_VARIANCE',
     CustomerReturnPosted: 'RETURN_IN',
+    CustomerReturnRestocked: 'RETURN_IN',
 }
 
 @Injectable()

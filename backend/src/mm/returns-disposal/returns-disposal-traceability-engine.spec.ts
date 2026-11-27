@@ -167,6 +167,16 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             disposalService,
             events,
             { assertPermission: jest.fn() } as any,
+            {
+                buildIdempotencyKey: jest.fn((...parts: string[]) =>
+                    parts.join(':'),
+                ),
+                recordStandalone: jest.fn().mockResolvedValue({
+                    created: false,
+                    duplicate: false,
+                }),
+                toDispatchPayload: jest.fn().mockReturnValue(null),
+            } as any,
         )
         damagedExpired = new DamagedExpiredQueryService(
             prisma,

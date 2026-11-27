@@ -34,7 +34,8 @@ export class FicoSdPostingService {
         return (
             payload.sourceModule === 'SD' ||
             payload.eventType.startsWith('Pos') ||
-            payload.eventType === 'SdCustomerCollection'
+            payload.eventType === 'SdCustomerCollection' ||
+            payload.eventType === 'SdSalesReturnRefundPaid'
         )
     }
 
@@ -46,6 +47,9 @@ export class FicoSdPostingService {
         }
         if (payload.eventType === 'PosCollectionCompleted') {
             return this.posCollectionLines(payload)
+        }
+        if (payload.eventType === 'SdSalesReturnRefundPaid') {
+            return this.salesReturnRefundLines(payload)
         }
         throw new BadRequestException(
             `SD automatic posting is not implemented for ${payload.eventType}.`,
@@ -248,6 +252,143 @@ export class FicoSdPostingService {
 
         this.assertBalanced(lines, sale.orderNumber)
         return lines
+    }
+
+    /**
+     * Commercial sales-return refund: Dr Revenue (+ output tax) / Cr Cash|AR.
+     * Amounts are selling price from the refund — never MM valuation cost.
+     */
+    private async salesReturnRefundLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & {
+            returnRequestId: string
+            requestNumber: string
+            refundNumber?: string
+            totalAmount: string
+            taxAmount?: string
+            refundMethod?: string | null
+            originalPaymentMethod?: string | null
+            orderNumber?: string
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const totalAmount = new Decimal(data.totalAmount)
+        const taxAmount = new Decimal(data.taxAmount ?? '0')
+        if (totalAmount.lte(0)) {
+            throw new BadRequestException(
+                `Sales return refund ${data.requestNumber} has no commercial amount to post.`,
+            )
+        }
+        const netRevenue = Decimal.max(totalAmount.minus(taxAmount), new Decimal(0))
+        const ref = data.refundNumber ?? data.requestNumber
+        const lines: FlatLine[] = []
+
+        if (netRevenue.gt(0)) {
+            const revenueAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'SALES_REVENUE',
+                'DEBIT',
+                settings.defaultSalesRevenueAccountId,
+            )
+            lines.push({
+                glAccountId: revenueAccountId,
+                debit: netRevenue,
+                credit: new Decimal(0),
+                description: `Sales return revenue · ${ref}`,
+            })
+        }
+
+        if (taxAmount.gt(0)) {
+            const taxAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'OUTPUT_TAX',
+                'DEBIT',
+                settings.defaultTaxOutputAccountId,
+            )
+            lines.push({
+                glAccountId: taxAccountId,
+                debit: taxAmount,
+                credit: new Decimal(0),
+                description: `Sales return output tax · ${ref}`,
+            })
+        }
+
+        const settlementMethod = this.resolveRefundSettlementMethod(
+            data.refundMethod,
+            data.originalPaymentMethod,
+        )
+        if (settlementMethod === 'AR') {
+            const arAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'ACCOUNTS_RECEIVABLE',
+                'CREDIT',
+                settings.defaultReceivableAccountId,
+            )
+            lines.push({
+                glAccountId: arAccountId,
+                debit: new Decimal(0),
+                credit: totalAmount,
+                description: `Sales return AR credit · ${ref}`,
+            })
+        } else {
+            const cashAccountId = await this.resolvePaymentClearingAccount(
+                payload.companyId,
+                settings.chartOfAccountsId!,
+                settlementMethod,
+                postingDate,
+                currency,
+                settings.defaultCashAccountId,
+            )
+            lines.push({
+                glAccountId: cashAccountId,
+                debit: new Decimal(0),
+                credit: totalAmount,
+                description: `Sales return ${settlementMethod} · ${ref}`,
+            })
+        }
+
+        this.assertBalanced(lines, ref)
+        return lines
+    }
+
+    private resolveRefundSettlementMethod(
+        refundMethod?: string | null,
+        originalPaymentMethod?: string | null,
+    ): string {
+        const refund = (refundMethod ?? '').toUpperCase()
+        if (refund === 'CASH_REFUND') return 'CASH'
+        if (refund === 'BANK_TRANSFER') return 'BANK_TRANSFER'
+        if (refund === 'DIGITAL_WALLET') return 'DIGITAL_WALLET'
+        if (refund === 'STORE_CREDIT') return 'AR'
+
+        const original = (originalPaymentMethod ?? '').toUpperCase()
+        if (!original) return 'CASH'
+        if (
+            original === 'COD' ||
+            original.includes('CHARGE') ||
+            original.includes('AR') ||
+            original.includes('RECEIVABLE')
+        ) {
+            return 'AR'
+        }
+        if (original.includes('CASH')) return 'CASH'
+        if (original.includes('BANK')) return 'BANK_TRANSFER'
+        if (
+            original.includes('WALLET') ||
+            original.includes('GCASH') ||
+            original.includes('QR')
+        ) {
+            return 'DIGITAL_WALLET'
+        }
+        return original
     }
 
     private async posCollectionLines(

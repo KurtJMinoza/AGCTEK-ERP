@@ -106,7 +106,9 @@ Each row is one `MmAccountingEvent` (plus, in most cases, one valuation event �
 | Count adjustment / manual adjustment (loss) | same (`ADJUSTMENT_OUT`) | `InventoryAdjusted` | `INVENTORY_ADJUSTMENT` | `INVENTORY_SHRINKAGE` |
 | Scrap / disposal | `returns-disposal/disposal.service.ts` | `ScrapPosted` / `DisposalPosted` | `INVENTORY_DECREASE`, `INVENTORY_LOSS` | `INVENTORY_SHRINKAGE` |
 | Supplier return | `returns-disposal/supplier-return.service.ts` | `SupplierReturnPosted` | `INVENTORY_DECREASE`, `GRIR_REVERSAL` | **none — fails** |
-| Customer return intake | `returns-disposal/customer-return.service.ts` | `CUSTOMER_RETURN_COMPLETED` (raw row) | none (malformed) | **none — never consumed** |
+| Customer return RESTOCK | `returns-disposal/customer-return.service.ts` | `CustomerReturnRestocked` | `INVENTORY_INCREASE`, `COGS_EXPENSE` | `SALES_RETURN` |
+| Customer return SCRAP | same → disposal scrap path | `ScrapPosted` | `INVENTORY_DECREASE`, `INVENTORY_LOSS` | `INVENTORY_SHRINKAGE` |
+| Customer return refund PAID (SD) | `sd/return-request.service.ts` → `ReturnRefundPostingListener` | `SdSalesReturnRefundPaid` | commercial (not MM effects) | SD company defaults (not an MM key) |
 | Warehouse / stock transfer | `warehouse/transfers/transfers.service.ts`, `stock-ops/warehouse-transfer-order.service.ts` | `InventoryTransferred` | `TRANSFER_CLEARING` | **none — fails** |
 | Landed cost allocation | `valuation/valuation-engine.service.ts` | `LandedCostAllocated` | `LANDED_COST` | `LANDED_COST` |
 | Price variance (PPV/IPV) | `valuation/valuation-engine.service.ts` | `PriceVariancePosted` | `PRICE_VARIANCE` | `PRICE_VARIANCE` |
@@ -508,13 +510,35 @@ mapping must be reviewed — it is configuration, not code.
 | `GoodsReceiptReversed` / `GoodsIssueReversed` / `SupplierReturnReversed` / `DisposalReversed` / `InventoryTransactionReversed` | — | ✘ key |
 | `SupplierReturnPosted` | — (`GRIR_REVERSAL` has no key) | ✘ key |
 | `InventoryTransferred` | — (`TRANSFER_CLEARING` has no key) | ✘ key |
-| `CustomerReturnPosted` | — | ✘ key |
-| `CUSTOMER_RETURN_COMPLETED` / `CUSTOMER_RETURN_REVERSED` | — | ✘ event: payload has no `eventType`/`accountingEffects` and no `idempotencyKey`, so the consumer drops it and it stays `PENDING` |
+| `CustomerReturnRestocked` | `SALES_RETURN` | ✔ Dr Inventory / Cr COGS at **cost** (mirrors `GI_COGS`) |
+| `CustomerReturnPosted` (legacy) | `SALES_RETURN` | ✔ same mapping when a valid v2 payload is present |
+| `ScrapPosted` from customer-return scrap | `INVENTORY_SHRINKAGE` | ✔ Dr Shrinkage / Cr Inventory |
+| `SdSalesReturnRefundPaid` (SD, not MM) | company SD defaults / determination | ✔ Dr Revenue (+ tax) / Cr Cash\|AR — **commercial** amounts only |
+| `CUSTOMER_RETURN_COMPLETED` / `CUSTOMER_RETURN_REVERSED` | — | ✘ removed from emit path (malformed; do not reintroduce) |
 | `SupplierInvoiceMatched` | — | ✘ key |
 
 `FICO_RESOLVED_TRANSACTION_KEYS` in `fico-account-determination.service.ts` is the code
 list of what actually resolves: `GR_IR`, `GI_COGS`, `GI_EXPENSE`, `INVENTORY_SHRINKAGE`,
-`INVENTORY_INCREASE_ADJ`, `LANDED_COST`, `PRICE_VARIANCE`.
+`INVENTORY_INCREASE_ADJ`, `LANDED_COST`, `PRICE_VARIANCE`, `SALES_RETURN`.
+
+### Customer sales return — how to reseed (AGCTEK)
+
+Inventory restock mapping (Dr Inventory / Cr COGS, mirrored from `GI_COGS`):
+
+```bash
+cd backend
+npx ts-node --transpile-only --project prisma/tsconfig.seed.json prisma/seed-sales-return-mm-mapping.ts
+```
+
+| Piece | Value |
+| --- | --- |
+| MM event | `CustomerReturnRestocked` |
+| MM transaction key | `SALES_RETURN` |
+| Journal document type | `MM_ADJUSTMENT` |
+| SD event | `ReturnRefundPaid` → durable `SdSalesReturnRefundPaid` |
+| SD journal document type | `SD_REVERSAL` (FI code `SR`) |
+| SD idempotency | `sales-return-refund:{sdReturnRequestId}:{refundId}` |
+| Triggers | RESTOCK → inventory journal; refund `PAID` → commercial journal; `APPROVED` alone → neither |
 
 ---
 

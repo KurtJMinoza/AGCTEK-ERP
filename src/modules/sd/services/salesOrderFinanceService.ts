@@ -45,7 +45,7 @@ export type SalesOrderAccountingSnapshot = {
         status: string
         journalEntryId: string | null
         lastError: string | null
-        idempotencyKey: string
+        idempotencyKey: string | null
     }>
 }
 

@@ -808,7 +808,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
     })
 
     describe('without the demo refund settlement flag', () => {
-        it('refuses to pay an approved refund and leaves payment and status unchanged', async () => {
+        it('refuses to pay when neither demo flag nor SD event bus is wired', async () => {
             delete process.env.SD_DEMO_REFUND_PAYMENT
             const { service, row, paymentCas } = phase4Setup({ status: 'MARKED_DAMAGED' })
             await service.createRefund('rr-1', 'comp-1', {})
@@ -819,6 +819,46 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
             )
             expect(row.refundStatus).toBe('APPROVED')
             expect(paymentCas).toEqual([])
+        })
+
+        it('pays and emits ReturnRefundPaid when the SD event bus is wired', async () => {
+            delete process.env.SD_DEMO_REFUND_PAYMENT
+            const emit = jest.fn().mockResolvedValue(undefined)
+            const { service, row, paymentCas } = phase4Setup({ status: 'MARKED_DAMAGED' })
+            ;(service as unknown as { sdEvents?: { emit: typeof emit } }).sdEvents = {
+                emit,
+            }
+            await service.createRefund('rr-1', 'comp-1', {})
+            await service.approveRefund('rr-1', 'comp-1', 'mgmt')
+            expect(emit).not.toHaveBeenCalled()
+
+            const paid = await service.payRefund('rr-1', 'comp-1', 'cashier')
+            expect(paid.refundStatus).toBe('PAID')
+            expect(paymentCas).toEqual([{ status: 'Refunded' }])
+            expect(emit).toHaveBeenCalledTimes(1)
+            expect(emit).toHaveBeenCalledWith(
+                'ReturnRefundPaid',
+                expect.objectContaining({
+                    returnRequestId: 'rr-1',
+                    refundStatus: 'PAID',
+                    preferredResolution: 'REFUND',
+                    totalAmount: '200',
+                    idempotencyKey: expect.stringContaining('sales-return-refund:rr-1:'),
+                }),
+            )
+            expect(row.refundStatus).toBe('PAID')
+        })
+
+        it('does not emit ReturnRefundPaid on approve alone (credit memo only)', async () => {
+            delete process.env.SD_DEMO_REFUND_PAYMENT
+            const emit = jest.fn().mockResolvedValue(undefined)
+            const { service } = phase4Setup({ status: 'MARKED_DAMAGED' })
+            ;(service as unknown as { sdEvents?: { emit: typeof emit } }).sdEvents = {
+                emit,
+            }
+            await service.createRefund('rr-1', 'comp-1', {})
+            await service.approveRefund('rr-1', 'comp-1', 'mgmt')
+            expect(emit).not.toHaveBeenCalled()
         })
     })
 

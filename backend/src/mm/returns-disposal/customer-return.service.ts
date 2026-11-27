@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { DisposalService } from './disposal.service'
 import {
@@ -88,6 +90,7 @@ export class CustomerReturnService {
         private disposalService: DisposalService,
         private events: EventEmitter2,
         private permissions: PermissionsService,
+        private accountingEvents: MmAccountingEventService,
     ) {}
 
     async create(dto: CreateCustomerReturnDto) {
@@ -686,30 +689,7 @@ export class CustomerReturnService {
             }
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'CUSTOMER_RETURN_COMPLETED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'CUSTOMER_RETURN',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: {
-                    returnNumber: doc.returnNumber,
-                    lines: doc.lines.map((l) => ({
-                        materialId: l.materialId,
-                        quantity: Number(l.quantity),
-                        disposition: l.disposition,
-                    })),
-                },
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'CUSTOMER_RETURN',
-            documentId: doc.id,
-            companyId: doc.companyId,
-        })
+        await this.emitRestockAccounting(doc)
 
         const updated = await this.prisma.mmCustomerReturn.update({
             where: { id },
@@ -761,16 +741,20 @@ export class CustomerReturnService {
             })
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'CUSTOMER_RETURN_REVERSED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'CUSTOMER_RETURN',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: { returnNumber: doc.returnNumber },
-                status: 'PENDING',
-            },
+        // Financial undo: reverse the restock journal in FICO (never edit POSTED lines).
+        // Inventory reverse above is operational; FICO reverse is requested by journal id link.
+        this.events.emit('accounting.entry.requested', {
+            schemaVersion: 'v2',
+            eventType: 'CustomerReturnReversed',
+            companyId: doc.companyId,
+            documentType: 'CUSTOMER_RETURN',
+            documentId: doc.id,
+            sourceModule: 'RETURNS_DISPOSAL',
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.REVERSAL],
+            lines: [],
+            financiallyRelevant: false,
+            returnNumber: doc.returnNumber,
+            idempotencyKey: `CustomerReturnReversed:CUSTOMER_RETURN:${doc.id}`,
         })
 
         const updated = await this.prisma.mmCustomerReturn.update({
@@ -917,6 +901,68 @@ export class CustomerReturnService {
             where: { legacyCustomerReturnId: doc.id },
             data: { intakePostedAt: new Date() },
         })
+    }
+
+    /**
+     * RESTOCK inventory leg → FICO SALES_RETURN (Dr Inventory / Cr COGS at cost).
+     * SCRAP uses Disposal/ScrapPosted → INVENTORY_SHRINKAGE. REFUND_ONLY has no MM journal.
+     */
+    private async emitRestockAccounting(
+        doc: Awaited<ReturnType<CustomerReturnService['findOneOrFail']>>,
+    ) {
+        const restockLines = doc.lines.filter((line) => {
+            if (line.disposition !== 'RESTOCK') return false
+            const qty = Number(line.quantity)
+            const unitCost = Number(line.unitCost)
+            return qty > 0 && unitCost >= 0 && qty * unitCost > 0
+        })
+        if (!restockLines.length) return
+
+        const idempotencyKey =
+            this.accountingEvents.buildIdempotencyKey(
+                'CustomerReturnRestocked',
+                'CUSTOMER_RETURN',
+                doc.id,
+            )
+
+        const record = await this.prisma.$transaction(async (tx) =>
+            this.accountingEvents.recordStandalone(tx, {
+                eventType: 'CustomerReturnRestocked',
+                sourceModule: 'RETURNS_DISPOSAL',
+                documentType: 'CUSTOMER_RETURN',
+                documentId: doc.id,
+                companyId: doc.companyId,
+                postingDate: new Date(),
+                idempotencyKey,
+                accountingEffects: [
+                    MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+                    MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
+                ],
+                lines: restockLines.map((line) => ({
+                    materialId: line.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'RETURN_IN',
+                    quantity: Number(line.quantity),
+                    unitCost: Number(line.unitCost),
+                    totalCost: Number(line.quantity) * Number(line.unitCost),
+                })),
+                financiallyRelevant: true,
+                extraPayload: {
+                    returnNumber: doc.returnNumber,
+                    sdReturnRequestRef: doc.sdReturnRequestRef ?? null,
+                    sdSalesReturnId: doc.sdSalesReturnId ?? null,
+                    dispositions: restockLines.map((line) => ({
+                        lineId: line.id,
+                        disposition: line.disposition,
+                    })),
+                },
+            }),
+        )
+
+        const payload = this.accountingEvents.toDispatchPayload(record)
+        if (payload) {
+            this.events.emit('accounting.entry.requested', payload)
+        }
     }
 
     /**

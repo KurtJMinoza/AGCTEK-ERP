@@ -89,7 +89,9 @@ function ResultCell({ event }: { event: FicoAccountingEvent }) {
                 secondary={`Journal · ${event.journal.status.toLowerCase()}`}
             />
         ) : (
-            <span className="text-xs text-gray-500">Consumed — no FICO journal (legacy bridge)</span>
+            <span className="text-xs text-gray-500">
+                Consumed without journal lines (legacy stub — not successful posting)
+            </span>
         )
     }
     if (event.status === 'FAILED') {
@@ -526,7 +528,26 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                                 {detail.consumedAt ? ` · posted ${formatFicoDate(detail.consumedAt)}` : ''}
                             </DetailItem>
                             <DetailItem label="Source document ID">
-                                <span className="font-mono text-xs">{detail.documentId}</span>
+                                {detail.documentType === 'RETURN_REQUEST' &&
+                                detail.documentId ? (
+                                    <Link
+                                        href={`/modules/sd/customer-returns?requestId=${encodeURIComponent(detail.documentId)}`}
+                                        className="font-mono text-xs text-primary hover:underline"
+                                    >
+                                        {detail.documentId}
+                                    </Link>
+                                ) : detail.documentType === 'CUSTOMER_RETURN' ? (
+                                    <Link
+                                        href="/modules/sd/customer-returns"
+                                        className="font-mono text-xs text-primary hover:underline"
+                                    >
+                                        {detail.documentId}
+                                    </Link>
+                                ) : (
+                                    <span className="font-mono text-xs">
+                                        {detail.documentId}
+                                    </span>
+                                )}
                             </DetailItem>
                             <DetailItem label="Module / source stream">
                                 {detail.module} · {humanize(detail.sourceModule)}

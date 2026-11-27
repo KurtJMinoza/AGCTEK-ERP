@@ -26,6 +26,7 @@ import {
 } from 'class-validator'
 import { Type } from 'class-transformer'
 import { ReturnRequestService } from './return-request.service'
+import { SdReturnRequestFinanceService } from './sd-return-request-finance.service'
 import { RequirePermission } from '../permissions/permission.guard'
 
 export class ReturnRequestLineDto {
@@ -159,7 +160,10 @@ export class InspectReturnDto {
 /** Customer return requests (SD owns the request; MM owns stock disposition). */
 @Controller('sd/returns')
 export class ReturnRequestController {
-    constructor(private returns: ReturnRequestService) {}
+    constructor(
+        private returns: ReturnRequestService,
+        private returnFinance: SdReturnRequestFinanceService,
+    ) {}
 
     /** Strictly company-scoped list (optional status / refundStatus filters). */
     @Get()
@@ -173,6 +177,18 @@ export class ReturnRequestController {
             throw new BadRequestException('companyId is required')
         }
         return this.returns.list(companyId, { status, refundStatus })
+    }
+
+    @Get(':id/accounting')
+    @RequirePermission(
+        ['sd.sales-orders', 'fico.journal-entries'],
+        'read',
+    )
+    accountingSnapshot(
+        @Param('id') id: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.returnFinance.getAccountingForReturnRequest(id, companyId)
     }
 
     @Post()

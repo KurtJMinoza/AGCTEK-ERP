@@ -68,6 +68,11 @@ function setup() {
     const permissions = {
         assertPermission: jest.fn().mockResolvedValue(undefined),
     }
+    const accountingEvents = {
+        buildIdempotencyKey: jest.fn((...parts: string[]) => parts.join(':')),
+        recordStandalone: jest.fn(),
+        toDispatchPayload: jest.fn(),
+    }
     const service = new CustomerReturnService(
         prisma as never,
         {} as never,
@@ -75,6 +80,7 @@ function setup() {
         {} as never,
         {} as never,
         permissions as never,
+        accountingEvents as never,
     )
     return { service, prisma, permissions, returns, audits }
 }

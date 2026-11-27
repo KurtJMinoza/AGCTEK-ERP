@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import Breadcrumb from '@/components/shared/Breadcrumb'
@@ -32,6 +32,7 @@ import {
 import { apiOpenReturnCase } from '@/modules/crm/services/crmApi'
 import { ticketHref } from '@/modules/crm/utils/deepLinks'
 import usePermissions from '@/utils/hooks/usePermissions'
+import ReturnRequestAccountingPanel from '../components/ReturnRequestAccountingPanel'
 
 const ROUTE = '/modules/sd/customer-returns'
 
@@ -123,6 +124,8 @@ const CustomerReturnsPage = () => {
     const [confirm, setConfirm] = useState<ConfirmState>(null)
     const [detail, setDetail] = useState<CustomerReturnRequestRow | null>(null)
     const router = useRouter()
+    const searchParams = useSearchParams()
+    const deepLinkRequestId = searchParams.get('requestId')?.trim() || ''
     const { can } = usePermissions()
     const canOpenCase = can('crm.tickets', 'create')
 
@@ -164,12 +167,16 @@ const CustomerReturnsPage = () => {
                 ...(refundFilter ? { refundStatus: refundFilter } : {}),
             })
             setRows(res)
+            if (deepLinkRequestId) {
+                const match = res.find((row) => row.id === deepLinkRequestId)
+                if (match) setDetail(match)
+            }
         } catch (err) {
             pushToast('danger', 'Load failed', errMsg(err, 'Failed to load returns'))
         } finally {
             setLoading(false)
         }
-    }, [companyId, statusFilter, refundFilter])
+    }, [companyId, statusFilter, refundFilter, deepLinkRequestId])
 
     useEffect(() => {
         fetchList()
@@ -505,12 +512,16 @@ const CustomerReturnsPage = () => {
                                         ),
                                 })
                             } else if (r.refundStatus === 'APPROVED') {
-                                if (DEMO_REFUND_PAYMENT_ENABLED) items.push({
-                                    label: 'Mark refund paid (demo)',
+                                items.push({
+                                    label: DEMO_REFUND_PAYMENT_ENABLED
+                                        ? 'Mark refund paid (demo)'
+                                        : 'Mark refund paid',
                                     run: () =>
                                         void confirmRun(
                                             'Mark refund paid',
-                                            'DEMO settlement: flip the Paid payment to Refunded and mark the invoice REFUNDED?',
+                                            DEMO_REFUND_PAYMENT_ENABLED
+                                                ? 'DEMO settlement: flip the Paid payment to Refunded, mark the invoice REFUNDED, and post the commercial FICO journal?'
+                                                : 'Settle the refund (payment → Refunded, invoice → REFUNDED) and post the commercial FICO revenue journal?',
                                             () =>
                                                 customerReturnRequestService.refundPay(r.id, {
                                                     companyId: company,
@@ -732,7 +743,7 @@ const CustomerReturnsPage = () => {
             {detail && (
                 <Dialog
                     isOpen
-                    width={680}
+                    width={760}
                     onClose={() => setDetail(null)}
                     onRequestClose={() => setDetail(null)}
                 >
@@ -944,6 +955,17 @@ const CustomerReturnsPage = () => {
                                 {detail.conditionNote}
                             </p>
                         )}
+
+                        <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
+                            <ReturnRequestAccountingPanel
+                                returnRequestId={detail.id}
+                                companyId={
+                                    detail.salesOrder?.company?.id ??
+                                    companyId ??
+                                    null
+                                }
+                            />
+                        </div>
                     </div>
                 </Dialog>
             )}

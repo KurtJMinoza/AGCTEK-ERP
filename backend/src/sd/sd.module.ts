@@ -12,6 +12,7 @@ import { SalesOrderController } from './sales-order.controller'
 import { OrderTrackingService } from './order-tracking.service'
 import { SalesOrderService } from './sales-order.service'
 import { SdSalesOrderFinanceService } from './sd-sales-order-finance.service'
+import { SdReturnRequestFinanceService } from './sd-return-request-finance.service'
 import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SdMmEventConsumer } from './sd-mm-event.consumer'
@@ -74,6 +75,7 @@ import { PosPaymentMethodService } from './pos/pos-payment-method.service'
 import { PosRefundService } from './pos/pos-refund.service'
 import { PosCollectionService } from './pos/pos-collection.service'
 import { PosRevenuePostingListener } from './pos/pos-revenue-posting.listener'
+import { ReturnRefundPostingListener } from './return-refund-posting.listener'
 import { PosEmployeeService } from './pos/pos-employee.service'
 import { ExtPlatformTransactionController } from './ext-platform-transaction.controller'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
@@ -114,6 +116,7 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         ProductService,
         SalesOrderService,
         SdSalesOrderFinanceService,
+        SdReturnRequestFinanceService,
         SdExtPlatformFinanceService,
         SdEventEmitterService,
         SdMmEventConsumer,
@@ -159,6 +162,7 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         PosEmployeeService,
         PosCollectionService,
         PosRevenuePostingListener,
+        ReturnRefundPostingListener,
         ExtPlatformTransactionService,
     ],
     exports: [
