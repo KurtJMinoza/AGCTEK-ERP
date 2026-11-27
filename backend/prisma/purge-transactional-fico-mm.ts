@@ -4,6 +4,7 @@
  *
  * Preserves: MM material/supplier/warehouse master, SD product catalog & customers,
  * COA, GL accounts, company FICO settings, treasury account master, determination rules.
+ * Also removes procurement (PO/PR/RFQ/invoices), MRP runs, and supplier returns.
  *
  *   npx ts-node --project prisma/tsconfig.seed.json prisma/purge-transactional-fico-mm.ts --dry-run
  *   npx ts-node --project prisma/tsconfig.seed.json prisma/purge-transactional-fico-mm.ts
@@ -176,12 +177,68 @@ async function purgeFicoSubledgers(prisma: PrismaClient) {
     await prisma.ficoArDocument.deleteMany()
 
     await prisma.ficoGrIrOpenItem.deleteMany()
+    await prisma.ficoArCreditProfile.deleteMany()
     await prisma.ficoTaxPostingSnapshot.deleteMany()
     await prisma.ficoTreasuryBankStatementLine.deleteMany()
     await prisma.ficoTreasurySettlement.deleteMany()
     await prisma.ficoHistoricalBackpostingRun.deleteMany().catch(() => undefined)
 
     log('FICO AP/AR, GR/IR, treasury postings, and tax snapshots removed.')
+}
+
+async function purgeProcurementAndMrp(prisma: PrismaClient) {
+    const counts = {
+        supplierInvoices: await prisma.mmSupplierInvoice.count(),
+        purchaseOrders: await prisma.mmPurchaseOrder.count(),
+        purchaseReqs: await prisma.mmPurchaseRequisition.count(),
+        rfqs: await prisma.mmRfq.count(),
+        mrpRuns: await prisma.mmMrpRun.count(),
+        supplierReturns: await prisma.mmSupplierReturn.count(),
+    }
+    log(`Procurement/MRP counts: ${JSON.stringify(counts)}`)
+    if (dryRun) return
+
+    await prisma.mmSupplierInvoiceLineReceipt.deleteMany()
+    await prisma.mmSupplierInvoiceLine.deleteMany()
+    await prisma.mmSupplierInvoice.deleteMany()
+    await prisma.mmMatchException.deleteMany()
+
+    await prisma.mmSupplierReturnLine.deleteMany()
+    await prisma.mmSupplierReturnAudit.deleteMany()
+    await prisma.mmSupplierReturn.deleteMany()
+
+    await prisma.mmPurchaseCommitment.deleteMany()
+    await prisma.mmPurchaseOrderRevision.deleteMany()
+    await prisma.mmPurchaseOrderAudit.deleteMany()
+    await prisma.mmPurchaseOrderAttachment.deleteMany()
+    await prisma.mmPurchaseOrderLine.deleteMany()
+    await prisma.mmPurchaseOrder.deleteMany()
+
+    await prisma.mmPrConversion.deleteMany()
+    await prisma.mmPurchaseRequisitionLine.deleteMany()
+    await prisma.mmPurchaseRequisitionAudit.deleteMany()
+    await prisma.mmPurchaseRequisition.updateMany({
+        data: { sourceMrpRunId: null },
+    })
+    await prisma.mmPurchaseRequisition.deleteMany()
+
+    await prisma.mmRfqAward.deleteMany()
+    await prisma.mmRfqAudit.deleteMany()
+    await prisma.mmSupplierQuotationLine.deleteMany()
+    await prisma.mmSupplierQuotation.deleteMany()
+    await prisma.mmRfqSupplier.deleteMany()
+    await prisma.mmRfqLine.deleteMany()
+    await prisma.mmRfq.deleteMany()
+
+    await prisma.mmProcurementSuggestion.deleteMany()
+    await prisma.mmPlannedOrder.deleteMany()
+    await prisma.mmSupplyProposal.deleteMany()
+    await prisma.mmProjectedStock.deleteMany()
+    await prisma.mmBomExplosionTrace.deleteMany()
+    await prisma.mmMaterialRequirement.deleteMany()
+    await prisma.mmMrpRun.deleteMany()
+
+    log('Procurement, supplier invoices, MRP output, and supplier returns removed.')
 }
 
 async function purgeSdTransactional(prisma: PrismaClient) {
@@ -252,6 +309,7 @@ async function main() {
         await purgeAllGoodsReceipts(prisma)
         await cleanupPosMmTrail(prisma, dryRun)
         await purgeRemainingInventoryLedger(prisma)
+        await purgeProcurementAndMrp(prisma)
 
         const after = {
             journals: await prisma.ficoJournalEntry.count(),
@@ -264,6 +322,10 @@ async function main() {
             products: await prisma.sdProduct.count(),
             materials: await prisma.mmMaterial.count(),
             invTxns: await prisma.mmInventoryTransaction.count(),
+            glAccounts: await prisma.ficoGlAccount.count(),
+            coa: await prisma.ficoChartOfAccounts.count(),
+            pos: await prisma.mmPurchaseOrder.count(),
+            mrpRuns: await prisma.mmMrpRun.count(),
         }
         log(`After: ${JSON.stringify(after)}`)
         log('Done.')

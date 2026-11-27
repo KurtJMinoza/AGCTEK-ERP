@@ -21,7 +21,7 @@ const AccountsReceivablePage = () => {
         <PageContainer>
             <PageHeader
                 title="Accounts Receivable"
-                description="Customer subledger workbench — open items, collections, credit exposure, and receivable G/L reconciliation."
+                description="Customer subledger workbench — open items with POS/SO invoice reference, aging buckets, collections, credit exposure, and G/L reconciliation."
                 breadcrumbs={buildErpBreadcrumbs(ROUTE)}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">

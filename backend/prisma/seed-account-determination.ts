@@ -254,6 +254,32 @@ export async function seedAccountDetermination(prisma: PrismaClient) {
                 },
                 select: { id: true },
             }))
+        if (def.code === '210100') {
+            await prisma.ficoGlAccount.update({
+                where: { id: account.id },
+                data: {
+                    accountType: 'LIABILITY',
+                    isReconciliationAccount: true,
+                    reconciliationType: 'AP',
+                    openItemManagement: true,
+                    allowAutomaticPosting: true,
+                    updatedBy: SEED_ACTOR,
+                },
+            })
+        }
+        if (def.code === '110200') {
+            await prisma.ficoGlAccount.update({
+                where: { id: account.id },
+                data: {
+                    accountType: 'ASSET',
+                    isReconciliationAccount: true,
+                    reconciliationType: 'AR',
+                    openItemManagement: true,
+                    allowAutomaticPosting: true,
+                    updatedBy: SEED_ACTOR,
+                },
+            })
+        }
         accountIds.set(def.code, account.id)
 
         const assignment = await prisma.ficoCompanyGlAccount.findFirst({

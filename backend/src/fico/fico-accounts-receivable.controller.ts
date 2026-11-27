@@ -34,6 +34,15 @@ export class FicoAccountsReceivableController {
         return this.accountsReceivable.listOpenItems(query, user)
     }
 
+    @Get('aging')
+    @RequirePermission('fico.accounts-receivable', 'read')
+    getAging(
+        @Query() query: FicoArDashboardQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsReceivable.getAging(query.companyId, query.asOfDate, user)
+    }
+
     @Get('reconciliation')
     @RequirePermission('fico.accounts-receivable', 'read')
     reconcile(

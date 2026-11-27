@@ -13,6 +13,8 @@ export type ArOpenItemRow = {
     status: string
     itemType: string
     direction: string
+    overdueDays?: number
+    daysUntilDue?: number
     customer?: {
         id: string
         customerNumber: string
@@ -26,6 +28,22 @@ export type ArOpenItemRow = {
     }
 }
 
+export type ArAgingBuckets = {
+    current: string
+    days1To30: string
+    days31To60: string
+    days61To90: string
+    over90: string
+    customerCredits: string
+}
+
+export type ArAgingReport = {
+    asOfDate: string
+    totalReceivable: string
+    buckets: ArAgingBuckets
+    items: ArOpenItemRow[]
+}
+
 export type ArDashboard = {
     baseCurrency: string
     totalOutstanding: string
@@ -33,15 +51,26 @@ export type ArDashboard = {
     collectionsInPeriod: string
     creditLimit: string
     creditExposure: string
+    availableCredit?: string
+    customerAdvanceBalance?: string
+    unappliedReceiptBalance?: string
     postingExceptions: number
+    agingBuckets?: ArAgingBuckets
+    totalReceivable?: string
 }
 
 export const accountsReceivableService = {
-    async fetchDashboard(companyId: string, fromDate?: string, toDate?: string) {
+    async fetchDashboard(
+        companyId: string,
+        fromDate?: string,
+        toDate?: string,
+        asOfDate?: string,
+    ) {
         try {
             const params = new URLSearchParams({ companyId })
             if (fromDate) params.set('fromDate', fromDate)
             if (toDate) params.set('toDate', toDate)
+            if (asOfDate) params.set('asOfDate', asOfDate)
             const { data } = await ErpAxiosBase.get<ArDashboard>(
                 `${BASE}/dashboard?${params}`,
             )
@@ -51,16 +80,30 @@ export const accountsReceivableService = {
         }
     },
 
-    async fetchOpenItems(companyId: string, overdueOnly?: boolean) {
+    async fetchOpenItems(companyId: string, overdueOnly?: boolean, asOfDate?: string) {
         try {
             const params = new URLSearchParams({ companyId })
             if (overdueOnly) params.set('overdueOnly', 'true')
+            if (asOfDate) params.set('asOfDate', asOfDate)
             const { data } = await ErpAxiosBase.get<ArOpenItemRow[]>(
                 `${BASE}/open-items?${params}`,
             )
             return data
         } catch (error) {
             throw toApiError(error, 'Unable to load AR open items')
+        }
+    },
+
+    async fetchAging(companyId: string, asOfDate?: string) {
+        try {
+            const params = new URLSearchParams({ companyId })
+            if (asOfDate) params.set('asOfDate', asOfDate)
+            const { data } = await ErpAxiosBase.get<ArAgingReport>(
+                `${BASE}/aging?${params}`,
+            )
+            return data
+        } catch (error) {
+            throw toApiError(error, 'Unable to load AR aging')
         }
     },
 

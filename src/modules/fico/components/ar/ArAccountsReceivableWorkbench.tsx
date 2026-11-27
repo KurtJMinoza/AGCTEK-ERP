@@ -8,44 +8,175 @@ import StatCard from '@/components/shared/StatCard'
 import Button from '@/components/ui/Button'
 import FilterBar from '@/components/shared/FilterBar'
 import StatusBadge from '@/components/shared/StatusBadge'
-import FicoResponsiveTable from '../FicoResponsiveTable'
+import DatePicker from '@/components/ui/DatePicker'
+import { FormItem } from '@/components/ui/Form'
+import FicoLedgerTable from '../workbench/FicoLedgerTable'
 import { FicoCodeCell, formatFicoDate } from '../ficoTableUi'
 import { formatMoney } from '../journal/journalUi'
 import FicoWorkbenchTabBar from '../workbench/FicoWorkbenchTabBar'
 import {
-    FicoTableToolbar,
     FicoWorkbenchAlert,
     FicoWorkbenchPanel,
 } from '../workbench/FicoWorkbenchChrome'
 import {
     accountsReceivableService,
+    type ArAgingBuckets,
+    type ArAgingReport,
     type ArDashboard,
     type ArOpenItemRow,
 } from '../../services/accountsReceivableService'
+import ArAgingVisualization from './ArAgingVisualization'
 import {
     HiOutlineCash,
     HiOutlineClipboardList,
     HiOutlineCurrencyDollar,
+    HiOutlineExclamation,
     HiOutlineRefresh,
 } from 'react-icons/hi'
 
-type TabKey = 'overview' | 'open-items' | 'reconciliation'
+type TabKey = 'overview' | 'open-items' | 'aging' | 'reconciliation'
 
 const TABS: { value: TabKey; label: string }[] = [
     { value: 'overview', label: 'Overview' },
     { value: 'open-items', label: 'Open items' },
+    { value: 'aging', label: 'Aging detail' },
     { value: 'reconciliation', label: 'G/L reconciliation' },
 ]
 
-const customerLabel = (row: ArOpenItemRow) =>
-    row.customer
-        ? `${row.customer.companyName}`
-        : row.customerId
+function num(v: string | number | undefined) {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+}
+
+const customerDisplayName = (row: ArOpenItemRow) => {
+    const c = row.customer
+    if (!c) return row.customerId
+    const contact = c.contactName?.trim()
+    const company = c.companyName?.trim()
+    if (contact && company && contact !== company) return contact
+    return contact || company || c.customerNumber
+}
+
+const referenceLabel = (row: ArOpenItemRow) =>
+    row.document?.referenceNumber?.trim() || '—'
+
+function buildOpenItemColumns(): ColumnDef<ArOpenItemRow>[] {
+    return [
+        {
+            header: 'Customer',
+            size: 200,
+            cell: ({ row }) => (
+                <FicoCodeCell
+                    icon="posting"
+                    code={row.original.customer?.customerNumber ?? '—'}
+                    name={customerDisplayName(row.original)}
+                />
+            ),
+        },
+        {
+            header: 'Invoice / reference',
+            cell: ({ row }) => (
+                <span className="font-mono text-xs font-medium text-primary">
+                    {referenceLabel(row.original)}
+                </span>
+            ),
+        },
+        {
+            header: 'Due date',
+            size: 110,
+            cell: ({ row }) => formatFicoDate(row.original.dueDate),
+        },
+        {
+            header: 'Status',
+            accessorKey: 'status',
+            size: 110,
+            cell: ({ row }) => (
+                <StatusBadge
+                    status={row.original.status}
+                    tone={
+                        row.original.status === 'OPEN'
+                            ? 'warning'
+                            : row.original.status === 'CLEARED'
+                              ? 'success'
+                              : 'default'
+                    }
+                />
+            ),
+        },
+        {
+            header: 'Days overdue',
+            size: 100,
+            cell: ({ row }) => {
+                const days = Number(row.original.overdueDays ?? 0)
+                return (
+                    <span
+                        className={
+                            days > 0
+                                ? 'tabular-nums font-semibold text-amber-700 dark:text-amber-400'
+                                : 'tabular-nums text-gray-400'
+                        }
+                    >
+                        {days > 0 ? days : '—'}
+                    </span>
+                )
+            },
+        },
+        {
+            header: 'Days until due',
+            size: 110,
+            cell: ({ row }) => {
+                const days = Number(row.original.daysUntilDue ?? 0)
+                return (
+                    <span
+                        className={
+                            days > 0
+                                ? 'tabular-nums font-medium text-emerald-700 dark:text-emerald-400'
+                                : 'tabular-nums text-gray-400'
+                        }
+                    >
+                        {days > 0 ? days : '—'}
+                    </span>
+                )
+            },
+        },
+        {
+            header: 'Open amount',
+            size: 130,
+            cell: ({ row }) => (
+                <span className="tabular-nums font-semibold text-gray-900 dark:text-gray-100">
+                    {formatMoney(
+                        row.original.currencyCode,
+                        String(row.original.openAmount),
+                    )}
+                </span>
+            ),
+        },
+        {
+            header: 'Journal',
+            size: 88,
+            cell: ({ row }) =>
+                row.original.document?.journalEntryId ? (
+                    <Link
+                        className="text-xs font-medium text-primary hover:underline"
+                        href={`/modules/fico/journal-entries/${row.original.document.journalEntryId}`}
+                    >
+                        View JE
+                    </Link>
+                ) : (
+                    '—'
+                ),
+        },
+    ]
+}
+
+type AgingBucketRow = { bucket: string; amount: string | number; tone?: string }
 
 const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => {
     const [tab, setTab] = useState<TabKey>('overview')
     const [dashboard, setDashboard] = useState<ArDashboard | null>(null)
     const [openItems, setOpenItems] = useState<ArOpenItemRow[]>([])
+    const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10))
+    const [aging, setAging] = useState<ArAgingReport | null>(null)
     const [recon, setRecon] = useState<{
         reconciled?: boolean
         accounts?: Array<{
@@ -58,106 +189,76 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
-    const currency = dashboard?.baseCurrency ?? 'PHP'
+    const currency = dashboard?.baseCurrency ?? aging?.items?.[0]?.currencyCode ?? 'PHP'
+    const buckets: ArAgingBuckets | null =
+        dashboard?.agingBuckets ?? aging?.buckets ?? null
 
     const reload = useCallback(() => {
         setLoading(true)
         setError('')
         Promise.all([
-            accountsReceivableService.fetchDashboard(companyId),
-            accountsReceivableService.fetchOpenItems(companyId, overdueOnly),
+            accountsReceivableService.fetchDashboard(
+                companyId,
+                undefined,
+                undefined,
+                asOfDate,
+            ),
+            accountsReceivableService.fetchOpenItems(companyId, overdueOnly, asOfDate),
+            accountsReceivableService.fetchAging(companyId, asOfDate),
             tab === 'reconciliation'
                 ? accountsReceivableService.fetchReconciliation(companyId)
                 : Promise.resolve(null),
         ])
-            .then(([dash, items, reconciliation]) => {
+            .then(([dash, items, agingReport, reconciliation]) => {
                 setDashboard(dash)
                 setOpenItems(items)
+                setAging(agingReport)
                 if (reconciliation) setRecon(reconciliation as typeof recon)
             })
             .catch((e) => setError(e instanceof Error ? e.message : 'Load failed'))
             .finally(() => setLoading(false))
-    }, [companyId, overdueOnly, tab])
+    }, [companyId, overdueOnly, tab, asOfDate])
 
     useEffect(() => {
         void reload()
     }, [reload])
 
-    const columns = useMemo<ColumnDef<ArOpenItemRow>[]>(
+    const openItemColumns = useMemo(() => buildOpenItemColumns(), [])
+
+    const agingBucketRows = useMemo<AgingBucketRow[]>(() => {
+        if (!buckets) return []
+        return [
+            { bucket: 'Current', amount: buckets.current, tone: 'text-emerald-700' },
+            { bucket: '1–30 days', amount: buckets.days1To30 },
+            { bucket: '31–60 days', amount: buckets.days31To60 },
+            { bucket: '61–90 days', amount: buckets.days61To90 },
+            { bucket: '90+ days', amount: buckets.over90, tone: 'text-rose-700' },
+            {
+                bucket: 'Customer credits',
+                amount: buckets.customerCredits,
+                tone: 'text-violet-700',
+            },
+        ]
+    }, [buckets])
+
+    const agingBucketColumns = useMemo<ColumnDef<AgingBucketRow>[]>(
         () => [
-            {
-                header: 'Customer',
-                size: 200,
-                cell: ({ row }) => (
-                    <FicoCodeCell
-                        icon="posting"
-                        code={row.original.customer?.customerNumber ?? '—'}
-                        name={customerLabel(row.original)}
-                    />
-                ),
-            },
-            {
-                header: 'Reference',
-                cell: ({ row }) => (
-                    <span className="font-mono text-xs text-gray-700 dark:text-gray-300">
-                        {row.original.document?.referenceNumber ??
-                            row.original.document?.id?.slice(-8) ??
-                            '—'}
-                    </span>
-                ),
-            },
-            {
-                header: 'Due',
-                size: 110,
-                cell: ({ row }) => formatFicoDate(row.original.dueDate),
-            },
-            {
-                header: 'Status',
-                accessorKey: 'status',
-                size: 120,
-                cell: ({ row }) => (
-                    <StatusBadge
-                        status={row.original.status}
-                        tone={
-                            row.original.status === 'OPEN'
-                                ? 'warning'
-                                : row.original.status === 'CLEARED'
-                                  ? 'success'
-                                  : 'default'
-                        }
-                    />
-                ),
-            },
+            { header: 'Aging bucket', accessorKey: 'bucket' },
             {
                 header: 'Open amount',
-                size: 130,
                 cell: ({ row }) => (
-                    <span className="tabular-nums font-medium">
-                        {formatMoney(
-                            row.original.currencyCode,
-                            String(row.original.openAmount),
-                        )}
+                    <span
+                        className={`tabular-nums font-semibold ${row.original.tone ?? ''}`}
+                    >
+                        {formatMoney(currency, String(row.original.amount))}
                     </span>
                 ),
             },
-            {
-                header: 'Journal',
-                size: 88,
-                cell: ({ row }) =>
-                    row.original.document?.journalEntryId ? (
-                        <Link
-                            className="text-xs font-medium text-primary hover:underline"
-                            href={`/modules/fico/journal-entries/${row.original.document.journalEntryId}`}
-                        >
-                            Open
-                        </Link>
-                    ) : (
-                        '—'
-                    ),
-            },
         ],
-        [],
+        [currency],
     )
+
+    const previewOpenItems = useMemo(() => openItems.slice(0, 8), [openItems])
 
     const filterChips = useMemo(() => {
         if (!overdueOnly) return []
@@ -170,9 +271,51 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
         ]
     }, [overdueOnly])
 
+    const asOfLabel = formatFicoDate(asOfDate)
+
+    const portfolioMetrics = useMemo(() => {
+        if (!dashboard) return []
+        return [
+            {
+                label: 'Credit limit (portfolio)',
+                value: formatMoney(currency, dashboard.creditLimit),
+            },
+            {
+                label: 'Credit exposure',
+                value: formatMoney(currency, dashboard.creditExposure),
+                emphasize: true,
+            },
+            {
+                label: 'Available credit',
+                value: formatMoney(
+                    currency,
+                    dashboard.availableCredit ?? '0',
+                ),
+            },
+            {
+                label: 'Open items',
+                value: String(openItems.length),
+            },
+            {
+                label: 'Customer advances',
+                value: formatMoney(
+                    currency,
+                    dashboard.customerAdvanceBalance ?? '0',
+                ),
+            },
+            {
+                label: 'Unapplied receipts',
+                value: formatMoney(
+                    currency,
+                    dashboard.unappliedReceiptBalance ?? '0',
+                ),
+            },
+        ]
+    }, [dashboard, currency, openItems.length])
+
     return (
         <>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <StatCard
                     label="Outstanding receivables"
                     value={formatMoney(currency, dashboard?.totalOutstanding ?? '0')}
@@ -183,7 +326,7 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
                 <StatCard
                     label="Overdue"
                     value={formatMoney(currency, dashboard?.totalOverdue ?? '0')}
-                    tone="warning"
+                    tone={num(dashboard?.totalOverdue) > 0 ? 'warning' : 'default'}
                     icon={<HiOutlineClipboardList />}
                     loading={loading && !dashboard}
                 />
@@ -197,6 +340,8 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
                 <StatCard
                     label="Posting exceptions"
                     value={dashboard ? String(dashboard.postingExceptions) : '—'}
+                    tone={dashboard && dashboard.postingExceptions > 0 ? 'warning' : 'default'}
+                    icon={<HiOutlineExclamation />}
                     loading={loading && !dashboard}
                 />
             </div>
@@ -221,30 +366,121 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
 
                 <FicoWorkbenchAlert message={error} onDismiss={() => setError('')} />
 
-                {tab === 'overview' && dashboard ? (
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {[
-                            ['Credit limit (portfolio)', dashboard.creditLimit],
-                            ['Credit exposure', dashboard.creditExposure],
-                            ['Open item count', String(openItems.length)],
-                            [
-                                'Currency',
-                                dashboard.baseCurrency ?? currency,
-                            ],
-                        ].map(([label, value]) => (
-                            <AdaptiveCard key={label} bodyClass="p-4">
-                                <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                                    {label}
-                                </dt>
-                                <dd className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                                    {String(value)}
-                                </dd>
-                            </AdaptiveCard>
-                        ))}
+                {(tab === 'overview' || tab === 'aging') && (
+                    <div className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-gray-200/90 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+                        <div className="flex flex-wrap items-end gap-3">
+                            <FormItem label="As-of date" className="mb-0">
+                                <DatePicker
+                                    value={new Date(asOfDate)}
+                                    onChange={(d) => {
+                                        if (d) {
+                                            setAsOfDate(d.toISOString().slice(0, 10))
+                                        }
+                                    }}
+                                    size="sm"
+                                />
+                            </FormItem>
+                            <p className="pb-2 text-xs text-gray-500 dark:text-gray-400">
+                                Aging buckets and overdue days use this date.
+                            </p>
+                        </div>
+                        {tab === 'overview' && (
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                onClick={() => setTab('open-items')}
+                            >
+                                View all open items ({openItems.length})
+                            </Button>
+                        )}
                     </div>
-                ) : null}
+                )}
 
-                {tab === 'open-items' ? (
+                {tab === 'overview' && (
+                    <div className="mt-4 space-y-4">
+                        <div className="grid gap-4 lg:grid-cols-5">
+                            <div className="lg:col-span-3">
+                                <ArAgingVisualization
+                                    currency={currency}
+                                    buckets={buckets}
+                                    asOfLabel={asOfLabel}
+                                    loading={loading && !buckets}
+                                    totalReceivable={
+                                        dashboard?.totalReceivable ??
+                                        dashboard?.totalOutstanding
+                                    }
+                                />
+                            </div>
+                            <div className="lg:col-span-2">
+                                <AdaptiveCard className="h-full" bodyClass="p-5">
+                                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        Credit &amp; portfolio
+                                    </h3>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Company scope · {currency}
+                                    </p>
+                                    <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                                        {portfolioMetrics.map((metric) => (
+                                            <div
+                                                key={metric.label}
+                                                className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900/40"
+                                            >
+                                                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                                                    {metric.label}
+                                                </dt>
+                                                <dd
+                                                    className={`mt-0.5 tabular-nums ${
+                                                        metric.emphasize
+                                                            ? 'text-lg font-semibold text-gray-900 dark:text-gray-100'
+                                                            : 'text-base font-medium text-gray-800 dark:text-gray-200'
+                                                    }`}
+                                                >
+                                                    {loading && !dashboard
+                                                        ? '…'
+                                                        : metric.value}
+                                                </dd>
+                                            </div>
+                                        ))}
+                                    </dl>
+                                </AdaptiveCard>
+                            </div>
+                        </div>
+
+                        <FicoLedgerTable
+                            title="Bucket summary"
+                            description="Tabular view of the same aging distribution shown above."
+                            columns={agingBucketColumns}
+                            data={agingBucketRows}
+                            loading={loading}
+                            hidePagination
+                            tableMinWidthClass="min-w-[480px]"
+                        />
+
+                        <FicoLedgerTable
+                            title="Open items at a glance"
+                            description="POS / SO invoice references with customer, due date, and open balance."
+                            toolbar={
+                                openItems.length > previewOpenItems.length ? (
+                                    <Button
+                                        size="sm"
+                                        variant="plain"
+                                        onClick={() => setTab('open-items')}
+                                    >
+                                        Show all {openItems.length}
+                                    </Button>
+                                ) : null
+                            }
+                            columns={openItemColumns}
+                            data={previewOpenItems}
+                            loading={loading}
+                            noData={!loading && !previewOpenItems.length}
+                            hidePagination
+                            tableMinWidthClass="min-w-[960px]"
+                        />
+                    </div>
+                )}
+
+                {tab === 'open-items' && (
                     <div className="mt-4 space-y-4">
                         <FilterBar
                             fields={[
@@ -263,92 +499,120 @@ const ArAccountsReceivableWorkbench = ({ companyId }: { companyId: string }) => 
                             chips={filterChips}
                             onClear={() => setOverdueOnly(false)}
                             actions={
-                                <Button size="sm" variant="solid" loading={loading} onClick={reload}>
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    loading={loading}
+                                    onClick={reload}
+                                >
                                     Apply
                                 </Button>
                             }
                         />
-                        <FicoTableToolbar
+                        <FicoLedgerTable
                             title="Customer open items"
-                            description="Debit positions awaiting collection or allocation."
-                        />
-                        <FicoResponsiveTable
-                            columns={columns}
+                            description="Debit positions awaiting collection — invoice reference ties to POS or sales documents."
+                            columns={openItemColumns}
                             data={openItems}
                             loading={loading}
                             noData={!loading && !openItems.length}
                             hidePagination={openItems.length <= 25}
+                            tableMinWidthClass="min-w-[1150px]"
                         />
                     </div>
-                ) : null}
+                )}
 
-                {tab === 'reconciliation' ? (
+                {tab === 'aging' && (
+                    <FicoLedgerTable
+                        title="Aging detail"
+                        description={`Open items by due date vs as-of · overdue and days until due · as of ${asOfLabel}`}
+                        toolbar={
+                            aging ? (
+                                <span className="text-xs font-medium tabular-nums text-gray-600 dark:text-gray-300">
+                                    Total receivable{' '}
+                                    {formatMoney(
+                                        currency,
+                                        aging.totalReceivable ?? '0',
+                                    )}
+                                </span>
+                            ) : null
+                        }
+                        columns={openItemColumns}
+                        data={aging?.items ?? openItems}
+                        loading={loading}
+                        noData={!loading && !(aging?.items?.length || openItems.length)}
+                        hidePagination={(aging?.items?.length ?? openItems.length) <= 25}
+                        tableMinWidthClass="min-w-[1150px]"
+                    />
+                )}
+
+                {tab === 'reconciliation' && (
                     <div className="mt-4">
-                        <FicoTableToolbar
+                        <FicoLedgerTable
                             title="Receivable control accounts"
                             description="Subledger balance vs G/L reconciliation account movement."
+                            toolbar={
+                                recon ? (
+                                    <StatusBadge
+                                        status={recon.reconciled ? 'Reconciled' : 'Variance'}
+                                        tone={recon.reconciled ? 'success' : 'warning'}
+                                    />
+                                ) : null
+                            }
+                            columns={[
+                                {
+                                    header: 'G/L account',
+                                    cell: ({ row }) => (
+                                        <FicoCodeCell
+                                            icon="account"
+                                            code={row.original.accountCode}
+                                            name={row.original.accountName}
+                                        />
+                                    ),
+                                },
+                                {
+                                    header: 'Variance',
+                                    cell: ({ row }) => (
+                                        <span
+                                            className={
+                                                Number(row.original.difference) === 0
+                                                    ? 'tabular-nums text-emerald-600'
+                                                    : 'tabular-nums font-semibold text-amber-600'
+                                            }
+                                        >
+                                            {formatMoney(
+                                                currency,
+                                                String(row.original.difference),
+                                            )}
+                                        </span>
+                                    ),
+                                },
+                                {
+                                    header: 'Status',
+                                    cell: ({ row }) => (
+                                        <StatusBadge
+                                            status={
+                                                Number(row.original.difference) === 0
+                                                    ? 'RECONCILED'
+                                                    : 'VARIANCE'
+                                            }
+                                            tone={
+                                                Number(row.original.difference) === 0
+                                                    ? 'success'
+                                                    : 'warning'
+                                            }
+                                        />
+                                    ),
+                                },
+                            ]}
+                            data={recon?.accounts ?? []}
+                            loading={loading}
+                            noData={!loading && !recon?.accounts?.length}
+                            hidePagination
+                            tableMinWidthClass="min-w-[720px]"
                         />
-                        {recon?.accounts?.length ? (
-                            <FicoResponsiveTable<
-                                NonNullable<typeof recon.accounts>[number]
-                            >
-                                columns={[
-                                    {
-                                        header: 'G/L account',
-                                        cell: ({ row }) => (
-                                            <FicoCodeCell
-                                                icon="account"
-                                                code={row.original.accountCode}
-                                                name={row.original.accountName}
-                                            />
-                                        ),
-                                    },
-                                    {
-                                        header: 'Variance',
-                                        cell: ({ row }) => (
-                                            <span
-                                                className={
-                                                    Number(row.original.difference) === 0
-                                                        ? 'tabular-nums text-emerald-600'
-                                                        : 'tabular-nums font-medium text-amber-600'
-                                                }
-                                            >
-                                                {formatMoney(
-                                                    currency,
-                                                    String(row.original.difference),
-                                                )}
-                                            </span>
-                                        ),
-                                    },
-                                    {
-                                        header: 'Status',
-                                        cell: ({ row }) => (
-                                            <StatusBadge
-                                                status={
-                                                    Number(row.original.difference) === 0
-                                                        ? 'RECONCILED'
-                                                        : 'VARIANCE'
-                                                }
-                                                tone={
-                                                    Number(row.original.difference) === 0
-                                                        ? 'success'
-                                                        : 'warning'
-                                                }
-                                            />
-                                        ),
-                                    },
-                                ]}
-                                data={recon.accounts}
-                                loading={loading}
-                                hidePagination
-                            />
-                        ) : (
-                            <p className="text-sm text-gray-500">
-                                No reconciliation accounts configured for this company.
-                            </p>
-                        )}
                     </div>
-                ) : null}
+                )}
             </FicoWorkbenchPanel>
         </>
     )

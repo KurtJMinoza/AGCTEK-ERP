@@ -8,7 +8,7 @@
  */
 const { PrismaClient } = require('@prisma/client')
 
-const DOCUMENT_NUMBERS = [
+const DEFAULT_DOCUMENT_NUMBERS = [
     'SR-2026-000002',
     'PS-2026-000004',
     'SR-2026-000003',
@@ -22,6 +22,10 @@ const DOCUMENT_NUMBERS = [
 ]
 
 const dryRun = process.argv.includes('--dry-run')
+const extraArgs = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const purgeFailedOnly = process.argv.includes('--purge-failed-events')
+const DOCUMENT_NUMBERS =
+    extraArgs.length > 0 ? extraArgs : DEFAULT_DOCUMENT_NUMBERS
 
 async function disableFicoImmutabilityTriggers(tx) {
     await tx.$executeRawUnsafe(
@@ -83,6 +87,23 @@ async function collectJournalIds(prisma, documentNumbers) {
 async function main() {
     const prisma = new PrismaClient()
     try {
+        if (purgeFailedOnly) {
+            const failed = await prisma.mmAccountingEvent.findMany({
+                where: { status: { in: ['FAILED', 'DEAD_LETTER'] } },
+                select: { id: true, eventType: true, idempotencyKey: true },
+            })
+            console.log('Failed / dead-letter events to delete:', failed)
+            if (dryRun || !failed.length) {
+                if (dryRun) console.log('Dry run — no changes made.')
+                return
+            }
+            await prisma.mmAccountingEvent.deleteMany({
+                where: { id: { in: failed.map((e) => e.id) } },
+            })
+            console.log(`Deleted ${failed.length} failed accounting event(s).`)
+            return
+        }
+
         const journals = await collectJournalIds(prisma, DOCUMENT_NUMBERS)
         if (!journals.length) {
             console.log('No matching journals found.')
@@ -106,7 +127,12 @@ async function main() {
                         .map((k) => ({ idempotencyKey: k })) ?? []),
                 ],
             },
-            select: { id: true, idempotencyKey: true, eventType: true },
+            select: {
+                id: true,
+                idempotencyKey: true,
+                eventType: true,
+                documentId: true,
+            },
         })
         const allEventIds = [
             ...new Set([...eventIds, ...eventsByKey.map((e) => e.id)]),
@@ -190,6 +216,25 @@ async function main() {
                     ],
                 },
             })
+
+            const eventDocIds = eventsByKey
+                .filter((e) => e.eventType === 'GoodsReceiptPosted')
+                .map((e) => e.documentId)
+                .filter(Boolean)
+            const grirDeleted = await tx.ficoGrIrOpenItem.deleteMany({
+                where: {
+                    OR: [
+                        { goodsReceiptJournalEntryId: { in: journalIds } },
+                        { lastInvoiceJournalEntryId: { in: journalIds } },
+                        ...(eventDocIds.length
+                            ? [{ goodsReceiptId: { in: eventDocIds } }]
+                            : []),
+                    ],
+                },
+            })
+            if (grirDeleted.count) {
+                console.log(`  GR/IR open items deleted: ${grirDeleted.count}`)
+            }
 
             await tx.ficoReconciliationCase.deleteMany({
                 where: {

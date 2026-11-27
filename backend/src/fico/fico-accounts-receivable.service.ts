@@ -124,7 +124,7 @@ export class FicoAccountsReceivableService {
         if (query.overdueOnly) {
             where.dueDate = { lt: asOfDate }
         }
-        return this.prisma.ficoArOpenItem.findMany({
+        const rows = await this.prisma.ficoArOpenItem.findMany({
             where,
             include: {
                 customer: {
@@ -149,6 +149,97 @@ export class FicoAccountsReceivableService {
             },
             orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
         })
+        return rows.map((item) => {
+            const aging = this.agingDayMetrics(
+                asOfDate,
+                item.dueDate,
+                item.baselineDate,
+            )
+            return { ...item, ...aging }
+        })
+    }
+
+    async getAging(companyId: string, asOf: string | undefined, user: Actor) {
+        await this.access.assertAccess(user, companyId)
+        const asOfDate = day(asOf ?? new Date())
+        const items = await this.prisma.ficoArOpenItem.findMany({
+            where: {
+                companyId,
+                status: { in: ['OPEN', 'PARTIALLY_CLEARED'] },
+            },
+            include: {
+                customer: {
+                    select: {
+                        id: true,
+                        customerNumber: true,
+                        companyName: true,
+                        contactName: true,
+                    },
+                },
+                document: {
+                    select: {
+                        id: true,
+                        referenceNumber: true,
+                        journalEntryId: true,
+                        postingDate: true,
+                    },
+                },
+            },
+            orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+        })
+        const buckets = {
+            current: new Decimal(0),
+            days1To30: new Decimal(0),
+            days31To60: new Decimal(0),
+            days61To90: new Decimal(0),
+            over90: new Decimal(0),
+            customerCredits: new Decimal(0),
+        }
+        const rows = items.map((item) => {
+            const amount = money(item.openAmount)
+            const anchor = item.dueDate ?? item.baselineDate
+            const aging = this.agingDayMetrics(
+                asOfDate,
+                item.dueDate,
+                item.baselineDate,
+            )
+            const { overdueDays } = aging
+            const signedOpenAmount =
+                item.direction === 'DEBIT' ? amount : amount.negated()
+
+            if (item.direction === 'CREDIT') {
+                buckets.customerCredits = buckets.customerCredits.plus(amount)
+            } else if (overdueDays === 0) {
+                buckets.current = buckets.current.plus(amount)
+            } else if (overdueDays <= 30) {
+                buckets.days1To30 = buckets.days1To30.plus(amount)
+            } else if (overdueDays <= 60) {
+                buckets.days31To60 = buckets.days31To60.plus(amount)
+            } else if (overdueDays <= 90) {
+                buckets.days61To90 = buckets.days61To90.plus(amount)
+            } else {
+                buckets.over90 = buckets.over90.plus(amount)
+            }
+
+            return { ...item, ...aging, signedOpenAmount, dueAnchor: anchor }
+        })
+        const totalReceivable = rows
+            .filter((item) => item.direction === 'DEBIT')
+            .reduce((total, item) => total.plus(money(item.openAmount)), new Decimal(0))
+
+        return {
+            asOfDate: asOfDate.toISOString().slice(0, 10),
+            buckets: {
+                current: buckets.current.toString(),
+                days1To30: buckets.days1To30.toString(),
+                days31To60: buckets.days31To60.toString(),
+                days61To90: buckets.days61To90.toString(),
+                over90: buckets.over90.toString(),
+                customerCredits: buckets.customerCredits.toString(),
+            },
+            totalReceivable: totalReceivable.toString(),
+            items: rows,
+        }
     }
 
     async getDashboard(query: FicoArDashboardQueryDto, user: Actor) {
@@ -162,7 +253,7 @@ export class FicoAccountsReceivableService {
         })
         const baseCurrency = settings?.baseCurrency ?? 'PHP'
 
-        const [openItems, collections, exceptions] = await Promise.all([
+        const [openItems, collections, exceptions, aging] = await Promise.all([
             this.prisma.ficoArOpenItem.findMany({
                 where: {
                     companyId: query.companyId,
@@ -187,6 +278,11 @@ export class FicoAccountsReceivableService {
                     status: { in: ['FAILED', 'DEAD_LETTER', 'PENDING'] },
                 },
             }),
+            this.getAging(
+                query.companyId,
+                asOfDate.toISOString().slice(0, 10),
+                user,
+            ),
         ])
 
         let totalOutstanding = new Decimal(0)
@@ -198,8 +294,12 @@ export class FicoAccountsReceivableService {
             const amount = money(item.openAmount)
             if (item.direction === 'DEBIT') {
                 totalOutstanding = totalOutstanding.plus(amount)
-                const anchor = item.dueDate ?? item.baselineDate
-                if (asOfDate > anchor) totalOverdue = totalOverdue.plus(amount)
+                const { overdueDays } = this.agingDayMetrics(
+                    asOfDate,
+                    item.dueDate,
+                    item.baselineDate,
+                )
+                if (overdueDays > 0) totalOverdue = totalOverdue.plus(amount)
                 if (item.itemType === 'UNAPPLIED_RECEIPT') {
                     unappliedBalance = unappliedBalance.plus(amount)
                 }
@@ -235,7 +335,29 @@ export class FicoAccountsReceivableService {
             creditExposure: creditExposure.toString(),
             availableCredit: creditLimit.minus(creditExposure).toString(),
             postingExceptions: exceptions,
+            agingBuckets: aging.buckets,
+            totalReceivable: aging.totalReceivable,
         }
+    }
+
+    private agingDayMetrics(
+        asOfDate: Date,
+        dueDate: Date | null | undefined,
+        baselineDate: Date | null | undefined,
+    ): { overdueDays: number; daysUntilDue: number } {
+        const anchorRaw = dueDate ?? baselineDate
+        if (!anchorRaw) {
+            return { overdueDays: 0, daysUntilDue: 0 }
+        }
+        const asOf = day(asOfDate)
+        const anchor = day(anchorRaw)
+        const diffDays = Math.floor(
+            (asOf.getTime() - anchor.getTime()) / 86_400_000,
+        )
+        if (diffDays >= 0) {
+            return { overdueDays: diffDays, daysUntilDue: 0 }
+        }
+        return { overdueDays: 0, daysUntilDue: -diffDays }
     }
 
     async reconcileToGeneralLedger(companyId: string, user: Actor) {
