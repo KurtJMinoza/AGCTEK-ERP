@@ -9,7 +9,7 @@ import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 
 function mockPrisma() {
-    return {
+    const client = {
         mmReturnsDisposalConfig: { findUnique: jest.fn(), upsert: jest.fn() },
         mmSupplierReturn: {
             create: jest.fn(),
@@ -68,7 +68,7 @@ function mockPrisma() {
         },
         mmInventoryTransaction: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
         mmInventoryBalance: { findMany: jest.fn(), count: jest.fn() },
-        mmAccountingEvent: { create: jest.fn() },
+        mmAccountingEvent: { create: jest.fn(), findUnique: jest.fn() },
         mmMaterial: {
             findMany: jest.fn().mockResolvedValue([
                 { id: 'mat-1', batchManaged: false, serialManaged: false },
@@ -76,7 +76,11 @@ function mockPrisma() {
         },
         mmBatch: { findFirst: jest.fn(), findMany: jest.fn() },
         mmSerialNumber: { findFirst: jest.fn() },
-    }
+    } as any
+    client.$transaction = jest.fn(async (fn: (tx: any) => Promise<unknown>) =>
+        fn(client),
+    )
+    return client
 }
 
 function makeLine(overrides: any = {}) {
@@ -148,6 +152,31 @@ describe('MM-11 Returns & Disposal', () => {
             mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
             mockPeriodGuard as any,
         )
+        const accountingEvents = {
+            buildIdempotencyKey: jest.fn((...parts: string[]) => parts.join(':')),
+            recordStandalone: jest.fn().mockResolvedValue({
+                created: true,
+                duplicate: false,
+                id: 'ae-restock-1',
+                payload: {
+                    schemaVersion: 'v2',
+                    eventType: 'CustomerReturnRestocked',
+                    companyId: 'c1',
+                    documentType: 'CUSTOMER_RETURN',
+                    documentId: 'crt-1',
+                    sourceModule: 'RETURNS_DISPOSAL',
+                    accountingEffects: ['INVENTORY_INCREASE', 'COGS_EXPENSE'],
+                    lines: [],
+                    financiallyRelevant: true,
+                    idempotencyKey: 'CustomerReturnRestocked:CUSTOMER_RETURN:crt-1',
+                },
+            }),
+            toDispatchPayload: jest.fn((record: any) =>
+                record.payload
+                    ? { ...record.payload, mmAccountingEventId: record.id }
+                    : null,
+            ),
+        }
         customerReturnService = new CustomerReturnService(
             prisma,
             postingService,
@@ -156,7 +185,9 @@ describe('MM-11 Returns & Disposal', () => {
             mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
             mockPeriodGuard as any,
             { assertPermission: jest.fn() } as any,
+            accountingEvents as any,
         )
+        ;(customerReturnService as any).__accountingEvents = accountingEvents
         damagedExpired = new DamagedExpiredQueryService(
             prisma,
             postingService,
@@ -329,6 +360,7 @@ describe('MM-11 Returns & Disposal', () => {
             expect(submitted.status).toBe('APPROVED')
 
             prisma.mmCustomerReturn.updateMany.mockResolvedValue({ count: 1 })
+            const emitSpy = jest.spyOn(events, 'emit')
             await customerReturnService.complete('crt-1')
 
             expect(postingService.postTransaction).toHaveBeenCalledWith(
@@ -338,13 +370,78 @@ describe('MM-11 Returns & Disposal', () => {
                     reasonCode: 'RESTOCK',
                 }),
             )
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
+            const accountingEvents = (customerReturnService as any)
+                .__accountingEvents
+            expect(accountingEvents.recordStandalone).toHaveBeenCalledWith(
+                expect.anything(),
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'CUSTOMER_RETURN_COMPLETED',
-                    }),
+                    eventType: 'CustomerReturnRestocked',
+                    documentType: 'CUSTOMER_RETURN',
+                    documentId: 'crt-1',
+                    financiallyRelevant: true,
+                    accountingEffects: [
+                        'INVENTORY_INCREASE',
+                        'COGS_EXPENSE',
+                    ],
+                    idempotencyKey:
+                        'CustomerReturnRestocked:CUSTOMER_RETURN:crt-1',
+                    lines: [
+                        expect.objectContaining({
+                            materialId: 'mat-1',
+                            movementType: 'RETURN_IN',
+                            quantity: 2,
+                            unitCost: 50,
+                            totalCost: 100,
+                        }),
+                    ],
                 }),
             )
+            expect(emitSpy).toHaveBeenCalledWith(
+                'accounting.entry.requested',
+                expect.objectContaining({
+                    eventType: 'CustomerReturnRestocked',
+                    mmAccountingEventId: 'ae-restock-1',
+                }),
+            )
+            emitSpy.mockRestore()
+        })
+
+        it('REFUND_ONLY (no physical goods) does not emit restock accounting', async () => {
+            const base = {
+                id: 'crt-rf',
+                returnNumber: 'CRT-RF',
+                companyId: 'c1',
+                warehouseId: 'w1',
+                status: 'APPROVED',
+                lines: [
+                    {
+                        id: 'crl-rf',
+                        materialId: 'mat-1',
+                        uomId: 'uom-1',
+                        quantity: new Decimal(2),
+                        unitCost: new Decimal(10),
+                        disposition: 'REFUND_ONLY',
+                        dispositionStatus: null,
+                        storageBinId: null,
+                        batchId: null,
+                        serialNumberId: null,
+                    },
+                ],
+            }
+            prisma.mmCustomerReturn.findUnique.mockResolvedValue(base)
+            prisma.mmCustomerReturn.updateMany.mockResolvedValue({ count: 1 })
+            prisma.mmCustomerReturn.update.mockResolvedValue({
+                ...base,
+                status: 'CLOSED',
+            })
+            prisma.mmCustomerReturnAudit.create.mockResolvedValue({})
+
+            await customerReturnService.complete('crt-rf')
+
+            const accountingEvents = (customerReturnService as any)
+                .__accountingEvents
+            expect(accountingEvents.recordStandalone).not.toHaveBeenCalled()
+            expect(postingService.postTransaction).not.toHaveBeenCalled()
         })
     })
 

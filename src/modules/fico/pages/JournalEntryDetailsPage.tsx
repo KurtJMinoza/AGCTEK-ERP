@@ -25,6 +25,7 @@ import {
     useFicoCompanies,
 } from '../components/FicoCompanySelect'
 import JournalEntryDetailView from '../components/journal/JournalEntryDetailView'
+import { canManuallyReverseJournal } from '../components/journal/journalSource'
 import {
     ficoErrorMessage,
     ficoJournalService,
@@ -98,6 +99,11 @@ const JournalEntryDetailsPage = () => {
     const canPost = caps?.canPost ?? entry?.status === 'DRAFT'
     const canReverse = caps?.canReverse ?? entry?.status === 'POSTED'
     const readOnlyPosted = caps?.readOnlyPosted ?? (entry?.status === 'POSTED' && Boolean(entry?.sourceModule))
+
+    const canReverse = canManuallyReverseJournal({
+        status: entry?.status,
+        sourceModule: entry?.sourceModule,
+    })
 
     const route = entryId
         ? `/modules/fico/journal-entries/${entryId}`

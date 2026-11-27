@@ -27,7 +27,17 @@ export function buildJournalListWhere(
     if (query.documentNumber) {
         where.documentNumber = { contains: query.documentNumber, mode: 'insensitive' }
     }
-    if (query.sourceModule) where.sourceModule = query.sourceModule
+    if (query.sourceModule) {
+        const module = query.sourceModule.trim().toUpperCase()
+        if (module === 'MANUAL') {
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+                { OR: [{ sourceModule: null }, { sourceModule: '' }] },
+            ]
+        } else {
+            where.sourceModule = module
+        }
+    }
     if (query.sourceDocumentType) where.sourceDocumentType = query.sourceDocumentType
     if (query.sourceDocumentId) where.sourceDocumentId = query.sourceDocumentId
     if (query.supplierId) where.supplierId = query.supplierId

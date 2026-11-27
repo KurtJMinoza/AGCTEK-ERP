@@ -55,7 +55,7 @@ export type SalesOrderAccountingSnapshot = {
         journalEntryId: string | null
         lastError: string | null
         lastErrorCode?: string | null
-        idempotencyKey: string
+        idempotencyKey: string | null
     }>
     arDocuments: SalesOrderArDocumentSummary[]
     inventoryJournals: SalesOrderJournalSummary[]

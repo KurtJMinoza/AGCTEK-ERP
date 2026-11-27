@@ -29,6 +29,11 @@ import {
 } from '../ficoTableUi'
 import JournalFiltersPanel from './JournalFiltersPanel'
 import {
+    JournalSourceBadge,
+    JournalSourceLink,
+    journalSourceSecondaryLabel,
+} from './journalSource'
+import {
     JOURNAL_TABS,
     JournalPostingOriginBadge,
     JournalPostingStatus,
@@ -131,17 +136,31 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             {
                 header: 'Source',
                 id: 'source',
-                cell: ({ row }) => (
-                    <FicoTwoLineCell
-                        primary={row.original.sourceModule ?? 'Manual'}
-                        secondary={
-                            row.original.sourceDocumentNumber ??
-                            row.original.sourceDocumentId ??
-                            undefined
-                        }
-                        mono={Boolean(row.original.sourceDocumentNumber)}
-                    />
-                ),
+                cell: ({ row }) => {
+                    const source = {
+                        sourceModule: row.original.sourceModule,
+                        sourceDocumentType: row.original.sourceDocumentType,
+                        sourceDocumentId: row.original.sourceDocumentId,
+                        description: row.original.description,
+                    }
+                    const secondary = journalSourceSecondaryLabel(source)
+                    return (
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <JournalSourceBadge sourceModule={row.original.sourceModule} />
+                            {secondary ? (
+                                <JournalSourceLink source={source}>
+                                    <span className="block max-w-[10rem] truncate text-xs text-gray-500">
+                                        {secondary}
+                                    </span>
+                                </JournalSourceLink>
+                            ) : row.original.sourceDocumentNumber ? (
+                                <span className="block max-w-[10rem] truncate font-mono text-xs text-gray-500">
+                                    {row.original.sourceDocumentNumber}
+                                </span>
+                            ) : null}
+                        </div>
+                    )
+                },
             },
             {
                 header: 'Partner',
@@ -295,6 +314,11 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             onPress: (row: FicoJournalEntryListItem) => openDetail(row.id),
             fields: [
                 {
+                    label: 'Source',
+                    value: (row: FicoJournalEntryListItem) =>
+                        row.sourceModule?.trim() ? row.sourceModule : 'MANUAL',
+                },
+                {
                     label: 'Posting date',
                     value: (row: FicoJournalEntryListItem) =>
                         formatJournalDate(row.postingDate),
@@ -331,6 +355,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             'Lines',
             'Description',
             'Source module',
+            'Source document type',
             'Source document',
         ]
         const data = items.map((row) => [
@@ -345,7 +370,8 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             row.totalAmount,
             String(row.lines?.length ?? 0),
             row.description ?? '',
-            row.sourceModule ?? '',
+            row.sourceModule ?? 'MANUAL',
+            row.sourceDocumentType ?? '',
             row.sourceDocumentId ?? '',
         ])
         downloadCsv(
@@ -495,7 +521,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                     noData={!loading && items.length === 0}
                     onRowClick={(row) => openDetail(row.id)}
                     compact
-                    tableMinWidthClass="min-w-[1080px]"
+                    tableMinWidthClass="min-w-[1180px]"
                     pagingData={{
                         total,
                         pageIndex: page - 1,

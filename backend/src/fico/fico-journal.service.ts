@@ -103,6 +103,7 @@ export type JournalEntryListItem = {
     currencyCode: string
     description: string | null
     sourceModule: string | null
+    sourceDocumentType: string | null
     sourceDocumentId: string | null
     supplierId: string | null
     supplier: JournalSupplierSummary | null
@@ -293,6 +294,8 @@ type JournalReversalOptions = {
     operationalSourceReversal?: boolean
     /** Required when AP reverses its source document and restores subledger state atomically. */
     apSubledgerReversal?: boolean
+    /** Required when AR reverses its source document and restores open-item state atomically. */
+    arSubledgerReversal?: boolean
     afterReverse?: (
         tx: Prisma.TransactionClient,
         input: {
@@ -627,6 +630,19 @@ export class FicoJournalService {
                 eventType: payload.eventType,
                 accountingEffects: payload.accountingEffects,
                 correlationId: payload.correlationId ?? null,
+                returnRequestId: (() => {
+                    const extra = payload as MmAccountingDispatchPayload & {
+                        sdReturnRequestRef?: unknown
+                        returnRequestId?: unknown
+                    }
+                    if (typeof extra.sdReturnRequestRef === 'string') {
+                        return extra.sdReturnRequestRef
+                    }
+                    if (typeof extra.returnRequestId === 'string') {
+                        return extra.returnRequestId
+                    }
+                    return null
+                })(),
                 resolutionSources: [
                     ...new Set(
                         resolvedLines.map((line) => line.resolutionSource),
@@ -668,7 +684,8 @@ export class FicoJournalService {
             payload.eventType === 'PosCollectionCompleted' ||
             payload.eventType === 'SdCustomerCollection'
                 ? 'SD_COLLECTION'
-                : payload.eventType === 'PosSaleRefunded'
+                : payload.eventType === 'SdSalesReturnRefundPaid' ||
+                    payload.eventType === 'PosSaleRefunded'
                   ? 'SD_REVERSAL'
                   : payload.eventType === 'PosCustomerDepositCompleted'
                     ? 'AR_ADVANCE'
@@ -719,6 +736,9 @@ export class FicoJournalService {
             cashierUserId?: string
             orderNumber?: string
             salesOrderId?: string
+            returnRequestId?: string
+            refundId?: string
+            sdReturnRequestRef?: string | null
         },
     ) {
         return {
@@ -728,6 +748,14 @@ export class FicoJournalService {
             salesOrderId: payload.salesOrderId ?? payload.documentId ?? null,
             orderNumber: payload.orderNumber ?? null,
             cashierUserId: payload.cashierUserId ?? null,
+            returnRequestId:
+                payload.returnRequestId ??
+                (payload.documentType === 'RETURN_REQUEST'
+                    ? payload.documentId
+                    : null) ??
+                payload.sdReturnRequestRef ??
+                null,
+            refundId: payload.refundId ?? null,
         }
     }
 
@@ -2150,6 +2178,11 @@ export class FicoJournalService {
                 'Accounts Payable journals must be reversed through the AP subledger so open items and payment clearings remain reconciled.',
             )
         }
+        if (original.sourceModule?.toUpperCase() === 'AR' && !options?.arSubledgerReversal) {
+            throw new BadRequestException(
+                'Accounts Receivable journals must be reversed through the AR subledger so open items remain reconciled.',
+            )
+        }
 
         if (!options?.operationalSourceReversal) {
             assertManualReversalAllowed(original.sourceModule)
@@ -2385,6 +2418,12 @@ export class FicoJournalService {
     private documentType(eventType: string) {
         if (eventType === 'GoodsReceiptPosted') return 'MM_GR'
         if (eventType === 'GoodsIssuePosted') return 'MM_GI'
+        if (
+            eventType === 'CustomerReturnRestocked' ||
+            eventType === 'CustomerReturnPosted'
+        ) {
+            return 'MM_ADJUSTMENT'
+        }
         if (
             [
                 'GoodsReceiptReversed',

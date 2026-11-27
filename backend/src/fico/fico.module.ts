@@ -24,6 +24,8 @@ import { FicoCompanySettingsService } from './fico-company-settings.service'
 import { FicoController } from './fico.controller'
 import { FicoDocumentTypeController } from './fico-document-type.controller'
 import { FicoDocumentTypeService } from './fico-document-type.service'
+import { FicoFiDocumentTypeController } from './fico-fi-document-type.controller'
+import { FicoFiDocumentTypeService } from './fico-fi-document-type.service'
 import { FicoFiscalCalendarService } from './fico-fiscal-calendar.service'
 import { FicoDocumentNumberingService } from './fico-document-numbering.service'
 import { FicoFinancialPostingEngine } from './fico-financial-posting.engine'
@@ -77,6 +79,7 @@ import { FicoTaxReconciliationService } from './fico-tax-reconciliation.service'
         FicoNumberRangeController,
         FicoTaxCodeController,
         FicoDocumentTypeController,
+        FicoFiDocumentTypeController,
         FicoAccountsPayableController,
         FicoAccountsReceivableController,
         FicoGrIrController,
@@ -141,6 +144,7 @@ import { FicoTaxReconciliationService } from './fico-tax-reconciliation.service'
         FicoTaxCalculationService,
         FicoTaxCodeService,
         FicoDocumentTypeService,
+        FicoFiDocumentTypeService,
         {
             provide: FINANCIAL_PERIOD_PORT,
             useExisting: FicoFinancialPeriodAdapter,
@@ -171,11 +175,11 @@ import { FicoTaxReconciliationService } from './fico-tax-reconciliation.service'
         FicoTaxCodeService,
         FicoDocumentTypeService,
         FicoAccountsPayableService,
+        FicoAccountsReceivableService,
         FicoSdAccountingBridgeService,
         FicoSdRevenueGuardService,
         FicoArCreditCheckService,
         FicoTreasuryPaymentResolutionService,
-        FicoAccountsReceivableService,
         FicoAccountingEventProcessorService,
         FINANCIAL_PERIOD_PORT,
     ],
