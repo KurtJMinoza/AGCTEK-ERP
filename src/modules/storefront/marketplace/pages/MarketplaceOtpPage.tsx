@@ -145,7 +145,7 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
         }
     }
 
-    const onCompleteProfile = async (event: React.FormEvent) => {
+    const onCompleteProfile = async (event: FormEvent) => {
         event.preventDefault()
         const name = firstName.trim()
         if (!name) {

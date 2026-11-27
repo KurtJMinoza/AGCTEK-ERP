@@ -1,20 +1,15 @@
 import {
-    BadRequestException,
     ConflictException,
     Injectable,
     NotFoundException,
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ComplianceAuditService } from './compliance-audit.service'
 
 const READ_DEDUPE_MS = 5000
 
 @Injectable()
 export class RfidTagService {
-    constructor(
-        private prisma: PrismaService,
-        private complianceAudit: ComplianceAuditService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     async list(query: {
         companyId: string
@@ -109,15 +104,6 @@ export class RfidTagService {
             },
         })
 
-        await this.complianceAudit.record({
-            companyId: input.companyId,
-            domain: 'rfid',
-            action: 'TAG_ASSIGNED',
-            entityType: 'RFID_TAG',
-            entityId: tag.id,
-            entityNumber: tag.tagValue,
-            performedBy: input.performedBy,
-        })
         return tag
     }
 
@@ -162,23 +148,10 @@ export class RfidTagService {
                 status: tag.status === 'UNASSIGNED' ? tag.status : 'ACTIVE',
             },
         })
-        await this.complianceAudit.record({
-            companyId: input.companyId,
-            domain: 'rfid',
-            action: 'TAG_READ',
-            entityType: 'RFID_TAG',
-            entityId: tag.id,
-            entityNumber: tag.tagValue,
-            performedBy: input.performedBy,
-            metadata: {
-                readerId: input.readerId,
-                warehouseId: input.warehouseId,
-            },
-        })
         return { tag: updated, duplicateRead: false }
     }
 
-    async archive(id: string, companyId: string, performedBy?: string) {
+    async archive(id: string, companyId: string) {
         const tag = await this.prisma.mmRfidTag.findFirst({
             where: { id, companyId },
         })
@@ -186,15 +159,6 @@ export class RfidTagService {
         const updated = await this.prisma.mmRfidTag.update({
             where: { id },
             data: { status: 'ARCHIVED', archivedAt: new Date(), serialNumberId: null },
-        })
-        await this.complianceAudit.record({
-            companyId,
-            domain: 'rfid',
-            action: 'TAG_ARCHIVED',
-            entityType: 'RFID_TAG',
-            entityId: id,
-            entityNumber: tag.tagValue,
-            performedBy,
         })
         return updated
     }

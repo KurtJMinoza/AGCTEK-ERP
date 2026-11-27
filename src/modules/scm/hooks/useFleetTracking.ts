@@ -10,6 +10,8 @@ import type { FleetTrackingItem, GpsLog, VehicleStatus } from '../types'
 type FleetFilters = {
     status?: VehicleStatus | ''
     search?: string
+    purpose?: string
+    tripId?: string
 }
 
 /** Quiet HTTP reconcile while Socket.IO is live. */
@@ -52,6 +54,8 @@ export function useFleetTracking(initial?: FleetFilters) {
             const result = await apiGetFleetTracking({
                 status: filters.status || undefined,
                 search: filters.search || undefined,
+                purpose: filters.purpose || undefined,
+                tripId: filters.tripId || undefined,
             })
             setItems(result.data)
 
@@ -62,7 +66,10 @@ export function useFleetTracking(initial?: FleetFilters) {
                 ) {
                     return current
                 }
-                return null
+                const focused = result.data.find(
+                    (item) => item.activeTrip?.id === filters.tripId,
+                )
+                return focused?.vehicle.id ?? null
             })
         } catch (err) {
             setError(

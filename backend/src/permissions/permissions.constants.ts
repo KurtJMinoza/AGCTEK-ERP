@@ -29,7 +29,9 @@ export const MODULE_CODES = {
     FICO: 'fico',
     SCM: 'scm',
     CRM: 'crm',
+    EMAILS: 'emails',
     HCM: 'hcm',
+    WPD: 'wpd',
     ADMIN: 'admin',
 } as const
 
@@ -73,10 +75,22 @@ export const MODULE_CATALOG: {
         sortOrder: 50,
     },
     {
+        code: 'emails',
+        name: 'Emails',
+        description: 'Cover-letter templates sent with quotations and other customer documents.',
+        sortOrder: 55,
+    },
+    {
         code: 'hcm',
         name: 'Human Capital Management',
         description: 'Employees, positions, and HR records.',
         sortOrder: 60,
+    },
+    {
+        code: 'wpd',
+        name: 'Workforce Productivity Dashboard',
+        description: 'External workforce productivity KPIs and operations dashboard.',
+        sortOrder: 70,
     },
     {
         code: 'admin',
@@ -262,12 +276,6 @@ export const MM_FEATURES = {
         ['mobile-packing', 'Mobile Packing'],
         ['warehouse-devices', 'Warehouse Devices'],
     ],
-    'supporting-operations': [
-        ['document-management', 'Document Management'],
-        ['audit-trail', 'Audit Trail'],
-        ['workflow-admin', 'Workflow & Approvals'],
-        ['compliance-dashboard', 'Compliance Dashboard'],
-    ],
     'reports-analytics': [
         ['stock-reports', 'Stock Reports'],
         ['inventory-valuation-reports', 'Inventory Valuation'],
@@ -365,14 +373,14 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         ],
         ['billing', 'Billing', 'Customer invoices and billing documents.'],
         [
+            'ext-platform-sales',
+            'External Platform Sales',
+            'Manual entry of Shopee, Lazada, TikTok and other external channel sales.',
+        ],
+        [
             'reports',
             'Reports & Analytics',
             'Sales analysis and backorder reports.',
-        ],
-        [
-            'configuration',
-            'Configuration',
-            'Sales organizations and document types.',
         ],
     ]),
     ...group('mm', [
@@ -451,11 +459,6 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'MM Reports & Analytics',
             'Stock, valuation, procurement, and warehouse analytics.',
         ],
-        [
-            'supporting-operations',
-            'Supporting Operations',
-            'Controlled documents, audit trail, and compliance monitoring.',
-        ],
     ]),
     ...group('fico', [
         [
@@ -489,6 +492,26 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Reopen a closed posting period (reason required).',
         ],
         [
+            'period-close',
+            'Period Close',
+            'Close posting periods and run period-end readiness checks.',
+        ],
+        [
+            'year-end-close',
+            'Year-End Closing',
+            'Validate, approve, and execute year-end income/expense closing journals.',
+        ],
+        [
+            'opening-balances',
+            'Opening Balances',
+            'Migration opening balance batches and posting.',
+        ],
+        [
+            'accounting-reconciliation',
+            'Accounting Reconciliation',
+            'Investigate and resolve accounting reconciliation exceptions.',
+        ],
+        [
             'period-unlock',
             'Period Unlock',
             'Unlock a locked posting period (privileged action).',
@@ -496,7 +519,27 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
         [
             'account-determination',
             'Account Determination',
-            'Transaction keys, profiles, and MM account mappings.',
+            'Transaction keys, determination rules, simulation, and MM account mappings.',
+        ],
+        [
+            'account-determination-approval',
+            'Account Determination Approval',
+            'Approve or reject submitted determination rules (maker-checker).',
+        ],
+        [
+            'account-determination-activation',
+            'Account Determination Activation',
+            'Activate or deactivate approved determination rules.',
+        ],
+        [
+            'account-determination-migration',
+            'Account Determination Migration',
+            'Controlled migration of legacy MM mappings to centralized rules.',
+        ],
+        [
+            'accounting-events',
+            'Accounting Events',
+            'Monitor and retry automatic accounting events (MM, SD, PP bridge).',
         ],
         [
             'journal-entries',
@@ -624,7 +667,26 @@ export const RESOURCE_CATALOG: ResourceDef[] = [
             'Manual / demo point grants (mock earn); real points come from paid invoices.',
         ],
     ]),
+    ...group('emails', [
+        [
+            'messages',
+            'Email Messages',
+            'CRM emailer: compose, drafts, and sent mail (outbound).',
+        ],
+        [
+            'templates',
+            'Email Templates',
+            'Cover-letter templates sent with customer documents (quotations).',
+        ],
+    ]),
     ...group('hcm', [['hris', 'HRIS Access', 'Link to the external HRIS.']]),
+    ...group('wpd', [
+        [
+            'dashboard',
+            'Workforce Productivity Dashboard',
+            'Link to the external Workforce Productivity Dashboard.',
+        ],
+    ]),
     ...mmFeatureResources(),
 ]
 
@@ -674,13 +736,18 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
         fico: NO_DELETE,
         scm: FULL_ACCESS,
         crm: FULL_ACCESS,
+        emails: FULL_ACCESS,
         hcm: NO_DELETE,
+        wpd: READ,
     },
     [USER_ROLES.EMPLOYEE]: {
         sd: READ_CREATE,
         mm: READ_CREATE,
         scm: READ_CREATE,
         crm: READ_CREATE,
+        // Compose / drafts / sent; template edits stay available so quote cover letters work.
+        emails: NO_DELETE,
+        wpd: READ,
     },
 }
 

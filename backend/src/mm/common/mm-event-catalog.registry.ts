@@ -386,10 +386,12 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         supportedVersions: [MM_EVENT_VERSIONS.V1],
         sourceModule: 'INVENTORY',
         sourceEntityType: 'INVENTORY_TRANSACTION',
-        financial: true,
+        // The business-document reversal is the only FICO posting authority.
+        // This line-level audit event would otherwise duplicate it once per item.
+        financial: false,
         persistsOutbox: true,
-        intendedConsumers: ['FICO', 'AUDIT'],
-        description: 'Inventory transaction reversed',
+        intendedConsumers: ['AUDIT', 'TRACEABILITY'],
+        description: 'Inventory transaction reversed (audit; financial reversal is source-document owned)',
     },
     InventoryAdjusted: {
         eventType: 'InventoryAdjusted',
@@ -410,10 +412,12 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         supportedVersions: [MM_EVENT_VERSIONS.V1, MM_EVENT_VERSIONS.V2],
         sourceModule: 'WAREHOUSE',
         sourceEntityType: 'WM_TRANSFER',
-        financial: true,
+        // Current warehouse transfers are company-internal physical movements.
+        // Intercompany transfer accounting requires a dedicated legal-entity flow.
+        financial: false,
         persistsOutbox: true,
-        intendedConsumers: ['FICO', 'WAREHOUSE'],
-        description: 'Inter-warehouse transfer posted',
+        intendedConsumers: ['WAREHOUSE', 'ANALYTICS'],
+        description: 'Intra-company warehouse transfer posted (no GL effect)',
     },
     StockStatusChanged: {
         eventType: 'StockStatusChanged',
@@ -632,7 +636,7 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
     CustomerReturnPosted: {
         eventType: 'CustomerReturnPosted',
         category: MM_EVENT_CATEGORIES.RETURNS,
-        currentVersion: MM_EVENT_VERSIONS.V1,
+        currentVersion: MM_EVENT_VERSIONS.V2,
         supportedVersions: [MM_EVENT_VERSIONS.V1, MM_EVENT_VERSIONS.V2],
         sourceModule: 'RETURNS_DISPOSAL',
         sourceEntityType: 'CUSTOMER_RETURN',
@@ -640,6 +644,18 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         persistsOutbox: true,
         intendedConsumers: ['FICO', 'SD'],
         description: 'Customer return posted',
+    },
+    CustomerReturnReversed: {
+        eventType: 'CustomerReturnReversed',
+        category: MM_EVENT_CATEGORIES.RETURNS,
+        currentVersion: MM_EVENT_VERSIONS.V1,
+        supportedVersions: [MM_EVENT_VERSIONS.V1, MM_EVENT_VERSIONS.V2],
+        sourceModule: 'RETURNS_DISPOSAL',
+        sourceEntityType: 'CUSTOMER_RETURN',
+        financial: true,
+        persistsOutbox: true,
+        intendedConsumers: ['FICO', 'SD'],
+        description: 'Customer return reversed',
     },
     DisposalPosted: {
         eventType: 'DisposalPosted',
@@ -724,10 +740,11 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         supportedVersions: [MM_EVENT_VERSIONS.V1, MM_EVENT_VERSIONS.V2],
         sourceModule: 'VALUATION',
         sourceEntityType: 'MATERIAL_VALUATION',
-        financial: true,
+        // Informational valuation recalculation; a separate revaluation/variance event posts the GL.
+        financial: false,
         persistsOutbox: true,
-        intendedConsumers: ['FICO', 'ANALYTICS'],
-        description: 'Material valuation updated',
+        intendedConsumers: ['ANALYTICS'],
+        description: 'Material valuation updated (informational; no standalone GL entry)',
     },
     LandedCostAllocated: {
         eventType: 'LandedCostAllocated',
@@ -772,7 +789,7 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
         supportedVersions: [MM_EVENT_VERSIONS.V1],
         sourceModule: 'VALUATION',
         sourceEntityType: 'INVENTORY_VALUATION',
-        financial: true,
+        financial: false,
         persistsOutbox: true,
         intendedConsumers: ['FICO'],
         description: 'Inventory valuation reversed',

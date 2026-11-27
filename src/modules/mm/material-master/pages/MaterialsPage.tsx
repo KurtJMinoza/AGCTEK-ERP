@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
@@ -29,9 +29,11 @@ import {
     HiOutlineTrash,
     HiOutlineEye,
     HiOutlineDuplicate,
+    HiOutlineUpload,
 } from 'react-icons/hi'
 import MaterialFormDialog from '../components/MaterialFormDialog'
 import MaterialViewDialog from '../components/MaterialViewDialog'
+import ProductImportDialog from '@/components/shared/ProductImportDialog'
 import { useMaterials } from '../hooks/useMaterials'
 import { useReferenceData } from '../hooks/useReferenceData'
 import { materialService } from '../services/materialService'
@@ -119,6 +121,8 @@ const MaterialsPage = () => {
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
     const [bulkDeleting, setBulkDeleting] = useState(false)
+    const [importOpen, setImportOpen] = useState(false)
+    const [tableVersion, setTableVersion] = useState(0)
 
     const stats = useMemo(() => {
         const total = meta.total
@@ -288,6 +292,32 @@ const MaterialsPage = () => {
                 ),
             },
             {
+                header: 'Barcode',
+                id: 'barcode',
+                enableSorting: false,
+                size: 140,
+                cell: ({ row }) => {
+                    const m = row.original
+                    const barcodes = m.barcodes ?? []
+                    const primary = barcodes.find((b) => b.isPrimary)?.barcodeValue
+                    const alt = barcodes.filter((b) => !b.isPrimary).map((b) => b.barcodeValue)
+                    const values = [primary, ...alt].filter(Boolean)
+                    if (values.length === 0) return <span className="text-xs text-gray-400">—</span>
+                    return (
+                        <div className="min-w-0">
+                            <div className="truncate text-sm font-mono text-gray-900 dark:text-gray-100">
+                                {values[0]}
+                            </div>
+                            {alt.length > 0 && (
+                                <div className="truncate text-[10px] text-gray-400 dark:text-gray-500">
+                                    +{alt.length} more
+                                </div>
+                            )}
+                        </div>
+                    )
+                },
+            },
+            {
                 header: 'Category',
                 accessorKey: 'materialCategoryId',
                 size: 110,
@@ -302,6 +332,56 @@ const MaterialsPage = () => {
                 cell: ({ row }) => (
                     <span className="text-sm font-medium">{row.original.baseUom?.code ?? '—'}</span>
                 ),
+            },
+            {
+                header: 'Batch #',
+                id: 'latestBatch',
+                enableSorting: false,
+                size: 120,
+                cell: ({ row }) => {
+                    const v = row.original.latestBatchNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                header: 'Lot #',
+                id: 'latestLot',
+                enableSorting: false,
+                size: 110,
+                cell: ({ row }) => {
+                    const v = row.original.latestLotNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                header: 'Expiry',
+                id: 'materialExpiry',
+                enableSorting: false,
+                size: 120,
+                cell: ({ row }) => {
+                    const m = row.original
+                    const raw =
+                        m.defaultExpiryDate ??
+                        m.latestBatchExpiryDate ??
+                        null
+                    if (!raw) {
+                        return <span className="text-xs text-gray-400">—</span>
+                    }
+                    const iso = String(raw).slice(0, 10)
+                    return (
+                        <span className="font-mono text-xs text-gray-800 dark:text-gray-200">
+                            {iso}
+                        </span>
+                    )
+                },
             },
             {
                 header: 'Batch / Serial',
@@ -491,6 +571,17 @@ const MaterialsPage = () => {
         [],
     )
 
+    // When the import dialog closes, refresh the materials list so newly
+    // imported / updated materials appear immediately.
+    useEffect(() => {
+        if (!importOpen) {
+            void (async () => {
+                await refresh()
+                setTableVersion(v => v + 1)
+            })()
+        }
+    }, [importOpen, refresh])
+
     return (
         <PageContainer>
             <PageHeader
@@ -498,7 +589,18 @@ const MaterialsPage = () => {
                 title="Materials / SKUs"
                 description={materialMasterFeatureDescription('Materials / SKUs')}
                 actions={
-                    canCreate ? <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button> : undefined
+                    canCreate ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                size="sm"
+                                icon={<HiOutlineUpload className="text-lg" />}
+                                onClick={() => setImportOpen(true)}
+                            >
+                                Bulk import
+                            </Button>
+                            <Button variant="solid" size="sm" icon={<HiOutlinePlus />} onClick={openCreate}>New material</Button>
+                        </div>
+                    ) : undefined
                 }
             />
 
@@ -552,37 +654,39 @@ const MaterialsPage = () => {
                 )}
 
                 <div className="mt-4">
-                    <MaterialMasterResponsiveTable<Material>
-                        columns={columns}
-                        data={materials}
-                        compact
-                        loading={loading}
-                        getRowId={(row) => row.id}
-                        selectable
-                        checkboxChecked={(row) => selectedRows.has(row.id)}
-                        onCheckBoxChange={handleCheckBoxChange}
-                        onIndeterminateCheckBoxChange={(checked, rows) =>
-                            handleSelectAllChange(checked, rows as any)
-                        }
-                        noData={!loading && materials.length === 0}
-                        customNoDataIcon={
-                            <EmptyState
-                                hasFilters={hasActiveFilters}
-                                totalMaterials={meta.total}
-                                onCreate={canCreate ? openCreate : undefined}
-                                onClearFilters={clearFilters}
-                            />
-                        }
-                        pagingData={{ total: meta.total, pageIndex: page, pageSize }}
-                        onPaginationChange={setPage}
-                        onSelectChange={(size) => {
-                            setPageSize(size)
-                            setPage(1)
-                        }}
-                        tableMinWidthClass="min-w-[1040px]"
-                        mobile={materialsMobile}
-                        instanceId="materials-skus"
-                    />
+                    <div key={tableVersion}>
+                        <MaterialMasterResponsiveTable<Material>
+                            columns={columns}
+                            data={materials}
+                            compact
+                            loading={loading}
+                            getRowId={(row) => row.id}
+                            selectable
+                            checkboxChecked={(row) => selectedRows.has(row.id)}
+                            onCheckBoxChange={handleCheckBoxChange}
+                            onIndeterminateCheckBoxChange={(checked, rows) =>
+                                handleSelectAllChange(checked, rows as any)
+                            }
+                            noData={!loading && materials.length === 0}
+                            customNoDataIcon={
+                                <EmptyState
+                                    hasFilters={hasActiveFilters}
+                                    totalMaterials={meta.total}
+                                    onCreate={canCreate ? openCreate : undefined}
+                                    onClearFilters={clearFilters}
+                                />
+                            }
+                            pagingData={{ total: meta.total, pageIndex: page, pageSize }}
+                            onPaginationChange={setPage}
+                            onSelectChange={(size) => {
+                                setPageSize(size)
+                                setPage(1)
+                            }}
+                            tableMinWidthClass="min-w-[1040px]"
+                            mobile={materialsMobile}
+                            instanceId="materials-skus"
+                        />
+                    </div>
                 </div>
             </AdaptiveCard>
 
@@ -601,6 +705,16 @@ const MaterialsPage = () => {
                 material={viewMaterial}
                 onClose={() => setViewMaterial(null)}
                 onEdit={canUpdate ? openEdit : undefined}
+            />
+
+            <ProductImportDialog
+                isOpen={importOpen}
+                source="MM"
+                onClose={() => setImportOpen(false)}
+                onImported={async () => {
+                    await refresh()
+                    setTableVersion(v => v + 1)
+                }}
             />
 
             <ConfirmDialog

@@ -6,6 +6,7 @@ import {
     IsArray,
     ValidateNested,
     IsDateString,
+    IsBoolean,
     Min,
 } from 'class-validator'
 import { Type } from 'class-transformer'
@@ -81,6 +82,28 @@ export class CreateSupplierInvoiceDto {
     postingDate?: string
 
     @IsOptional()
+    @IsDateString()
+    baselineDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    dueDate?: string
+
+    /** FICO-owned, company-effective purchase tax configuration. */
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string
+
+    /** FICO-owned, company-effective withholding tax configuration. */
+    @IsOptional()
+    @IsString()
+    withholdingTaxCodeId?: string
+
+    @IsOptional()
+    @IsBoolean()
+    paymentBlocked?: boolean
+
+    @IsOptional()
     @IsNumber()
     @Min(0)
     taxAmount?: number
@@ -107,6 +130,26 @@ export class UpdateSupplierInvoiceDto {
     @IsOptional()
     @IsDateString()
     postingDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    baselineDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    dueDate?: string
+
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string | null
+
+    @IsOptional()
+    @IsString()
+    withholdingTaxCodeId?: string | null
+
+    @IsOptional()
+    @IsBoolean()
+    paymentBlocked?: boolean
 
     @IsOptional()
     @IsNumber()

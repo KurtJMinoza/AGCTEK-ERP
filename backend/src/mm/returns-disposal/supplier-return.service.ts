@@ -274,7 +274,7 @@ export class SupplierReturnService {
             })
         }
 
-        void this.domainEvents.supplierReturnPosted({
+        await this.domainEvents.supplierReturnPosted({
             companyId: doc.companyId,
             returnId: doc.id,
             payload: {
@@ -342,11 +342,12 @@ export class SupplierReturnService {
 
         await this.periodGuard.assertCanPost(doc.companyId, new Date())
 
-        void this.domainEvents.supplierReturnReversed({
+        await this.domainEvents.supplierReturnReversed({
             companyId: doc.companyId,
             returnId: doc.id,
             payload: {
                 returnNumber: doc.returnNumber,
+                supplierId: doc.supplierId,
                 postingDate: new Date().toISOString(),
                 warehouseId: doc.warehouseId,
                 lines: doc.lines.map((l) => ({

@@ -101,7 +101,7 @@ export class ThreeWayMatchService {
         const paymentEligible =
             headerStatus === 'MATCHED' || headerStatus === 'PARTIALLY_MATCHED'
 
-        const updated = await this.prisma.mmSupplierInvoice.update({
+        await this.prisma.mmSupplierInvoice.update({
             where: { id: invoiceId },
             data: {
                 status: headerStatus,
@@ -119,17 +119,6 @@ export class ThreeWayMatchService {
 
         if (paymentEligible && !inv.invoicedApplied) {
             await this.applyInvoicedQuantities(inv, outcomes)
-            await this.emitAccountingEvent({
-                ...updated,
-                lines: inv.lines.map((l: any) => {
-                    const o = outcomes.find((x) => x.lineId === l.id)
-                    return {
-                        ...l,
-                        matchStatus: o?.matchStatus ?? l.matchStatus,
-                        matchedQuantity: o?.matchedQuantity ?? l.matchedQuantity,
-                    }
-                }),
-            })
             await this.prisma.mmSupplierInvoice.update({
                 where: { id: invoiceId },
                 data: { invoicedApplied: true },
@@ -150,7 +139,7 @@ export class ThreeWayMatchService {
             throw new BadRequestException('Invoice is not payment-eligible')
         }
 
-        return this.prisma.mmSupplierInvoice.update({
+        const approved = await this.prisma.mmSupplierInvoice.update({
             where: { id: invoiceId },
             data: {
                 approvedBy: dto.approvedBy ?? null,
@@ -163,6 +152,12 @@ export class ThreeWayMatchService {
                 purchaseOrder: true,
             },
         })
+
+        // MM owns matching/approval. FICO receives a durable event only after
+        // approval, so no supplier liability or GR/IR clearing is posted from
+        // an unapproved match result.
+        await this.emitAccountingEvent({ ...inv, ...approved })
+        return approved
     }
 
     private async evaluate(inv: any): Promise<LineOutcome[]> {
@@ -408,6 +403,16 @@ export class ThreeWayMatchService {
             supplierId: inv.supplierId,
             purchaseOrderId: inv.purchaseOrderId,
             paymentEligible: true,
+            paymentBlocked: Boolean(inv.paymentBlocked),
+            invoiceNumber: inv.invoiceNumber,
+            invoiceDate: inv.invoiceDate,
+            postingDate: inv.postingDate ?? inv.invoiceDate,
+            baselineDate: inv.baselineDate ?? inv.invoiceDate,
+            dueDate: inv.dueDate ?? null,
+            taxCodeId: inv.taxCodeId ?? null,
+            withholdingTaxCodeId: inv.withholdingTaxCodeId ?? null,
+            taxAmount: Number(inv.taxAmount ?? 0),
+            totalAmount: Number(inv.totalAmount ?? 0),
             eventHint: 'AP_INVOICE_MATCHED',
             lines: (inv.lines ?? []).map((l: any) => ({
                 materialId: l.materialId,
@@ -425,8 +430,10 @@ export class ThreeWayMatchService {
             documentType: 'SUPPLIER_INVOICE',
             documentId: inv.id,
             companyId: inv.companyId,
-            postingDate: inv.invoiceDate ?? new Date(),
-            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.GRIR_ACCRUAL],
+            postingDate: inv.postingDate ?? inv.invoiceDate ?? new Date(),
+            currencyCode:
+                inv.currency?.code ?? inv.purchaseOrder?.currency?.code ?? 'PHP',
+            accountingEffects: [],
             lines: (inv.lines ?? []).map((l: any) => ({
                 materialId: l.materialId,
                 movementType: 'INVOICE_MATCH',
@@ -435,6 +442,7 @@ export class ThreeWayMatchService {
                 totalCost: Number(l.lineTotal),
             })),
             extraPayload: payload,
+            financiallyRelevant: true,
         })
         const dispatch = this.accountingEvents.toDispatchPayload(record)
         if (dispatch) {

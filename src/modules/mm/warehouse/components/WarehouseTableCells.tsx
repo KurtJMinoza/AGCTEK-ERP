@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import StatusBadge from '@/components/shared/StatusBadge'
 import {
@@ -17,7 +17,7 @@ export function wmTableRowEnterClass(index: number): string {
     const delay = Math.min(index, 12) * 45
     return [
         'group/row',
-        'animate-mm-row-in motion-reduce:animate-none opacity-0',
+        'animate-mm-row-in motion-reduce:animate-none',
         `[animation-delay:${delay}ms]`,
         'transition-colors duration-200',
         'hover:bg-gray-50/90 dark:hover:bg-gray-800/45',
@@ -27,7 +27,7 @@ export function wmTableRowEnterClass(index: number): string {
 /** Icon tile pop-in (optional extra delay after row stagger). */
 export function wmIconPopClass(extraDelayMs = 0): string {
     return [
-        'animate-mm-icon-pop motion-reduce:animate-none opacity-0',
+        'animate-mm-icon-pop motion-reduce:animate-none',
         extraDelayMs > 0 ? `[animation-delay:${extraDelayMs}ms]` : '',
         'transition-transform duration-200 group-hover/row:scale-105',
     ]

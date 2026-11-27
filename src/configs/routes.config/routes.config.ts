@@ -205,6 +205,14 @@ export const protectedRoutes: Routes = {
             pageContainerType: 'gutterless',
         },
     },
+    '/modules/sd/monthly-collection': {
+        key: 'sdMonthlyCollection',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
     '/crm': {
         key: 'crmDashboard',
         authority: [],
@@ -258,6 +266,38 @@ export const protectedRoutes: Routes = {
         key: 'crmCustomerDetail',
         authority: [],
         dynamicRoute: true,
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/crm/documents': {
+        key: 'crmDocuments',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/documents/email-templates': {
+        key: 'documentsEmailTemplatesRedirect',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/documents/pdf-templates': {
+        key: 'documentsPdfTemplatesRedirect',
+        authority: [],
+        meta: {
+            pageBackgroundType: 'plain',
+            pageContainerType: 'contained',
+        },
+    },
+    '/emails': {
+        key: 'emails',
+        authority: [],
         meta: {
             pageBackgroundType: 'plain',
             pageContainerType: 'contained',

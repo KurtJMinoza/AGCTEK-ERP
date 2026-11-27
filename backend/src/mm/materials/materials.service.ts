@@ -9,10 +9,40 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InventoryAvailabilityService } from '../inventory/inventory-availability.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
+import { BarcodesService } from '../barcodes/barcodes.service'
+import { ensureMaterialBatch } from '../batches/line-tracking.util'
+import { parseCalendarDateString } from '../common/calendar-date.util'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { MaterialQueryDto } from './dto/material-query.dto'
 import { assertActivateReady } from './material-usability'
+import { MaterialTaxService } from './material-tax.service'
+import { hasMaterialTaxFields } from './material-tax'
+import { DEFAULT_MATERIAL_VALUATION_METHOD } from '../valuation/valuation.constants'
+
+const TAX_FIELD_KEYS = [
+    'taxClassification',
+    'taxCodeId',
+    'priceTaxTreatment',
+    'taxStatus',
+    'taxEffectiveFrom',
+    'taxEffectiveTo',
+    'taxDescription',
+] as const
+
+const CLEARED_TAX_FIELDS = Object.fromEntries(
+    TAX_FIELD_KEYS.map((key) => [key, null]),
+) as Record<(typeof TAX_FIELD_KEYS)[number], null>
+
+function pickTaxFields(source: Record<string, any>): Record<string, any> {
+    const out: Record<string, any> = {}
+    for (const key of TAX_FIELD_KEYS) {
+        if (source[key] !== undefined) out[key] = source[key]
+    }
+    return out
+}
+
+const DATE_UPDATE_KEYS = new Set(['defaultExpiryDate'])
 
 const DECIMAL_UPDATE_KEYS = new Set([
     'onHandQty',
@@ -76,6 +106,8 @@ export class MaterialsService {
         private prisma: PrismaService,
         private availability: InventoryAvailabilityService,
         private posting: InventoryPostingService,
+        private barcodes: BarcodesService,
+        private materialTax: MaterialTaxService,
     ) {}
 
     /** Sellable qty from material master thresholds (same source as Product Catalog). */
@@ -181,12 +213,31 @@ export class MaterialsService {
         'salesUomId',
     ])
 
+    /**
+     * DTO fields that are not `MmMaterial` columns — they drive the barcode
+     * and serial-number registries instead. They must never reach the Prisma
+     * update payload.
+     */
+    private static readonly NON_COLUMN_KEYS = new Set([
+        'barcodeValue',
+        'barcodeType',
+        'serialNumber',
+        'initialBatchNumber',
+        'initialLotNumber',
+    ])
+
     private mapUpdateDto(dto: UpdateMaterialDto): Prisma.MmMaterialUncheckedUpdateInput {
         const data: Prisma.MmMaterialUncheckedUpdateInput = {}
         for (const [key, value] of Object.entries(dto)) {
             if (value === undefined) continue
+            if (MaterialsService.NON_COLUMN_KEYS.has(key)) continue
             if (DECIMAL_UPDATE_KEYS.has(key)) {
                 ;(data as Record<string, unknown>)[key] = new Decimal(value as number)
+            } else if (DATE_UPDATE_KEYS.has(key)) {
+                ;(data as Record<string, unknown>)[key] =
+                    value === '' || value === null
+                        ? null
+                        : parseCalendarDateString(String(value))
             } else if (
                 MaterialsService.NULLABLE_FK_KEYS.has(key) &&
                 (value === '' || value === null)
@@ -197,6 +248,128 @@ export class MaterialsService {
             }
         }
         return data
+    }
+
+    /**
+     * Register or update the material's primary barcode from the Material
+     * Master form. Barcodes live in the MM barcode registry, not on the
+     * material row.
+     */
+    private async syncBarcodeFromForm(
+        materialId: string,
+        dto: UpdateMaterialDto,
+        material: { companyId?: string | null },
+    ) {
+        const value = dto.barcodeValue?.trim()
+        if (!value) return
+
+        const companyId = material.companyId ?? null
+        const primary = await this.prisma.mmBarcode.findFirst({
+            where: { materialId, isPrimary: true, deletedAt: null },
+            select: { id: true, barcodeValue: true },
+        })
+
+        if (primary && primary.barcodeValue === value) return
+
+        const conflict = await this.prisma.mmBarcode.findFirst({
+            where: {
+                companyId,
+                barcodeValue: value,
+                deletedAt: null,
+                status: 'ACTIVE',
+                materialId: { not: materialId },
+            },
+            select: { id: true, material: { select: { materialCode: true } } },
+        })
+        if (conflict) {
+            throw new ConflictException(
+                `Barcode ${value} is already registered to material ${conflict.material.materialCode}`,
+            )
+        }
+
+        if (primary) {
+            await this.prisma.mmBarcode.update({
+                where: { id: primary.id },
+                data: {
+                    barcodeValue: value,
+                    barcodeType: dto.barcodeType ?? undefined,
+                    status: 'ACTIVE',
+                },
+            })
+            return
+        }
+
+        await this.prisma.mmBarcode.create({
+            data: {
+                companyId,
+                materialId,
+                entityType: 'MATERIAL',
+                entityId: materialId,
+                barcodeType: dto.barcodeType ?? 'EAN13',
+                barcodeValue: value,
+                isPrimary: true,
+                status: 'ACTIVE',
+            },
+        })
+    }
+
+    /**
+     * Register the initial serial number from the Material Master form when
+     * the material tracks serial numbers.
+     */
+    private async syncSerialFromForm(
+        materialId: string,
+        dto: UpdateMaterialDto,
+        material: { serialManaged?: boolean },
+    ) {
+        const value = dto.serialNumber?.trim()
+        if (!value) return
+        if (!material.serialManaged) return
+
+        const exists = await this.prisma.mmSerialNumber.findFirst({
+            where: { materialId, serialNumber: value, deletedAt: null },
+            select: { id: true },
+        })
+        if (exists) return
+
+        await this.prisma.mmSerialNumber.create({
+            data: {
+                materialId,
+                serialNumber: value,
+                status: 'AVAILABLE',
+            },
+        })
+    }
+
+    /**
+     * Register batch/lot from the Material Master wizard. Rows appear in the
+     * shared Batches list (`mm.material-master.batches`).
+     */
+    private async syncBatchFromForm(
+        client: PrismaService | Prisma.TransactionClient,
+        materialId: string,
+        dto: Pick<UpdateMaterialDto, 'initialBatchNumber' | 'initialLotNumber'>,
+        material: { batchManaged?: boolean },
+    ) {
+        const batchNumber = dto.initialBatchNumber?.trim()
+        const lotNumber = dto.initialLotNumber?.trim()
+        if (!batchNumber && !lotNumber) return
+
+        const db = 'mmMaterial' in client ? client : this.prisma
+
+        if (!material.batchManaged) {
+            await (db as PrismaService).mmMaterial.update({
+                where: { id: materialId },
+                data: { batchManaged: true },
+            })
+        }
+
+        await ensureMaterialBatch(
+            db as Parameters<typeof ensureMaterialBatch>[0],
+            materialId,
+            batchNumber ?? null,
+            lotNumber ?? null,
+        )
     }
 
     private readonly includes = {
@@ -210,6 +383,7 @@ export class MaterialsService {
         company: true,
         defaultWarehouse: true,
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+        taxCode: { include: { taxRates: true } },
         catalogVariant: {
             select: {
                 id: true,
@@ -229,6 +403,14 @@ export class MaterialsService {
         company: { select: { id: true, code: true, name: true } },
         defaultWarehouse: { select: { id: true, code: true, name: true } },
         preferredSupplier: { select: { id: true, supplierCode: true, supplierName: true } },
+        taxCode: { include: { taxRates: true } },
+        barcodes: { where: { deletedAt: null } },
+        batches: {
+            where: { deletedAt: null },
+            orderBy: { createdAt: 'desc' as const },
+            take: 1,
+            select: { batchNumber: true, lotNumber: true, expiryDate: true },
+        },
     }
 
     async findAll(query: MaterialQueryDto) {
@@ -276,7 +458,26 @@ export class MaterialsService {
             data.map((row) => row as Record<string, unknown>),
         )
         return {
-            data: enriched.map((row) => serializeMaterial(row)),
+            data: enriched.map((row) => {
+                const batches = (row as {
+                    batches?: Array<{
+                        batchNumber: string
+                        lotNumber: string | null
+                        expiryDate?: Date | null
+                    }>
+                }).batches
+                const latest = batches?.[0]
+                const { batches: _batches, ...rest } = row as Record<string, unknown> & {
+                    batches?: unknown
+                }
+                return serializeMaterial({
+                    ...rest,
+                    latestBatchNumber: latest?.batchNumber ?? null,
+                    latestLotNumber: latest?.lotNumber ?? null,
+                    latestBatchExpiryDate: latest?.expiryDate ?? null,
+                    tax: this.materialTax.projection(row as any),
+                })
+            }),
             meta: {
                 total,
                 page,
@@ -323,6 +524,7 @@ export class MaterialsService {
         // Override availableQty with live ledger data (same as Product Catalog)
         return {
             ...serialized,
+            tax: this.materialTax.projection(material as any),
             availableQty: Math.max(0, ledgerTotals.availableQty),
             ledgerOnHandQty: ledgerTotals.onHandQty,
             ledgerReservedQty: ledgerTotals.reservedQty,
@@ -457,15 +659,56 @@ export class MaterialsService {
                       select: { id: true },
                   }))?.id ?? null)
 
+        const {
+            barcodeValue,
+            barcodeType,
+            serialNumber,
+            initialBatchNumber,
+            initialLotNumber,
+            ...dtoWithoutBarcodes
+        } = dto
+        const wantsBatch =
+            Boolean(initialBatchNumber?.trim()) ||
+            Boolean(initialLotNumber?.trim())
+
+        // Validate the tax configuration before the row is written. A material
+        // created by an import or by auto-created SD variants may omit tax
+        // information (explicit incomplete-setup flow); a manual save that
+        // sends any tax field must send a complete, compatible configuration.
+        const tax = await this.materialTax.validateForWrite(
+            dto.companyId ?? null,
+            dto,
+        )
+
+        const policy = dto.serialTrackingPolicy ?? 'NOT_SERIALIZED'
+        const serialManaged = policy !== 'NOT_SERIALIZED'
+
+        const { defaultExpiryDate: defaultExpiryRaw, ...createRest } =
+            dtoWithoutBarcodes as CreateMaterialDto & Record<string, unknown>
         const data = {
-            ...(dto as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
+            ...(createRest as Prisma.MmMaterialUncheckedCreateInput & Record<string, unknown>),
+            defaultExpiryDate:
+                defaultExpiryRaw === undefined
+                    ? undefined
+                    : defaultExpiryRaw === '' || defaultExpiryRaw === null
+                      ? null
+                      : parseCalendarDateString(String(defaultExpiryRaw)),
+            ...tax.data,
             materialCode,
             sku,
             status,
             currencyId,
+            serialManaged,
+            serialTrackingPolicy: policy,
+            batchManaged: Boolean(dto.batchManaged) || wantsBatch,
             onHandQty: new Decimal(0),
             reservedQty: new Decimal(0),
             storageBinId: undefined,
+            valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+            standardCost:
+                dto.standardCost != null
+                    ? new Decimal(dto.standardCost)
+                    : new Decimal(0),
         }
 
         const deletedMaterial = deletedByCode ?? deletedBySku
@@ -507,10 +750,140 @@ export class MaterialsService {
                 material,
                 db,
             )
-            return serializeMaterial(material)
+
+            if (material.taxClassification) {
+                await this.materialTax.recordHistory(
+                    db as any,
+                    material as any,
+                    'CREATE',
+                    (material as any).createdBy ?? null,
+                )
+            }
+
+            // Register primary barcode if provided.
+            if (dto.barcodeValue?.trim()) {
+                await db.mmBarcode.create({
+                    data: {
+                        companyId: material.companyId ?? dto.companyId ?? null,
+                        materialId: material.id,
+                        entityType: 'MATERIAL',
+                        entityId: material.id,
+                        barcodeType: dto.barcodeType ?? 'EAN13',
+                        barcodeValue: dto.barcodeValue.trim(),
+                        isPrimary: true,
+                        status: 'ACTIVE',
+                    },
+                })
+            }
+
+            // Create initial serial number if serial tracking is enabled and a
+            // serial number was provided.
+            if (
+                dto.serialNumber?.trim() &&
+                (dto.serialTrackingPolicy ?? 'NOT_SERIALIZED') !==
+                    'NOT_SERIALIZED'
+            ) {
+                await db.mmSerialNumber.create({
+                    data: {
+                        materialId: material.id,
+                        serialNumber: dto.serialNumber.trim(),
+                        status: 'AVAILABLE',
+                    },
+                })
+            }
+
+            if (wantsBatch) {
+                await this.syncBatchFromForm(db as PrismaService, material.id, dto, material)
+            }
+
+            return {
+                ...serializeMaterial(material),
+                tax: this.materialTax.projection(material as any),
+            }
         } catch (error) {
             this.rethrowUniqueConflict(error)
             throw error
+        }
+    }
+
+    /**
+     * Post the opening balance of an imported material.
+     *
+     * Idempotent per import batch + material: a retried commit returns the
+     * movement already posted instead of adding the quantity again. Existing
+     * stock is never touched unless the caller explicitly confirms that the
+     * import is an additional receipt, not an opening balance.
+     */
+    async postImportOpeningStock(args: {
+        materialId: string
+        quantity: number
+        companyId: string
+        warehouseId: string
+        storageBinId?: string | null
+        batchId: string
+        allowExisting?: boolean
+        createdBy?: string | null
+    }) {
+        if (!(args.quantity > 0)) {
+            throw new BadRequestException('Opening stock quantity must be greater than zero')
+        }
+        const idempotencyKey = `import-open-stock:${args.batchId}:${args.materialId}`
+        const posted = await this.prisma.mmInventoryTransaction.findFirst({
+            where: { idempotencyKey },
+            select: { id: true, transactionNumber: true, quantity: true },
+        })
+        if (posted) {
+            return {
+                materialId: args.materialId,
+                alreadyPosted: true,
+                transactionId: posted.id,
+                transactionNumber: posted.transactionNumber,
+                quantity: toNumber(posted.quantity),
+            }
+        }
+
+        const material = await this.prisma.mmMaterial.findFirst({
+            where: { id: args.materialId, deletedAt: null },
+            select: { id: true, onHandQty: true, companyId: true },
+        })
+        if (!material) throw new NotFoundException('Material not found')
+        if (material.companyId && material.companyId !== args.companyId) {
+            throw new BadRequestException('Material belongs to another company')
+        }
+        const current = toNumber(material.onHandQty)
+        if (current > 0 && !args.allowExisting) {
+            throw new BadRequestException(
+                'Material already has stock. Confirm an additional stock receipt before posting the import quantity.',
+            )
+        }
+        const warehouse = await this.prisma.warehouse.findFirst({
+            where: {
+                id: args.warehouseId,
+                companyId: args.companyId,
+                deletedAt: null,
+            },
+            select: { id: true },
+        })
+        if (!warehouse) {
+            throw new BadRequestException('Warehouse does not belong to the import company')
+        }
+
+        await this.postStockChange({
+            materialId: args.materialId,
+            onHandQty: current + args.quantity,
+            currentlyOnHand: current,
+            companyId: args.companyId,
+            warehouseId: args.warehouseId,
+            storageBinId: args.storageBinId ?? null,
+            createdBy: args.createdBy ?? 'product-import',
+            idempotencyKey,
+            sourceDocumentType: 'PRODUCT_IMPORT',
+            reasonCode: 'OPENING_STOCK',
+        })
+        return {
+            materialId: args.materialId,
+            alreadyPosted: false,
+            quantity: args.quantity,
         }
     }
 
@@ -589,11 +962,35 @@ export class MaterialsService {
         delete (dto as any).reservedQty
         delete (dto as any).storageBinId
 
+        // Tax is optional: an explicit null classification removes the setup.
+        const clearTax = (dto as { taxClassification?: string | null }).taxClassification === null
         const updated = await this.prisma.mmMaterial.update({
             where: { id },
-            data: this.mapUpdateDto(dto),
+            data: {
+                ...this.mapUpdateDto(dto),
+                valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+                ...(clearTax
+                    ? CLEARED_TAX_FIELDS
+                    : hasMaterialTaxFields(dto as Record<string, unknown>)
+                    ? (
+                          await this.materialTax.validateForWrite(
+                              (existing.companyId as string | null | undefined) ?? dto.companyId ?? null,
+                              {
+                                  ...pickTaxFields(existing),
+                                  ...pickTaxFields(dto),
+                              },
+                          )
+                      ).data
+                    : {}),
+            },
             include: this.includes,
         })
+
+        // Barcode and serial number live in their own registries, not on the
+        // material row. Keep them in sync when the form changes them.
+        await this.syncBarcodeFromForm(id, dto, updated)
+        await this.syncSerialFromForm(id, dto, updated)
+        await this.syncBatchFromForm(this.prisma, id, dto, updated)
 
         if (targetOnHand !== undefined) {
             await this.postStockChange({
@@ -620,30 +1017,40 @@ export class MaterialsService {
             void targetReserved
         }
 
-        if (dto.currencyId !== undefined || dto.standardCost !== undefined) {
-            const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput = {}
+        {
+            const valuationPatch: Prisma.MmMaterialValuationUncheckedUpdateManyInput =
+                {
+                    valuationMethod: DEFAULT_MATERIAL_VALUATION_METHOD,
+                    standardCost: new Decimal(updated.standardCost ?? 0),
+                }
             if (dto.currencyId !== undefined) {
                 valuationPatch.currencyId =
                     dto.currencyId && dto.currencyId.trim() !== ''
                         ? dto.currencyId
                         : null
             }
-            if (dto.standardCost !== undefined) {
-                valuationPatch.standardCost = new Decimal(dto.standardCost)
-            }
-            if (Object.keys(valuationPatch).length > 0) {
-                await this.prisma.mmMaterialValuation.updateMany({
-                    where: { materialId: id },
-                    data: valuationPatch,
-                })
-            }
+            await this.prisma.mmMaterialValuation.updateMany({
+                where: { materialId: id },
+                data: valuationPatch,
+            })
         }
 
         const changes = this.diffChanges(existing, updated)
         if (Object.keys(changes).length > 0) {
             await this.writeAudit(id, 'UPDATE', changes, null)
         }
-        return serializeMaterial(updated)
+        if (this.materialTax.taxChanged(existing as any, updated as any)) {
+            await this.materialTax.recordHistory(
+                this.prisma,
+                updated as any,
+                updated.taxClassification ? 'UPDATE' : 'CLEAR',
+                (existing as any).createdBy ?? null,
+            )
+        }
+        return {
+            ...serializeMaterial(updated),
+            tax: this.materialTax.projection(updated as any),
+        }
     }
 
     async activate(id: string) {
@@ -779,6 +1186,10 @@ export class MaterialsService {
         warehouseId?: string | null
         storageBinId?: string | null
         createdBy?: string | null
+        /** Stable key so a retried import cannot post the same movement twice. */
+        idempotencyKey?: string
+        sourceDocumentType?: string
+        reasonCode?: string
     }) {
         const delta = new Decimal(args.onHandQty)
             .minus(new Decimal(args.currentlyOnHand))
@@ -892,7 +1303,9 @@ export class MaterialsService {
             }
         }
 
-        const key = `material-stock:${args.materialId}:${delta}`
+        const key =
+            args.idempotencyKey ??
+            `material-stock:${args.materialId}:${delta}`
         await this.posting.postTransaction({
             companyId: args.companyId,
             warehouseId: args.warehouseId,
@@ -908,9 +1321,10 @@ export class MaterialsService {
             postingDate: new Date().toISOString(),
             documentDate: new Date().toISOString(),
             sourceModule: 'MATERIAL_MASTER',
-            sourceDocumentType: 'MATERIAL_STOCK_THRESHOLD',
+            sourceDocumentType:
+                args.sourceDocumentType ?? 'MATERIAL_STOCK_THRESHOLD',
             sourceDocumentId: args.materialId,
-            reasonCode: 'THRESHOLD_EDIT',
+            reasonCode: args.reasonCode ?? 'THRESHOLD_EDIT',
             idempotencyKey: key,
             createdBy: args.createdBy ?? undefined,
         })
@@ -948,6 +1362,7 @@ export class MaterialsService {
             'purchaseUom', 'salesUom', 'currency', 'valuationClass',
             'company', 'defaultWarehouse', 'preferredSupplier', 'barcodes', 'batches',
             'serialNumbers', 'audits', 'uomConversions', 'attachments',
+            'taxCode', 'tax', 'taxHistory',
         ])
         const changes: Record<string, { old: any; new: any }> = {}
         for (const key of Object.keys(newObj)) {

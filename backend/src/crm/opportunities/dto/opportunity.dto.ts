@@ -292,4 +292,10 @@ export class CreateOpportunityQuotationDto {
     @IsString()
     @MaxLength(2000)
     notes?: string
+
+    /** Customer-facing payment terms printed on the quotation PDF (SD stores them). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    paymentTerms?: string
 }

@@ -37,6 +37,9 @@ export default function SalesOrderCard({ order }: { order: Customer360Order }) {
                 <p className="mt-1 text-xs text-gray-500">
                     {formatEnumLabel(order.channel)} · {formatDate(order.createdAt)}
                 </p>
+                {order.companyName ? (
+                    <p className="mt-1 truncate text-xs text-gray-500">{order.companyName}</p>
+                ) : null}
                 {order.opportunity ? (
                     <p className="mt-1 truncate text-xs text-gray-500">From {order.opportunity.name}</p>
                 ) : null}
@@ -52,6 +55,7 @@ export default function SalesOrderCard({ order }: { order: Customer360Order }) {
                     <Field label="Lines">{order.lineCount}</Field>
                     <Field label="Channel">{formatEnumLabel(order.channel)}</Field>
                     <Field label="Source">{formatEnumLabel(order.source)}</Field>
+                    <Field label="Company">{order.companyName || '—'}</Field>
                     <Field label="Created">{formatDate(order.createdAt)}</Field>
                     <Field label="From opportunity">
                         {order.opportunity ? (

@@ -196,6 +196,18 @@ export function PcPriceCell({ product }: { product: SdProductRecord }) {
     )
 }
 
+export function PcCostCell({ product }: { product: SdProductRecord }) {
+    const cost = product.standardCost
+    if (cost === null || cost === undefined) {
+        return <span className="text-xs text-gray-400">—</span>
+    }
+    return (
+        <span className="truncate text-sm font-medium tabular-nums text-gray-800 dark:text-gray-100">
+            {formatPrice(cost)}
+        </span>
+    )
+}
+
 export function PcStockCell({
     stockSnapshot,
     variantsSummary,

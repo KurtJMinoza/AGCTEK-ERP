@@ -13,6 +13,7 @@ import Tag from '@/components/ui/Tag'
 import Segment from '@/components/ui/Segment'
 import { Form, FormItem } from '@/components/ui/Form'
 import NumericInput from '@/components/shared/NumericInput'
+import { motion } from 'framer-motion'
 import {
     HiOutlineCube,
     HiOutlineScale,
@@ -21,6 +22,8 @@ import {
     HiOutlineCurrencyDollar,
     HiOutlineTemplate,
     HiOutlineExclamationCircle,
+    HiOutlineRefresh,
+    HiOutlinePlus,
     HiCheckCircle,
 } from 'react-icons/hi'
 import { useReferenceData } from '../hooks/useReferenceData'
@@ -33,10 +36,11 @@ import {
 } from '@/modules/mm/shared/uomHelpers'
 import StockThresholdSummary from './StockThresholdSummary'
 import MaterialWizardSteps from './MaterialWizardSteps'
+import TrackingNumberInput from '@/modules/mm/shared/TrackingNumberInput'
 import { materialService } from '../services/materialService'
 import { storageBinService } from '@/modules/mm/warehouse/services/storageBinService'
 import type { StorageBin } from '@/modules/mm/warehouse/types'
-import type { Material, CreateMaterialPayload } from '../types'
+import type { Material, CreateMaterialPayload, MaterialTaxCodeOption } from '../types'
 import type { ReactNode } from 'react'
 
 const MATERIAL_NAME_MAX = 120
@@ -69,8 +73,15 @@ const baseMaterialSchema = z
         volumeUom: z.string().optional().or(z.literal('')),
         batchManaged: z.boolean(),
         serialManaged: z.boolean(),
+        serialTrackingPolicy: z.string().optional().or(z.literal('')),
+        barcodeValue: z.string().optional().or(z.literal('')),
+        barcodeType: z.string().optional().or(z.literal('')),
+        serialNumber: z.string().optional().or(z.literal('')),
+        initialBatchNumber: z.string().optional().or(z.literal('')),
+        initialLotNumber: z.string().optional().or(z.literal('')),
         qualityInspectionRequired: z.boolean(),
         expiryManaged: z.boolean(),
+        defaultExpiryDate: z.string().optional().or(z.literal('')),
         inventoryManaged: z.boolean(),
         negativeStockAllowed: z.boolean(),
         purchasable: z.boolean(),
@@ -91,6 +102,13 @@ const baseMaterialSchema = z
         defaultWarehouseId: z.string().optional().or(z.literal('')),
         preferredSupplierId: z.string().optional().or(z.literal('')),
         storageBinId: z.string().optional().or(z.literal('')),
+        taxClassification: z.string().optional().or(z.literal('')),
+        taxCodeId: z.string().optional().or(z.literal('')),
+        priceTaxTreatment: z.string().optional().or(z.literal('')),
+        taxStatus: z.string().optional().or(z.literal('')),
+        taxEffectiveFrom: z.string().optional().or(z.literal('')),
+        taxEffectiveTo: z.string().optional().or(z.literal('')),
+        taxDescription: z.string().optional().or(z.literal('')),
     })
     .refine((d) => d.maximumStock === 0 || d.maximumStock >= d.minimumStock, {
         path: ['maximumStock'],
@@ -110,6 +128,16 @@ const baseMaterialSchema = z
             path: ['storageBinId'],
             message:
                 'A storage bin is required when on-hand is set — choose where the stock is stored.',
+        },
+    )
+    .refine(
+        (d) =>
+            !d.taxEffectiveFrom ||
+            !d.taxEffectiveTo ||
+            d.taxEffectiveTo >= d.taxEffectiveFrom,
+        {
+            path: ['taxEffectiveTo'],
+            message: 'Effective-to date must be on or after effective-from.',
         },
     )
 
@@ -151,8 +179,10 @@ const blankValues: FormShape = {
     volumeUom: 'L',
     batchManaged: false,
     serialManaged: false,
+    serialTrackingPolicy: 'NOT_SERIALIZED',
     qualityInspectionRequired: false,
     expiryManaged: false,
+    defaultExpiryDate: '',
     inventoryManaged: true,
     negativeStockAllowed: false,
     purchasable: true,
@@ -166,13 +196,25 @@ const blankValues: FormShape = {
     reorderQuantity: 0,
     leadTimeDays: 0,
     minimumOrderQuantity: 0,
-    valuationMethod: '',
+    valuationMethod: 'STANDARD_COST',
     standardCost: 0,
     valuationClassId: '',
     companyId: '',
     defaultWarehouseId: '',
     preferredSupplierId: '',
     storageBinId: '',
+    barcodeValue: '',
+    barcodeType: 'EAN13',
+    serialNumber: '',
+    initialBatchNumber: '',
+    initialLotNumber: '',
+    taxClassification: '',
+    taxCodeId: '',
+    priceTaxTreatment: '',
+    taxStatus: 'ACTIVE',
+    taxEffectiveFrom: '',
+    taxEffectiveTo: '',
+    taxDescription: '',
 }
 
 function toFormValues(material?: Material | null): FormShape {
@@ -201,8 +243,12 @@ function toFormValues(material?: Material | null): FormShape {
         volumeUom: material.volumeUom ?? '',
         batchManaged: material.batchManaged,
         serialManaged: material.serialManaged,
+        serialTrackingPolicy: material.serialTrackingPolicy ?? 'NOT_SERIALIZED',
         qualityInspectionRequired: material.qualityInspectionRequired,
         expiryManaged: material.expiryManaged,
+        defaultExpiryDate: material.defaultExpiryDate
+            ? String(material.defaultExpiryDate).slice(0, 10)
+            : '',
         inventoryManaged: material.inventoryManaged,
         negativeStockAllowed: material.negativeStockAllowed ?? false,
         purchasable: material.purchasable,
@@ -221,13 +267,23 @@ function toFormValues(material?: Material | null): FormShape {
         reorderQuantity: Number(material.reorderQuantity),
         leadTimeDays: material.leadTimeDays,
         minimumOrderQuantity: Number(material.minimumOrderQuantity),
-        valuationMethod: material.valuationMethod ?? '',
+        valuationMethod: material.valuationMethod ?? 'STANDARD_COST',
         standardCost: Number(material.standardCost),
         valuationClassId: material.valuationClassId ?? '',
         companyId: material.companyId ?? '',
         defaultWarehouseId: material.defaultWarehouseId ?? '',
         preferredSupplierId: material.preferredSupplierId ?? '',
         storageBinId: '',
+        barcodeValue: material.barcodes?.find((b) => b.isPrimary)?.barcodeValue ?? '',
+        barcodeType: material.barcodes?.find((b) => b.isPrimary)?.barcodeType ?? 'EAN13',
+        serialNumber: '',
+        taxClassification: material.taxClassification ?? '',
+        taxCodeId: material.taxCodeId ?? '',
+        priceTaxTreatment: material.priceTaxTreatment ?? '',
+        taxStatus: material.taxStatus ?? 'ACTIVE',
+        taxEffectiveFrom: material.taxEffectiveFrom?.slice(0, 10) ?? '',
+        taxEffectiveTo: material.taxEffectiveTo?.slice(0, 10) ?? '',
+        taxDescription: material.taxDescription ?? '',
     }
 }
 
@@ -237,9 +293,23 @@ const TABS: TabDef[] = [
     { value: 'general', label: 'General', icon: <HiOutlineTemplate />, fields: ['materialName', 'description', 'materialTypeId', 'materialCategoryId', 'brand', 'model', 'manufacturer', 'status'] },
     { value: 'uom', label: 'UOM', icon: <HiOutlineScale />, fields: ['baseUomId', 'purchaseUomId', 'salesUomId'] },
     { value: 'physical', label: 'Physical', icon: <HiOutlineCube />, fields: ['weight', 'weightUom', 'length', 'width', 'height', 'dimensionUom', 'volume', 'volumeUom', 'sku'] },
-    { value: 'tracking', label: 'Tracking', icon: <HiOutlineShieldCheck />, fields: ['batchManaged', 'serialManaged', 'qualityInspectionRequired', 'expiryManaged'] },
+    {
+        value: 'tracking',
+        label: 'Tracking',
+        icon: <HiOutlineShieldCheck />,
+        fields: [
+            'batchManaged',
+            'initialBatchNumber',
+            'initialLotNumber',
+            'serialManaged',
+            'serialTrackingPolicy',
+            'qualityInspectionRequired',
+            'expiryManaged',
+        ],
+    },
     { value: 'inventory', label: 'Inventory', icon: <HiOutlineTag />, fields: ['inventoryManaged', 'purchasable', 'sellable', 'onHandQty', 'storageBinId', 'maximumStock', 'safetyStock'] },
     { value: 'valuation', label: 'Valuation', icon: <HiOutlineCurrencyDollar />, fields: ['valuationMethod', 'standardCost', 'negativeStockAllowed', 'valuationClassId', 'companyId', 'defaultWarehouseId', 'preferredSupplierId'] },
+    { value: 'tax', label: 'Tax', icon: <HiOutlineShieldCheck />, fields: ['taxClassification', 'taxCodeId', 'priceTaxTreatment', 'taxStatus', 'taxEffectiveFrom', 'taxEffectiveTo'] },
 ]
 
 const FORM_ID = 'material-master-form'
@@ -257,11 +327,34 @@ const STATUS_OPTIONS: SelectOption[] = [
     { value: 'BLOCKED', label: 'Blocked' },
 ]
 
+const SERIAL_TRACKING_POLICY_OPTIONS: SelectOption[] = [
+    { value: 'NOT_SERIALIZED', label: 'Not serialized' },
+    { value: 'SERIALIZED_AT_RECEIPT', label: 'Serialized at goods receipt' },
+    { value: 'SERIALIZED_AT_ISSUE', label: 'Serialized at goods issue' },
+    { value: 'SERIALIZED_AT_BOTH', label: 'Serialized at receipt and issue' },
+]
+
 const VALUATION_METHOD_OPTIONS: SelectOption[] = [
     { value: 'MOVING_AVERAGE', label: 'Moving Average' },
     { value: 'FIFO', label: 'FIFO' },
     { value: 'LIFO', label: 'LIFO' },
     { value: 'STANDARD_COST', label: 'Standard Cost' },
+]
+
+const TAX_CLASSIFICATION_OPTIONS: SelectOption[] = [
+    { value: 'VATABLE', label: 'VATable' },
+    { value: 'VAT_EXEMPT', label: 'VAT Exempt' },
+    { value: 'ZERO_RATED', label: 'Zero-Rated' },
+]
+
+const PRICE_TAX_TREATMENT_OPTIONS: SelectOption[] = [
+    { value: 'VAT_INCLUSIVE', label: 'VAT Inclusive' },
+    { value: 'VAT_EXCLUSIVE', label: 'VAT Exclusive' },
+]
+
+const TAX_STATUS_OPTIONS: SelectOption[] = [
+    { value: 'ACTIVE', label: 'Active' },
+    { value: 'INACTIVE', label: 'Inactive' },
 ]
 
 type SkuMode = 'auto' | 'custom'
@@ -569,6 +662,27 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const { materialTypes, materialCategories, uoms, uomConversions, valuationClasses, companies, warehouses } = useReferenceData()
     const { options: supplierOptions } = useSupplierOptions({ enabled: isOpen })
 
+    // Barcode management state
+    const [barcodes, setBarcodes] = useState<Array<{
+        id: string
+        barcodeValue: string
+        barcodeType: string
+        isPrimary: boolean
+    }>>([])
+    const [newBarcode, setNewBarcode] = useState('')
+    const [newBarcodeType, setNewBarcodeType] = useState('EAN13')
+    const [newBarcodeIsPrimary, setNewBarcodeIsPrimary] = useState(false)
+    const [addingBarcode, setAddingBarcode] = useState(false)
+    const [barcodeError, setBarcodeError] = useState<string | null>(null)
+    const [deletingBarcodeId, setDeletingBarcodeId] = useState<string | null>(null)
+
+    const barcodeTypeOptions: SelectOption[] = [
+        { value: 'EAN13', label: 'EAN-13' },
+        { value: 'UPC_A', label: 'UPC-A' },
+        { value: 'CODE128', label: 'Code 128' },
+        { value: 'QR', label: 'QR Code' },
+    ]
+
     const sortAlpha = (a: SelectOption, b: SelectOption) =>
         a.label.localeCompare(b.label, 'en', { sensitivity: 'base' })
 
@@ -636,6 +750,57 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const defaultWarehouseWatch =
         useWatch({ control, name: 'defaultWarehouseId' }) ?? ''
     const companyIdWatch = useWatch({ control, name: 'companyId' }) ?? ''
+    const taxClassificationWatch =
+        useWatch({ control, name: 'taxClassification' }) ?? ''
+    const taxCodeIdWatch = useWatch({ control, name: 'taxCodeId' }) ?? ''
+
+    /** FICO tax codes for the selected company (read-only source of rates). */
+    const [taxCodes, setTaxCodes] = useState<MaterialTaxCodeOption[]>([])
+    const [taxCodesLoading, setTaxCodesLoading] = useState(false)
+    useEffect(() => {
+        if (!isOpen || !companyIdWatch) {
+            setTaxCodes([])
+            return
+        }
+        let cancelled = false
+        setTaxCodesLoading(true)
+        materialService
+            .listTaxCodes(companyIdWatch)
+            .then((res) => {
+                if (!cancelled) setTaxCodes(res.data)
+            })
+            .catch(() => {
+                if (!cancelled) setTaxCodes([])
+            })
+            .finally(() => {
+                if (!cancelled) setTaxCodesLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, companyIdWatch])
+
+    const taxCodeOptions = useMemo<SelectOption[]>(
+        () =>
+            taxCodes
+                .filter(
+                    (code) =>
+                        !taxClassificationWatch ||
+                        code.compatibleClassifications.includes(
+                            taxClassificationWatch as any,
+                        ),
+                )
+                .map((code) => ({
+                    value: code.id,
+                    label:
+                        `${code.code} — ${code.name}` +
+                        (code.rate == null
+                            ? ' (no active rate)'
+                            : ` (${code.rate}%)`),
+                })),
+        [taxCodes, taxClassificationWatch],
+    )
+    const selectedTaxCode = taxCodes.find((code) => code.id === taxCodeIdWatch)
     const baseUomId = useWatch({ control, name: 'baseUomId' }) ?? ''
 
     // Only warehouses of the selected company — never all warehouses.
@@ -655,6 +820,17 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
     const salesUomId = useWatch({ control, name: 'salesUomId' }) ?? ''
 
     const weight = useWatch({ control, name: 'weight' }) ?? 0
+    const initialBatchWatch = useWatch({ control, name: 'initialBatchNumber' }) ?? ''
+    const initialLotWatch = useWatch({ control, name: 'initialLotNumber' }) ?? ''
+    const batchManagedWatch = useWatch({ control, name: 'batchManaged' }) ?? false
+    const batchLotEntryActive =
+        Boolean(initialBatchWatch.trim()) || Boolean(initialLotWatch.trim())
+
+    useEffect(() => {
+        if (batchLotEntryActive) {
+            setValue('batchManaged', true, { shouldDirty: true })
+        }
+    }, [batchLotEntryActive, setValue])
     const weightUom = useWatch({ control, name: 'weightUom' }) ?? ''
     const length = useWatch({ control, name: 'length' }) ?? 0
     const width = useWatch({ control, name: 'width' }) ?? 0
@@ -816,6 +992,21 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             return
         }
 
+        // Tax is optional; once a classification is chosen the setup must be complete.
+        if (
+            values.taxClassification &&
+            (!values.taxCodeId ||
+                !values.priceTaxTreatment ||
+                !values.taxStatus)
+        ) {
+            setError('taxCodeId', {
+                type: 'manual',
+                message: 'Tax code, price tax treatment and status are required',
+            })
+            setTab('tax')
+            return
+        }
+
         const payload: CreateMaterialPayload = {
             materialName: values.materialName,
             materialTypeId: values.materialTypeId,
@@ -838,10 +1029,26 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             dimensionUom: values.dimensionUom || undefined,
             volume: values.volume || undefined,
             volumeUom: values.volumeUom || undefined,
-            batchManaged: values.batchManaged,
             serialManaged: values.serialManaged,
+            serialTrackingPolicy: values.serialTrackingPolicy || 'NOT_SERIALIZED',
+            barcodeValue: values.barcodeValue || undefined,
+            barcodeType: values.barcodeType || undefined,
+            serialNumber: values.serialNumber || undefined,
+            ...(values.initialBatchNumber?.trim()
+                ? { initialBatchNumber: values.initialBatchNumber.trim() }
+                : {}),
+            ...(values.initialLotNumber?.trim()
+                ? { initialLotNumber: values.initialLotNumber.trim() }
+                : {}),
+            batchManaged:
+                values.batchManaged ||
+                Boolean(values.initialBatchNumber?.trim()) ||
+                Boolean(values.initialLotNumber?.trim()),
             qualityInspectionRequired: values.qualityInspectionRequired,
             expiryManaged: values.expiryManaged,
+            ...(values.defaultExpiryDate?.trim()
+                ? { defaultExpiryDate: values.defaultExpiryDate.trim() }
+                : { defaultExpiryDate: null }),
             inventoryManaged: values.inventoryManaged,
             negativeStockAllowed: values.negativeStockAllowed,
             purchasable: values.purchasable,
@@ -855,12 +1062,30 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
             reorderQuantity: values.reorderQuantity,
             leadTimeDays: values.leadTimeDays,
             minimumOrderQuantity: values.minimumOrderQuantity,
-            valuationMethod: values.valuationMethod || undefined,
+            valuationMethod: 'STANDARD_COST',
             standardCost: values.standardCost,
             valuationClassId: values.valuationClassId || undefined,
             companyId: values.companyId || undefined,
             defaultWarehouseId: values.defaultWarehouseId || undefined,
             preferredSupplierId: values.preferredSupplierId || undefined,
+            // No classification = no tax fields (the default tax status alone
+            // would read as an incomplete setup); clearing it on edit removes the tax.
+            ...(values.taxClassification
+                ? {
+                      taxClassification:
+                          values.taxClassification as CreateMaterialPayload['taxClassification'],
+                      taxCodeId: values.taxCodeId || undefined,
+                      priceTaxTreatment: (values.priceTaxTreatment ||
+                          undefined) as CreateMaterialPayload['priceTaxTreatment'],
+                      taxStatus: (values.taxStatus ||
+                          undefined) as CreateMaterialPayload['taxStatus'],
+                      taxEffectiveFrom: values.taxEffectiveFrom || undefined,
+                      taxEffectiveTo: values.taxEffectiveTo || undefined,
+                      taxDescription: values.taxDescription?.trim() || undefined,
+                  }
+                : mode === 'edit' && material?.taxClassification
+                  ? { taxClassification: null }
+                  : {}),
         }
         await onSubmit(payload)
         clearMaterialFormDraft()
@@ -874,6 +1099,90 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
         setTab('general')
         setSkuMode('auto')
         setDraftRestored(false)
+    }
+
+    // ── Barcode management ──────────────────────────────────────────────
+
+    useEffect(() => {
+        if (!isOpen || mode !== 'edit' || !material?.id) return
+        loadBarcodes(material.id)
+    }, [isOpen, mode, material?.id])
+
+    async function loadBarcodes(materialId: string) {
+        try {
+            const data = await materialService.barcodes(materialId)
+            setBarcodes(Array.isArray(data) ? data : (data as any).data ?? [])
+        } catch {
+            setBarcodes([])
+        }
+    }
+
+    async function handleAddBarcode() {
+        if (!newBarcode.trim()) return
+        if (!material?.id && mode === 'create') {
+            setBarcodeError('Save the material first, then add barcodes.')
+            return
+        }
+        setAddingBarcode(true)
+        setBarcodeError(null)
+        try {
+            const targetId = mode === 'edit' ? material!.id : undefined
+            if (!targetId) {
+                setBarcodeError('No material context available.')
+                return
+            }
+            await materialService.createBarcode({
+                materialId: targetId,
+                barcodeType: newBarcodeType,
+                barcodeValue: newBarcode.trim(),
+                isPrimary: newBarcodeIsPrimary,
+            })
+            setNewBarcode('')
+            setNewBarcodeIsPrimary(false)
+            await loadBarcodes(targetId)
+        } catch (err: any) {
+            setBarcodeError(
+                err.response?.data?.message ||
+                err.message ||
+                'Failed to add barcode',
+            )
+        } finally {
+            setAddingBarcode(false)
+        }
+    }
+
+    async function setPrimaryBarcode(barcodeId: string) {
+        setAddingBarcode(true)
+        try {
+            await materialService.setPrimaryBarcode(barcodeId)
+            await loadBarcodes(material!.id)
+        } catch (err: any) {
+            setBarcodeError(
+                err.response?.data?.message ||
+                err.message ||
+                'Failed to set primary barcode',
+            )
+        } finally {
+            setAddingBarcode(false)
+        }
+    }
+
+    async function deleteBarcode(barcodeId: string) {
+        setAddingBarcode(true)
+        setDeletingBarcodeId(barcodeId)
+        try {
+            await materialService.removeBarcode(barcodeId)
+            setBarcodes((prev) => prev.filter((b) => b.id !== barcodeId))
+        } catch (err: any) {
+            setBarcodeError(
+                err.response?.data?.message ||
+                err.message ||
+                'Failed to remove barcode',
+            )
+        } finally {
+            setAddingBarcode(false)
+            setDeletingBarcodeId(null)
+        }
     }
 
     return (
@@ -1140,16 +1449,356 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                     : 'Enter your own stock-keeping unit identifier.'}
                             </p>
                         </FormItem>
+
+                        <FormItem label="Primary barcode">
+                            <Controller
+                                name="barcodeValue"
+                                control={control}
+                                render={({ field }) => (
+                                    <Input
+                                        placeholder="Scan or type barcode (e.g. 4809990000001)"
+                                        {...field}
+                                    />
+                                )}
+                            />
+                            <p className="mt-1 text-xs text-gray-400">
+                                Primary barcode for this material. Scanned at
+                                receiving, picking, and POS.
+                            </p>
+                        </FormItem>
+
+                        <FormItem label="Barcode type">
+                            <Controller
+                                name="barcodeType"
+                                control={control}
+                                render={({ field }) => (
+                                    <Select<SelectOption>
+                                        {...selectPortal}
+                                        placeholder="Select type"
+                                        options={barcodeTypeOptions}
+                                        value={
+                                            barcodeTypeOptions.find(
+                                                (o) => o.value === field.value,
+                                            ) ?? null
+                                        }
+                                        onChange={(opt) =>
+                                            field.onChange(
+                                                opt?.value ?? 'EAN13',
+                                            )
+                                        }
+                                    />
+                                )}
+                            />
+                        </FormItem>
+                    </TabPanel>
+
+                    {/* BARCODES */}
+                    <TabPanel active={tab === 'barcodes'}>
+                        <SectionHeader title="Barcode management" />
+                        <p className="mb-4 text-xs text-gray-500">
+                            Register the primary barcode and any alternative barcodes
+                            for this material. Barcodes are company-scoped and must be
+                            unique within the company.
+                        </p>
+
+                        {barcodes.length > 0 ? (
+                            <div className="mb-6 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50 dark:bg-gray-800/50">
+                                        <tr>
+                                            <th className="px-4 py-2 font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                                                Barcode
+                                            </th>
+                                            <th className="px-4 py-2 font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700 w-[120px]">
+                                                Type
+                                            </th>
+                                            <th className="px-4 py-2 font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700 w-[80px]">
+                                                Primary
+                                            </th>
+                                            <th className="px-4 py-2 font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700 w-[100px]">
+                                                Status
+                                            </th>
+                                            <th className="px-4 py-2 font-semibold text-gray-500 border-b border-gray-200 dark:border-gray-700 w-[80px]">
+                                                Action
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {barcodes.map((b) => (
+                                            <tr
+                                                key={b.id}
+                                                className="border-b border-gray-100 dark:border-gray-700/50"
+                                            >
+                                                <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                                    {b.barcodeValue}
+                                                </td>
+                                                <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                                                    {b.barcodeType}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    {b.isPrimary ? (
+                                                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" /> Primary
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+                                                            Alternative
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <Tag className="text-xs border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                                        Active
+                                                    </Tag>
+                                                </td>
+                                                <td className="px-4 py-3 text-right">
+                                                    {!b.isPrimary && (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="plain"
+                                                            className="text-primary hover:bg-primary/10"
+                                                            onClick={() => void setPrimaryBarcode(b.id)}
+                                                        >
+                                                            Set as primary
+                                                        </Button>
+                                                    )}
+                                                    <Button
+                                                        size="sm"
+                                                        variant="plain"
+                                                        className="text-rose-600 hover:bg-rose-50"
+                                                        onClick={() => void setDeletingBarcodeId(b.id)}
+                                                    >
+                                                        Remove
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="mb-6 rounded-lg border border-dashed border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/50 p-4 text-center text-sm text-gray-500">
+                                No barcodes registered yet. Add one below.
+                            </div>
+                        )}
+
+                        <SectionHeader title="Add barcode" className="mt-6 mb-2" />
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <FormItem label="Barcode value">
+                                <Input
+                                    placeholder="Scan or type barcode"
+                                    value={newBarcode}
+                                    onChange={(e) => setNewBarcode(e.target.value)}
+                                />
+                            </FormItem>
+                            <FormItem label="Type">
+                                <Select<SelectOption>
+                                    options={barcodeTypeOptions}
+                                    value={
+                                        barcodeTypeOptions.find(
+                                            (o) => o.value === newBarcodeType,
+                                        ) ?? null
+                                    }
+                                    onChange={(opt) =>
+                                        setNewBarcodeType(opt?.value ?? 'EAN13')
+                                    }
+                                />
+                            </FormItem>
+                            <FormItem label="Primary">
+                                <Switcher
+                                    checked={newBarcodeIsPrimary}
+                                    onChange={(checked) =>
+                                        setNewBarcodeIsPrimary(checked)
+                                    }
+                                />
+                            </FormItem>
+                            <div className="flex items-end">
+                                <Button
+                                    size="sm"
+                                    variant="solid"
+                                    disabled={addingBarcode || !newBarcode.trim()}
+                                    onClick={() => void handleAddBarcode()}
+                                    className="bg-gradient-to-r from-primary to-primary-deep hover:from-primary-deep hover:to-primary"
+                                >
+                                    {addingBarcode ? (
+                                        <motion.span
+                                            animate={{ rotate: 360 }}
+                                            transition={{
+                                                duration: 1,
+                                                repeat: Infinity,
+                                                ease: 'linear',
+                                            }}
+                                            className="w-4 h-4"
+                                        >
+                                            <HiOutlineRefresh className="w-4 h-4" />
+                                        </motion.span>
+                                    ) : (
+                                        <HiOutlinePlus className="w-4 h-4" />
+                                    )}
+                                    {addingBarcode ? 'Adding…' : 'Add barcode'}
+                                </Button>
+                            </div>
+                        </div>
+                        {barcodeError && (
+                            <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">
+                                {barcodeError}
+                            </p>
+                        )}
                     </TabPanel>
 
                     {/* TRACKING */}
                     <TabPanel active={tab === 'tracking'}>
                         <SectionHeader title="Tracking & compliance" />
+                        <p className="mb-3 text-xs text-gray-500">
+                            Batch tracking and batch/lot numbers are connected: either enter
+                            numbers below (recommended) or turn on batch managed only and add
+                            batches later at receiving or import.
+                        </p>
                         <div className="flex flex-col gap-2">
-                            <Controller name="batchManaged" control={control} render={({ field }) => <ToggleRow label="Batch managed" description="Track by batch/lot number." checked={field.value} onChange={field.onChange} />} />
+                            <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                                        Batch / lot
+                                    </p>
+                                    {batchLotEntryActive ? (
+                                        <Tag className="text-[10px]">Batch managed will turn on</Tag>
+                                    ) : (
+                                        <Tag className="text-[10px]">Optional</Tag>
+                                    )}
+                                </div>
+                                <p className="mb-3 text-xs text-gray-500">
+                                    You do not need to flip &quot;Batch managed&quot; if you type
+                                    here — it enables automatically on save and creates the same
+                                    row as Material Master → Batches. Leave both blank to skip.
+                                </p>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <Controller
+                                        name="initialBatchNumber"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <FormItem label="Batch number">
+                                                <TrackingNumberInput
+                                                    value={field.value ?? ''}
+                                                    placeholder="e.g. LOT-2026-001"
+                                                    onChange={field.onChange}
+                                                />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="initialLotNumber"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <FormItem label="Lot number">
+                                                <TrackingNumberInput
+                                                    value={field.value ?? ''}
+                                                    placeholder="Optional"
+                                                    onChange={field.onChange}
+                                                />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </div>
+                            <Controller
+                                name="batchManaged"
+                                control={control}
+                                render={({ field }) => (
+                                    <ToggleRow
+                                        label="Batch managed"
+                                        description={
+                                            batchLotEntryActive
+                                                ? 'On because you entered batch/lot above. Clear those fields first if you want this off.'
+                                                : batchManagedWatch
+                                                  ? 'Stock movements will expect a batch. Add numbers above, or create batches at receiving / import.'
+                                                  : 'Turn on only if you will track batches later without entering numbers in this wizard.'
+                                        }
+                                        checked={field.value}
+                                        onChange={(next) => {
+                                            if (!next && batchLotEntryActive) return
+                                            field.onChange(next)
+                                        }}
+                                    />
+                                )}
+                            />
                             <Controller name="serialManaged" control={control} render={({ field }) => <ToggleRow label="Serial managed" description="Assign unique serial number per unit." checked={field.value} onChange={field.onChange} />} />
+                            <Controller name="serialTrackingPolicy" control={control} render={({ field }) => (
+                                <FormItem label="Serial tracking policy">
+                                    <Select<SelectOption>
+                                        {...selectPortal}
+                                        placeholder="Select policy"
+                                        options={SERIAL_TRACKING_POLICY_OPTIONS}
+                                        value={SERIAL_TRACKING_POLICY_OPTIONS.find((o) => o.value === field.value) ?? null}
+                                        onChange={(opt) => field.onChange(opt?.value ?? 'NOT_SERIALIZED')}
+                                    />
+                                    <p className="mt-1 text-xs text-gray-400">
+                                        When serialized, individual serial numbers must be
+                                        registered at the configured stage.
+                                    </p>
+                                </FormItem>
+                            )} />
+                            <Controller name="serialNumber" control={control} render={({ field }) => (
+                                <FormItem label="Serial number">
+                                    <Input
+                                        placeholder="e.g. SN-12345678"
+                                        {...field}
+                                    />
+                                    <p className="mt-1 text-xs text-gray-400">
+                                        Initial serial number for this material.
+                                        Only applicable when serial tracking is enabled.
+                                    </p>
+                                </FormItem>
+                            )} />
+                            <Controller name="barcodeValue" control={control} render={({ field }) => (
+                                <FormItem label="Primary barcode">
+                                    <Input
+                                        placeholder="Scan or type barcode (e.g. 4809990000001)"
+                                        {...field}
+                                    />
+                                    <p className="mt-1 text-xs text-gray-400">
+                                        Primary barcode for this material. Scanned at
+                                        receiving, picking, and POS.
+                                    </p>
+                                </FormItem>
+                            )} />
+                            <Controller name="barcodeType" control={control} render={({ field }) => (
+                                <FormItem label="Barcode type">
+                                    <Select<SelectOption>
+                                        {...selectPortal}
+                                        placeholder="Select type"
+                                        options={barcodeTypeOptions}
+                                        value={
+                                            barcodeTypeOptions.find(
+                                                (o) => o.value === field.value,
+                                            ) ?? null
+                                        }
+                                        onChange={(opt) =>
+                                            field.onChange(opt?.value ?? 'EAN13')
+                                        }
+                                    />
+                                </FormItem>
+                            )} />
                             <Controller name="qualityInspectionRequired" control={control} render={({ field }) => <ToggleRow label="Quality inspection" description="Route receipts through QC." checked={field.value} onChange={field.onChange} />} />
                             <Controller name="expiryManaged" control={control} render={({ field }) => <ToggleRow label="Expiry controlled" description="Enforce expiry date tracking." checked={field.value} onChange={field.onChange} />} />
+                            <Controller
+                                name="defaultExpiryDate"
+                                control={control}
+                                render={({ field }) => (
+                                    <FormItem
+                                        label="Default expiry date"
+                                        className="md:col-span-2"
+                                    >
+                                        <Input
+                                            type="date"
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                        />
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Reference expiry for catalog and sales when no batch stock is resolved. Batch-level expiry still applies for stocked items.
+                                        </p>
+                                    </FormItem>
+                                )}
+                            />
                         </div>
                     </TabPanel>
 
@@ -1279,9 +1928,13 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                         <SectionHeader title="Valuation & organisation" />
                         <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
                             <FormItem label="Valuation method">
-                                <Controller name="valuationMethod" control={control} render={({ field }) => (
-                                    <Select<SelectOption> {...selectPortal} isClearable placeholder="Select method" options={VALUATION_METHOD_OPTIONS} value={VALUATION_METHOD_OPTIONS.find((o) => o.value === field.value) ?? null} onChange={(opt) => field.onChange(opt?.value ?? '')} />
-                                )} />
+                                <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200">
+                                    Standard cost
+                                </p>
+                                <p className="mt-1 text-[11px] text-gray-400">
+                                    All materials use standard cost for issues, COGS,
+                                    and FICO posting.
+                                </p>
                             </FormItem>
                             <FormItem label="Standard cost">
                                 <Controller name="standardCost" control={control} render={({ field }) => <NumericInput placeholder="0.00" thousandSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false} value={field.value ?? 0} onValueChange={(v) => field.onChange(v.floatValue ?? 0)} />} />
@@ -1329,6 +1982,241 @@ const MaterialFormDialog = ({ isOpen, mode, material, template, onClose, onSubmi
                                         onChange={(opt) => field.onChange(opt?.value ?? '')}
                                     />
                                 )} />
+                            </FormItem>
+                        </div>
+                    </TabPanel>
+                    <TabPanel active={tab === 'tax'}>
+                        <SectionHeader
+                            title="Tax information"
+                            description="MM Material Master owns the product tax classification. FICO owns the tax code and rate."
+                        />
+                        {!companyIdWatch ? (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                Select a company in the Valuation step to load its
+                                FICO tax codes.
+                            </div>
+                        ) : null}
+                        {companyIdWatch &&
+                        !taxCodesLoading &&
+                        taxCodes.length === 0 ? (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                                No FICO tax codes exist for this company yet.{' '}
+                                <a
+                                    href="/modules/fico/tax-codes"
+                                    className="font-medium underline"
+                                >
+                                    Create a FICO tax code
+                                </a>{' '}
+                                first.
+                            </div>
+                        ) : null}
+                        <div className="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+                            <FormItem
+                                label="Tax classification (optional)"
+                                invalid={Boolean(errors.taxClassification)}
+                                errorMessage={errors.taxClassification?.message}
+                            >
+                                <Controller
+                                    name="taxClassification"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select classification"
+                                            options={TAX_CLASSIFICATION_OPTIONS}
+                                            value={
+                                                TAX_CLASSIFICATION_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) => {
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                                const next = taxCodes.find(
+                                                    (code) =>
+                                                        code.id ===
+                                                        taxCodeIdWatch,
+                                                )
+                                                if (
+                                                    next &&
+                                                    opt?.value &&
+                                                    !next.compatibleClassifications.includes(
+                                                        opt.value as any,
+                                                    )
+                                                ) {
+                                                    setValue(
+                                                        'taxCodeId',
+                                                        '',
+                                                        {
+                                                            shouldDirty: true,
+                                                        },
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem
+                                label="Tax code (FICO)"
+                                invalid={Boolean(errors.taxCodeId)}
+                                errorMessage={errors.taxCodeId?.message}
+                            >
+                                <Controller
+                                    name="taxCodeId"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            isSearchable
+                                            isLoading={taxCodesLoading}
+                                            placeholder={
+                                                taxClassificationWatch
+                                                    ? 'Select compatible tax code'
+                                                    : 'Select classification first'
+                                            }
+                                            options={taxCodeOptions}
+                                            value={
+                                                taxCodeOptions.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax rate (from FICO)">
+                                <Input
+                                    value={
+                                        selectedTaxCode?.rate == null
+                                            ? 'No active rate'
+                                            : `${selectedTaxCode.rate}%`
+                                    }
+                                    disabled
+                                    className="!bg-gray-100 dark:!bg-gray-700/50"
+                                />
+                                <p className="mt-1 text-xs text-gray-400">
+                                    Read-only: FICO Tax Codes is the single
+                                    source of the rate.
+                                </p>
+                            </FormItem>
+                            <FormItem label="Price tax treatment">
+                                <Controller
+                                    name="priceTaxTreatment"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select treatment"
+                                            options={
+                                                PRICE_TAX_TREATMENT_OPTIONS
+                                            }
+                                            value={
+                                                PRICE_TAX_TREATMENT_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax status">
+                                <Controller
+                                    name="taxStatus"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Select<SelectOption>
+                                            {...selectPortal}
+                                            isClearable
+                                            placeholder="Select status"
+                                            options={TAX_STATUS_OPTIONS}
+                                            value={
+                                                TAX_STATUS_OPTIONS.find(
+                                                    (o) =>
+                                                        o.value === field.value,
+                                                ) ?? null
+                                            }
+                                            onChange={(opt) =>
+                                                field.onChange(
+                                                    opt?.value ?? '',
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Effective from">
+                                <Controller
+                                    name="taxEffectiveFrom"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            type="date"
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem
+                                label="Effective to"
+                                invalid={Boolean(errors.taxEffectiveTo)}
+                                errorMessage={errors.taxEffectiveTo?.message}
+                            >
+                                <Controller
+                                    name="taxEffectiveTo"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            type="date"
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
+                            </FormItem>
+                            <FormItem label="Tax description / notes">
+                                <Controller
+                                    name="taxDescription"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input
+                                            placeholder="Optional note for this tax configuration"
+                                            maxLength={500}
+                                            value={field.value ?? ''}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value,
+                                                )
+                                            }
+                                        />
+                                    )}
+                                />
                             </FormItem>
                         </div>
                     </TabPanel>

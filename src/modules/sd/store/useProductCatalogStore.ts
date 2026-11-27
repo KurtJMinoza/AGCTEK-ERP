@@ -15,12 +15,18 @@ type DivisionCatalog = {
     loadedAt: number | null
 }
 
+type EnsureLoadedOptions = {
+    force?: boolean
+    /** When set, only products linked to this company are cached (POS terminal). */
+    companyId?: string | null
+}
+
 type ProductCatalogState = {
     catalogs: Partial<Record<string, DivisionCatalog>>
     /** Returns cached active products unless stale or `force` is set. */
     ensureLoaded: (
         divisionId: string,
-        options?: { force?: boolean },
+        options?: EnsureLoadedOptions,
     ) => Promise<SdProductRecord[]>
     /**
      * Loads the active products of every listed division with one request
@@ -43,6 +49,9 @@ const EMPTY: DivisionCatalog = {
 
 const inFlight = new Map<string, Promise<SdProductRecord[]>>()
 
+const cacheKey = (divisionId: string, companyId?: string | null) =>
+    companyId?.trim() ? `${divisionId}::${companyId.trim()}` : divisionId
+
 const isFresh = (catalog: DivisionCatalog | undefined) =>
     Boolean(
         catalog?.products &&
@@ -63,8 +72,8 @@ export const useProductCatalogStore = create<ProductCatalogState>(
                 }
                 return { catalogs }
             })
-        const patch = (divisionId: string, next: Partial<DivisionCatalog>) =>
-            patchMany([divisionId], () => next)
+        const patch = (key: string, next: Partial<DivisionCatalog>) =>
+            patchMany([key], () => next)
 
         return {
             catalogs: {},
@@ -105,17 +114,23 @@ export const useProductCatalogStore = create<ProductCatalogState>(
                 return request
             },
             ensureLoaded: (divisionId, options) => {
-                const current = get().catalogs[divisionId]
+                const companyId = options?.companyId?.trim() || undefined
+                const key = cacheKey(divisionId, companyId)
+                const current = get().catalogs[key]
                 if (isFresh(current) && !options?.force) {
                     return Promise.resolve(current!.products!)
                 }
-                const pending = inFlight.get(divisionId)
+                const pending = inFlight.get(key)
                 if (pending) return pending
 
-                patch(divisionId, { loading: true, error: null })
-                const request = listProducts({ divisionId, activeOnly: true })
+                patch(key, { loading: true, error: null })
+                const request = listProducts({
+                    divisionId,
+                    activeOnly: true,
+                    companyId,
+                })
                     .then((products) => {
-                        patch(divisionId, {
+                        patch(key, {
                             products,
                             loading: false,
                             loadedAt: Date.now(),
@@ -123,7 +138,7 @@ export const useProductCatalogStore = create<ProductCatalogState>(
                         return products
                     })
                     .catch((error: unknown) => {
-                        patch(divisionId, {
+                        patch(key, {
                             loading: false,
                             error:
                                 error instanceof Error
@@ -132,11 +147,27 @@ export const useProductCatalogStore = create<ProductCatalogState>(
                         })
                         throw error
                     })
-                    .finally(() => inFlight.delete(divisionId))
-                inFlight.set(divisionId, request)
+                    .finally(() => inFlight.delete(key))
+                inFlight.set(key, request)
                 return request
             },
-            invalidate: (divisionId) => patch(divisionId, { loadedAt: null }),
+            invalidate: (divisionId) => {
+                set((state) => {
+                    const catalogs = { ...state.catalogs }
+                    for (const key of Object.keys(catalogs)) {
+                        if (
+                            key === divisionId ||
+                            key.startsWith(`${divisionId}::`)
+                        ) {
+                            catalogs[key] = {
+                                ...(catalogs[key] ?? EMPTY),
+                                loadedAt: null,
+                            }
+                        }
+                    }
+                    return { catalogs }
+                })
+            },
         }
     },
 )

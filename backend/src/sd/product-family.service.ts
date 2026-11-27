@@ -9,6 +9,7 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateProductFamilyDto } from './dto/create-product-family.dto'
 import { DEFAULT_COMBINATION_KEY } from './product-combination-key'
+import { parseCalendarDateString } from '../mm/common/calendar-date.util'
 
 const DIVISION_SKU_PREFIX: Record<string, string> = {
     DIV_RETAIL: 'RET',
@@ -185,6 +186,9 @@ export class ProductFamilyService {
                 sku: material.sku!,
                 salesUomId: material.baseUomId,
                 materialUomId: material.baseUomId,
+                catalogExpiryDate: dto.catalogExpiryDate?.trim()
+                    ? parseCalendarDateString(dto.catalogExpiryDate)
+                    : undefined,
             },
         })
 
@@ -314,6 +318,9 @@ export class ProductFamilyService {
                     sortOrder: i,
                     companyId: dto.materialDefaults.companyId,
                     salesUomId: dto.salesUomId ?? null,
+                    catalogExpiryDate: vi.catalogExpiryDate?.trim()
+                        ? parseCalendarDateString(vi.catalogExpiryDate)
+                        : undefined,
                 },
             })
 

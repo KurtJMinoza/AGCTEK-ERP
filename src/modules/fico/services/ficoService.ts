@@ -20,6 +20,9 @@ import type {
     FicoFiscalYearPreview,
     FicoFiscalYearSummary,
     FicoGlAccount,
+    FicoGlAccountBalances,
+    FicoGlAccountCompanyContext,
+    FicoGlAccountDependencies,
     FicoGlAccountUsage,
     FicoGlImportReport,
     FicoGlImportRow,
@@ -38,7 +41,30 @@ import type {
     FicoTaxCalculationResult,
     FicoTaxRate,
     FicoTaxRateListResponse,
+    FicoJournalEntryDetail,
+    FicoJournalListQuery,
+    FicoJournalListResponse,
+    FicoJournalSimulateResult,
+    FicoJournalWorkbenchSummary,
+    FicoGlLedgerLineItemsResponse,
+    FicoGlAccountBalanceSummary,
+    FicoTrialBalanceResponse,
+    FicoAuditEntry,
 } from '../types'
+
+type UpdateJournalEntryBody = {
+    companyId: string
+    postingDate?: string
+    description?: string
+    currencyCode?: string
+    supplierId?: string | null
+    lines?: Array<{
+        glAccountId: string
+        debitAmount?: number
+        creditAmount?: number
+        description?: string
+    }>
+}
 
 const API = '/fico'
 
@@ -52,6 +78,19 @@ function queryString(query: Record<string, QueryValue>) {
     }
     const text = params.toString()
     return text ? `?${text}` : ''
+}
+
+type GlAccountListPayload =
+    | FicoGlAccount[]
+    | { items?: FicoGlAccount[]; total?: number; page?: number; pageSize?: number }
+
+/** Backend may return a bare array or a paginated envelope when `page` is set. */
+function normalizeGlAccountList(data: GlAccountListPayload): FicoGlAccount[] {
+    if (Array.isArray(data)) return data
+    if (data && typeof data === 'object' && Array.isArray(data.items)) {
+        return data.items
+    }
+    return []
 }
 
 export const ficoSettingsService = {
@@ -161,6 +200,16 @@ export const ficoChartService = {
         ).then((r) => r.data),
 }
 
+export type FicoGlAccountListSummary = {
+    totalAccounts: number
+    activeAccounts: number
+    inactiveAccounts: number
+    draftAccounts: number
+    blockedAccounts: number
+    reconciliationAccounts: number
+    withoutCompanyAssignment: number
+}
+
 export const ficoGlAccountService = {
     list: (query: {
         chartOfAccountsId?: string
@@ -169,8 +218,18 @@ export const ficoGlAccountService = {
         search?: string
         companyId?: string
     } = {}) =>
-        ErpAxiosBase.get<FicoGlAccount[]>(
+        ErpAxiosBase.get<GlAccountListPayload>(
             `${API}/gl-accounts${queryString(query)}`,
+        ).then((r) => normalizeGlAccountList(r.data)),
+    summary: (query: {
+        chartOfAccountsId?: string
+        accountType?: string
+        status?: string
+        search?: string
+        companyId?: string
+    } = {}) =>
+        ErpAxiosBase.get<FicoGlAccountListSummary>(
+            `${API}/gl-accounts/summary${queryString(query)}`,
         ).then((r) => r.data),
     get: (id: string) =>
         ErpAxiosBase.get<FicoGlAccount>(`${API}/gl-accounts/${id}`).then(
@@ -187,6 +246,79 @@ export const ficoGlAccountService = {
         ).then((r) => r.data),
     remove: (id: string) =>
         ErpAxiosBase.delete(`${API}/gl-accounts/${id}`).then((r) => r.data),
+    activate: (id: string) =>
+        ErpAxiosBase.post<FicoGlAccount>(`${API}/gl-accounts/${id}/activate`).then(
+            (r) => r.data,
+        ),
+    deactivate: (id: string, reason?: string) =>
+        ErpAxiosBase.post<FicoGlAccount>(`${API}/gl-accounts/${id}/deactivate`, {
+            reason: reason ?? undefined,
+        }).then((r) => r.data),
+    reactivate: (id: string, reason?: string) =>
+        ErpAxiosBase.post<FicoGlAccount>(`${API}/gl-accounts/${id}/reactivate`, {
+            reason: reason ?? undefined,
+        }).then((r) => r.data),
+    whereUsed: (id: string) =>
+        ErpAxiosBase.get(`${API}/gl-accounts/${id}/where-used`).then((r) => r.data),
+    deletionEligibility: (id: string) =>
+        ErpAxiosBase.get<Pick<FicoGlAccountDependencies, 'canDelete' | 'reasons' | 'categories'>>(
+            `${API}/gl-accounts/${id}/deletion-eligibility`,
+        ).then((r) => r.data),
+    changeHistory: (id: string, query: { page?: number; pageSize?: number } = {}) =>
+        ErpAxiosBase.get(`${API}/gl-accounts/${id}/change-history${queryString(query)}`).then(
+            (r) => r.data,
+        ),
+    lineItems: (
+        id: string,
+        query: { companyId?: string; page?: number; pageSize?: number } = {},
+    ) =>
+        ErpAxiosBase.get(`${API}/gl-accounts/${id}/line-items${queryString(query)}`).then(
+            (r) => r.data,
+        ),
+    blockCompanyPosting: (id: string, companyId: string, reason?: string) =>
+        ErpAxiosBase.post(
+            `${API}/gl-accounts/${id}/companies/${companyId}/block-posting`,
+            { reason: reason ?? undefined },
+        ).then((r) => r.data),
+    unblockCompanyPosting: (id: string, companyId: string, reason?: string) =>
+        ErpAxiosBase.post(
+            `${API}/gl-accounts/${id}/companies/${companyId}/unblock-posting`,
+            { reason: reason ?? undefined },
+        ).then((r) => r.data),
+    validateImport: (data: {
+        chartOfAccountsId: string
+        rows: FicoGlImportRow[]
+        dryRun?: boolean
+    }) =>
+        ErpAxiosBase.post<FicoGlImportReport>(
+            `${API}/gl-accounts/import/validate`,
+            data,
+        ).then((r) => r.data),
+    confirmImport: (data: {
+        chartOfAccountsId: string
+        rows: FicoGlImportRow[]
+    }) =>
+        ErpAxiosBase.post<FicoGlImportReport>(
+            `${API}/gl-accounts/import/confirm`,
+            data,
+        ).then((r) => r.data),
+    dependencies: (id: string) =>
+        ErpAxiosBase.get<FicoGlAccountDependencies>(
+            `${API}/gl-accounts/${id}/dependencies`,
+        ).then((r) => r.data),
+    companySettings: (id: string) =>
+        ErpAxiosBase.get<FicoGlAccountCompanyContext>(
+            `${API}/gl-accounts/${id}/company-settings`,
+        ).then((r) => r.data),
+    balances: (id: string, query: { companyId?: string } = {}) =>
+        ErpAxiosBase.get<FicoGlAccountBalances>(
+            `${API}/gl-accounts/${id}/balances${queryString(query)}`,
+        ).then((r) => r.data),
+    duplicate: (id: string, accountCode: string) =>
+        ErpAxiosBase.post<FicoGlAccount>(
+            `${API}/gl-accounts/${id}/duplicate`,
+            { accountCode },
+        ).then((r) => r.data),
     usage: (id: string) =>
         ErpAxiosBase.get<FicoGlAccountUsage>(`${API}/gl-accounts/${id}/usage`).then(
             (r) => r.data,
@@ -238,6 +370,10 @@ export const ficoAccountingEventService = {
         ErpAxiosBase.get<FicoAccountingEventDetail>(`${API}/accounting-events/${id}`).then(
             (r) => r.data,
         ),
+    retry: (id: string) =>
+        ErpAxiosBase.post<{ id: string; status: string }>(
+            `${API}/accounting-events/${id}/retry`,
+        ).then((r) => r.data),
 }
 
 export const ficoAccountDeterminationService = {
@@ -386,96 +522,6 @@ export const ficoPeriodService = {
             `${API}/posting-periods/${id}/${action}`,
             { companyId, reason },
         ).then((r) => r.data),
-}
-
-export const ficoJournalService = {
-    list: (query: {
-        companyId: string
-        status?: string
-        dateFrom?: string
-        dateTo?: string
-        page?: number
-        pageSize?: number
-    }) =>
-        ErpAxiosBase.get<{
-            items: unknown[]
-            total: number
-            page: number
-            pageSize: number
-            totalPages: number
-        }>(`${API}/journal-entries${queryString(query)}`).then((r) =>
-            r.data,
-        ),
-    get: (id: string, companyId: string) =>
-        ErpAxiosBase.get<{
-            id: string
-            documentNumber: string | null
-            postingDate: string
-            fiscalYear: number | null
-            fiscalPeriodId: string | null
-            totalAmount: string
-            currencyCode: string
-            status: string
-            description: string | null
-            documentType: string
-            postedAt: string | null
-            postedBy: string | null
-            createdAt: string
-            fiscalPeriod: {
-                id: string
-                fiscalYear: number
-                periodNumber: number
-                name: string
-                status: string
-            } | null
-            lines: unknown[]
-        }>(`${API}/journal-entries/${id}?companyId=${companyId}`).then(
-            (r) => r.data,
-        ),
-    create: (
-        dto: {
-            companyId: string
-            postingDate: string
-            description?: string
-            currencyCode?: string
-            lines: {
-                glAccountId: string
-                debitAmount?: number
-                creditAmount?: number
-                description?: string
-            }[]
-        },
-        signal?: AbortSignal,
-    ) =>
-        ErpAxiosBase.post<{
-            id: string
-            documentNumber: string
-            postingDate: string
-            fiscalYear: number | null
-            fiscalPeriodId: string | null
-            totalAmount: string
-            currencyCode: string
-            status: string
-            description: string | null
-            postedAt: string | null
-            lines: unknown[]
-        }>(`${API}/journal-entries`, dto, { signal }).then((r) => r.data),
-    reverse: (
-        id: string,
-        companyId: string,
-        reason: string,
-    ) =>
-        ErpAxiosBase.post<{
-            originalId: string
-            originalStatus: string
-            reversalId: string
-            reversalDocumentNumber: string | null
-            reversalPostedAt: string | null
-        }>(`${API}/journal-entries/${id}/reverse`, {
-            companyId,
-            journalEntryId: id,
-            reason,
-        }).then((r) => r.data),
 }
 
 export const ficoAuditService = {
@@ -959,20 +1005,277 @@ export const ficoDocumentTypeService = {
         ).then((r) => r.data),
 }
 
+export const ficoJournalService = {
+    list: (query: FicoJournalListQuery & { companyId: string }) =>
+        ErpAxiosBase.get<FicoJournalListResponse>(
+            `${API}/journal-entries${queryString(query)}`,
+        ).then((r) => r.data),
+    summary: (
+        companyId: string,
+        query: { dateFrom?: string; dateTo?: string } = {},
+    ) =>
+        ErpAxiosBase.get<FicoJournalWorkbenchSummary>(
+            `${API}/journal-entries/summary${queryString({ companyId, ...query })}`,
+        ).then((r) => r.data),
+    get: (id: string, companyId: string) =>
+        ErpAxiosBase.get<FicoJournalEntryDetail>(
+            `${API}/journal-entries/${id}${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    create: (body: {
+        companyId: string
+        postingDate: string
+        description?: string
+        currencyCode?: string
+        supplierId?: string | null
+        lines: Array<{
+            glAccountId: string
+            debitAmount?: number
+            creditAmount?: number
+            description?: string
+        }>
+    }) =>
+        ErpAxiosBase.post<FicoJournalEntryDetail>(
+            `${API}/journal-entries`,
+            body,
+        ).then((r) => r.data),
+    submit: (id: string, body: { companyId: string; reason?: string }) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/submit`, body).then(
+            (r) => r.data,
+        ),
+    approve: (id: string, body: { companyId: string; reason?: string }) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/approve`, body).then(
+            (r) => r.data,
+        ),
+    reject: (id: string, body: { companyId: string; reason: string }) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/reject`, body).then(
+            (r) => r.data,
+        ),
+    resubmit: (id: string) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/resubmit`).then(
+            (r) => r.data,
+        ),
+    post: (id: string) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/post`).then(
+            (r) => r.data,
+        ),
+    reverse: (
+        id: string,
+        body: { companyId: string; reason: string; postingDate?: string },
+    ) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/reverse`, body).then(
+            (r) => r.data,
+        ),
+    update: (id: string, body: UpdateJournalEntryBody) =>
+        ErpAxiosBase.patch<FicoJournalEntryDetail>(
+            `${API}/journal-entries/${id}`,
+            body,
+        ).then((r) => r.data),
+    cancel: (id: string, body: { companyId: string; reason?: string }) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/cancel`, body).then(
+            (r) => r.data,
+        ),
+    withdraw: (id: string, body: { companyId: string }) =>
+        ErpAxiosBase.post(`${API}/journal-entries/${id}/withdraw`, body).then(
+            (r) => r.data,
+        ),
+    approvalHistory: (id: string, companyId: string) =>
+        ErpAxiosBase.get<FicoAuditEntry[]>(
+            `${API}/journal-entries/${id}/approval-history${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    simulate: (body: {
+        companyId: string
+        postingDate: string
+        description?: string
+        currencyCode?: string
+        lines: Array<{
+            glAccountId: string
+            debitAmount?: number
+            creditAmount?: number
+            description?: string
+        }>
+    }) =>
+        ErpAxiosBase.post<FicoJournalSimulateResult>(
+            `${API}/journal-entries/simulate`,
+            body,
+        ).then((r) => r.data),
+    validatePosting: (body: Record<string, unknown>) =>
+        ErpAxiosBase.post(`${API}/posting-validation`, body).then(
+            (r) => r.data,
+        ),
+}
+
+export const ficoReconciliationService = {
+    scan: (query: {
+        companyId: string
+        dateFrom?: string
+        dateTo?: string
+        syncCases?: boolean
+    }) =>
+        ErpAxiosBase.get<import('../types').FicoReconciliationScan>(
+            `${API}/reconciliation/scan${queryString(query)}`,
+        ).then((r) => r.data),
+    updateCase: (
+        id: string,
+        body: {
+            status?: string
+            investigationNotes?: string
+            assignedTo?: string
+            resolutionCode?: string
+            resolutionNotes?: string
+        },
+    ) =>
+        ErpAxiosBase.patch<import('../types').FicoReconciliationCase>(
+            `${API}/reconciliation/cases/${id}`,
+            body,
+        ).then((r) => r.data),
+}
+
+export const ficoOpeningBalanceService = {
+    template: () =>
+        ErpAxiosBase.get<{
+            content: string
+            fileName: string
+            contentType: string
+        }>(`${API}/opening-balances/template`).then((r) => r.data),
+    list: (companyId: string) =>
+        ErpAxiosBase.get<import('../types').FicoOpeningBalanceBatch[]>(
+            `${API}/opening-balances${queryString({ companyId })}`,
+        ).then((r) => r.data),
+    get: (id: string) =>
+        ErpAxiosBase.get(`${API}/opening-balances/${id}`).then((r) => r.data),
+    create: (body: Record<string, unknown>) =>
+        ErpAxiosBase.post<import('../types').FicoOpeningBalanceBatch>(
+            `${API}/opening-balances`,
+            body,
+        ).then((r) => r.data),
+    import: (
+        id: string,
+        body: {
+            rows: Array<{
+                accountCode: string
+                debitAmount?: number
+                creditAmount?: number
+                accountName?: string
+            }>
+        },
+    ) =>
+        ErpAxiosBase.post<{
+            valid: boolean
+            errors: string[]
+            totalDebit?: string
+            totalCredit?: string
+        }>(`${API}/opening-balances/${id}/import`, body).then((r) => r.data),
+    submit: (id: string) =>
+        ErpAxiosBase.post(`${API}/opening-balances/${id}/submit`).then(
+            (r) => r.data,
+        ),
+    approve: (id: string) =>
+        ErpAxiosBase.post(`${API}/opening-balances/${id}/approve`).then(
+            (r) => r.data,
+        ),
+    post: (id: string) =>
+        ErpAxiosBase.post(`${API}/opening-balances/${id}/post`).then(
+            (r) => r.data,
+        ),
+    lock: (id: string) =>
+        ErpAxiosBase.post(`${API}/opening-balances/${id}/lock`).then(
+            (r) => r.data,
+        ),
+}
+
+export const ficoPeriodClosingService = {
+    readiness: (query: { companyId: string; fiscalPeriodId: string }) =>
+        ErpAxiosBase.get<import('../types').FicoPeriodClosingReadiness>(
+            `${API}/period-closing/readiness${queryString(query)}`,
+        ).then((r) => r.data),
+}
+
+export const ficoYearEndClosingService = {
+    get: (query: { companyId: string; fiscalYear: number }) =>
+        ErpAxiosBase.get<import('../types').FicoYearEndOverview>(
+            `${API}/closing/year-end${queryString(query)}`,
+        ).then((r) => r.data),
+    validate: (body: { companyId: string; fiscalYear: number }) =>
+        ErpAxiosBase.post(`${API}/closing/year-end/validate`, body).then(
+            (r) => r.data,
+        ),
+    approve: (body: { companyId: string; fiscalYear: number }) =>
+        ErpAxiosBase.post(`${API}/closing/year-end/approve`, body).then(
+            (r) => r.data,
+        ),
+    execute: (body: { companyId: string; fiscalYear: number }) =>
+        ErpAxiosBase.post(`${API}/closing/year-end/execute`, body).then(
+            (r) => r.data,
+        ),
+}
+
+export const ficoTrialBalanceService = {
+    get: (query: {
+        companyId: string
+        dateFrom?: string
+        dateTo?: string
+        accountType?: string
+        includeZeroBalances?: boolean
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<FicoTrialBalanceResponse>(
+            `${API}/reports/trial-balance${queryString(query)}`,
+        ).then((r) => r.data),
+}
+
+export const ficoGeneralLedgerService = {
+    lineItems: (
+        glAccountId: string,
+        query: {
+            companyId?: string
+            dateFrom?: string
+            dateTo?: string
+            page?: number
+            pageSize?: number
+            sortDir?: 'asc' | 'desc'
+            sourceModule?: string
+            includeRunningBalance?: boolean
+        } = {},
+    ) =>
+        ErpAxiosBase.get<FicoGlLedgerLineItemsResponse>(
+            `${API}/gl-accounts/${glAccountId}/line-items${queryString(query)}`,
+        ).then((r) => r.data),
+    accountBalances: (
+        glAccountId: string,
+        query: { companyId?: string; dateFrom?: string; dateTo?: string } = {},
+    ) =>
+        ErpAxiosBase.get<FicoGlAccountBalanceSummary>(
+            `${API}/gl-accounts/${glAccountId}/balances${queryString(query)}`,
+        ).then((r) => r.data),
+}
+
+function flattenApiMessage(
+    message: string | string[] | Record<string, unknown> | undefined,
+): string | null {
+    if (!message) return null
+    if (Array.isArray(message)) return message.join(', ')
+    if (typeof message === 'string' && message.trim()) return message
+    if (typeof message === 'object' && message !== null) {
+        const nested = message.message
+        if (typeof nested === 'string' && nested.trim()) return nested
+    }
+    return null
+}
+
 export function ficoErrorMessage(error: unknown, fallback: string) {
     const response = (
         error as {
             response?: {
                 data?: {
-                    message?: string | string[]
+                    message?: string | string[] | Record<string, unknown>
                     error?: string
                 }
             }
         }
     )?.response?.data
-    const message = response?.message
-    if (Array.isArray(message)) return message.join(', ')
-    if (typeof message === 'string' && message.trim()) return message
+    const fromMessage = flattenApiMessage(response?.message)
+    if (fromMessage) return fromMessage
     if (typeof response?.error === 'string' && response.error.trim()) {
         return response.error
     }

@@ -44,7 +44,10 @@ describe('Customer Master orders on PostgreSQL', () => {
                 email,
                 currency: 'PHP',
                 status: 'ACTIVE',
-                customerType: 'RETAIL',
+                customerAccountType: 'NON_CREDIT',
+                customerCategory: 'RETAIL',
+                paymentTerms: 'IMMEDIATE',
+                creditStatus: 'NOT_APPLICABLE',
                 retailClientId,
             },
         })

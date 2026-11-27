@@ -1,9 +1,25 @@
 'use client'
 
 import Link from 'next/link'
+import StatusBadge from '@/components/shared/StatusBadge'
 import NextActivityBadge from './NextActivityBadge'
-import { OPPORTUNITY_STAGES, type Opportunity, type OpportunityPipeline } from '../types'
+import {
+    OPPORTUNITY_OPEN_STAGES,
+    OPPORTUNITY_STAGES,
+    STALL_DEFAULT_THRESHOLD_DAYS,
+    type Opportunity,
+    type OpportunityPipeline,
+} from '../types'
 import { formatDate, formatEnumLabel, formatMoney } from '../utils/format'
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const OPEN_STAGE_SET = new Set<string>(OPPORTUNITY_OPEN_STAGES)
+
+function stalledDays(row: Opportunity, now = Date.now()) {
+    if (!OPEN_STAGE_SET.has(row.stage) || !row.stageEnteredAt) return null
+    const days = Math.floor((now - new Date(row.stageEnteredAt).getTime()) / DAY_MS)
+    return days >= STALL_DEFAULT_THRESHOLD_DAYS ? days : null
+}
 
 type OpportunityBoardProps = {
     opportunities: Opportunity[]
@@ -49,18 +65,25 @@ export default function OpportunityBoard({
                             </div>
                         ) : null}
                         <div className="flex flex-col gap-2">
-                            {rows.map((row) => (
+                            {rows.map((row) => {
+                                const stallDays = stalledDays(row)
+                                return (
                                 <div
                                     key={row.id}
                                     className="rounded-lg border border-gray-200 bg-white p-3 transition hover:border-primary/40 dark:border-gray-700 dark:bg-gray-900"
                                 >
+                                    <div className="mb-1 flex items-start justify-between gap-2">
                                     <button
                                         type="button"
-                                        className="block w-full truncate text-left text-sm font-medium hover:text-primary"
+                                        className="block min-w-0 truncate text-left text-sm font-medium hover:text-primary"
                                         onClick={() => onOpen(row)}
                                     >
                                         {row.name}
                                     </button>
+                                    {stallDays != null ? (
+                                        <StatusBadge tone="danger">Stalled {stallDays}d</StatusBadge>
+                                    ) : null}
+                                    </div>
                                     <Link
                                         href={`/crm/customers/${row.customerId}`}
                                         className="block truncate text-xs text-primary hover:underline"
@@ -84,7 +107,8 @@ export default function OpportunityBoard({
                                         </button>
                                     </div>
                                 </div>
-                            ))}
+                                )
+                            })}
                             {rows.length === 0 ? (
                                 <p className="px-1 py-4 text-center text-xs text-gray-400">Empty</p>
                             ) : null}

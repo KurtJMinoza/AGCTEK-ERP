@@ -35,6 +35,7 @@ import {
     type ExecutionMeta,
 } from './trip-execution.rules'
 import { releaseLoadPlanForTrip } from '../tms/tms-trips.service'
+import { assertPickupsDone } from './ocular-stops.rules'
 import {
     TRIP_EVENTS,
     type TripStartedEvent,
@@ -250,7 +251,12 @@ export class TripsService {
     ) {}
 
     async findAll(
-        query: ListQuery & { vehicleId?: string; driverId?: string },
+        query: ListQuery & {
+            vehicleId?: string
+            driverId?: string
+            purpose?: string
+            crmActivityId?: string
+        },
     ): Promise<PaginatedResult<unknown>> {
         const { page, pageSize, skip } = parsePagination(query)
         const where: Prisma.TripWhereInput = {}
@@ -260,6 +266,9 @@ export class TripsService {
         }
         if (query.driverId) {
             where.driverId = query.driverId
+        }
+        if (query.purpose?.trim()) {
+            where.purpose = query.purpose.trim().toUpperCase()
         }
 
         if (query.status) {
@@ -1040,6 +1049,7 @@ export class TripsService {
                     vehicleId: body.vehicleId || null,
                     driverId: body.driverId || null,
                     status,
+                    purpose: 'DELIVERY',
                     plannedStartAt: optionalDate(body.plannedStartAt),
                     notes: optionalString(body.notes) ?? null,
                     totalQty: totalQty ?? null,
@@ -1061,6 +1071,13 @@ export class TripsService {
 
     async update(id: string, body: CreateTripBody) {
         const existing = await this.findOne(id)
+        if (
+            existing.purpose === 'OCULAR' &&
+            body.status === TripStatus.IN_TRANSIT &&
+            existing.status !== TripStatus.IN_TRANSIT
+        ) {
+            assertPickupsDone(existing.stops ?? [])
+        }
         if (existing.loadPlanId) {
             if (body.vehicleId !== undefined && body.vehicleId !== existing.vehicleId) {
                 throw new BadRequestException(
@@ -1124,6 +1141,14 @@ export class TripsService {
         }
 
         const trip = await this.findOne(id)
+        // Ocular start gate: every pickup point must be marked done first.
+        if (
+            trip.purpose === 'OCULAR' &&
+            status === TripStatus.IN_TRANSIT &&
+            trip.status !== TripStatus.IN_TRANSIT
+        ) {
+            assertPickupsDone(trip.stops ?? [])
+        }
         const completing =
             status === TripStatus.COMPLETED &&
             trip.status !== TripStatus.COMPLETED
@@ -1239,6 +1264,19 @@ export class TripsService {
 
         if (completing && trip.vehicleId) {
             await this.finalizeTripOdometer(trip.id, trip.vehicleId)
+        }
+
+        // Ocular trips carry no shipments, so the shipment branches above never free the driver.
+        if (
+            trip.purpose === 'OCULAR' &&
+            trip.driverId &&
+            (completing || status === TripStatus.CANCELLED) &&
+            trip.status !== status
+        ) {
+            await this.prisma.driver.updateMany({
+                where: { id: trip.driverId, status: DriverStatus.ON_TRIP },
+                data: { status: DriverStatus.AVAILABLE },
+            })
         }
 
         return this.findOne(id)

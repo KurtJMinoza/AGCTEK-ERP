@@ -1,8 +1,9 @@
-import { ConflictException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { PERMISSION_KEY } from '../../permissions/permission.guard'
 import type { PrismaService } from '../../prisma/prisma.service'
 import {
     CrmActivitiesController,
+    CrmCalendarActivitiesController,
     CrmLeadActivitiesController,
     CrmTicketActivitiesController,
 } from './activities.controller'
@@ -341,6 +342,85 @@ describe('CrmActivitiesService on leads (activity log from intake)', () => {
     })
 })
 
+describe('CrmActivitiesService.calendar', () => {
+    it('returns open activities in range for the current user with Manila dueDay', async () => {
+        const prisma = mockPrisma()
+        prisma.crmActivity.findMany.mockResolvedValue([
+            {
+                ...activity({
+                    dueAt: new Date('2026-10-06T04:00:00Z'),
+                    opportunityId: 'opp-1',
+                }),
+                opportunity: { id: 'opp-1', name: 'Deal' },
+                lead: null,
+                ticket: null,
+            },
+        ])
+        prisma.user.findMany.mockResolvedValue([
+            {
+                id: 'user-1',
+                userName: 'rep',
+                firstName: 'A',
+                lastName: 'Rep',
+            },
+        ])
+        const from = new Date('2026-10-05T00:00:00Z')
+        const to = new Date('2026-10-12T00:00:00Z')
+        const result = await service(prisma).calendar('user-1', { from, to }, NOW)
+
+        expect(result.scope).toBe('mine')
+        expect(result.timeZone).toBe('Asia/Manila')
+        expect(result.items[0]).toMatchObject({
+            dueDay: '2026-10-06',
+            parent: { kind: 'opportunity', id: 'opp-1', label: 'Deal' },
+        })
+        expect(prisma.crmActivity.findMany.mock.calls[0][0].where).toEqual({
+            dueAt: { gte: from, lte: to },
+            assignedTo: 'user-1',
+            doneAt: null,
+        })
+    })
+
+    it('rejects inverted or oversized ranges and skips owner filter when scope=all', async () => {
+        const prisma = mockPrisma()
+        prisma.crmActivity.findMany.mockResolvedValue([])
+        await expect(
+            service(prisma).calendar(
+                'user-1',
+                { from: new Date('2026-10-10'), to: new Date('2026-10-01') },
+                NOW,
+            ),
+        ).rejects.toBeInstanceOf(BadRequestException)
+        await expect(
+            service(prisma).calendar(
+                'user-1',
+                {
+                    from: new Date('2026-01-01T00:00:00Z'),
+                    to: new Date('2026-04-01T00:00:00Z'),
+                },
+                NOW,
+            ),
+        ).rejects.toBeInstanceOf(BadRequestException)
+
+        await service(prisma).calendar(
+            'user-1',
+            {
+                scope: 'all',
+                includeDone: true,
+                from: new Date('2026-10-01T00:00:00Z'),
+                to: new Date('2026-10-31T00:00:00Z'),
+            },
+            NOW,
+        )
+        expect(prisma.crmActivity.findMany.mock.calls[0][0].where).toEqual({
+            dueAt: {
+                gte: new Date('2026-10-01T00:00:00Z'),
+                lte: new Date('2026-10-31T00:00:00Z'),
+            },
+        })
+    })
+})
+
 describe('Activities controllers RBAC metadata', () => {
     it.each([
         ['list', 'read'],
@@ -351,5 +431,11 @@ describe('Activities controllers RBAC metadata', () => {
             const fn = ctrl.prototype[handler as 'list' | 'create' | 'complete']
             expect(Reflect.getMetadata(PERMISSION_KEY, fn)).toEqual({ resource: 'crm.activities', action })
         }
+    })
+
+    it('calendar requires crm.activities:read', () => {
+        expect(
+            Reflect.getMetadata(PERMISSION_KEY, CrmCalendarActivitiesController.prototype.calendar),
+        ).toEqual({ resource: 'crm.activities', action: 'read' })
     })
 })

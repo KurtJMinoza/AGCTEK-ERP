@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import type { ReactNode } from 'react'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -17,16 +17,24 @@ export function ficoTableRowEnterClass(index: number): string {
     const delay = Math.min(index, 14) * 40
     return [
         'group/row',
-        'animate-mm-row-in motion-reduce:animate-none opacity-0',
+        'animate-mm-row-in motion-reduce:animate-none',
         `[animation-delay:${delay}ms]`,
         'transition-colors duration-200',
         'hover:bg-gray-50/90 dark:hover:bg-gray-800/45',
     ].join(' ')
 }
 
+export function ficoMobileCardEnterClass(index: number): string {
+    const delay = Math.min(index, 10) * 55
+    return `animate-mm-row-in motion-reduce:animate-none [animation-delay:${delay}ms]`
+}
+
+/** Column meta for DataTable header/cell right alignment (amount columns). */
+export const FICO_TABLE_COL_RIGHT = { className: '!text-right' } as const
+
 function iconPopClass(extraDelayMs = 0): string {
     return [
-        'animate-mm-icon-pop motion-reduce:animate-none opacity-0',
+        'animate-mm-icon-pop motion-reduce:animate-none',
         extraDelayMs > 0 ? `[animation-delay:${extraDelayMs}ms]` : '',
         'transition-transform duration-200 group-hover/row:scale-105',
     ]
@@ -133,6 +141,7 @@ const ACCOUNT_TYPE_CLASS: Record<string, string> = {
 }
 
 export function accountTypeLabel(type: string) {
+    if (!type) return '—'
     return type.charAt(0) + type.slice(1).toLowerCase()
 }
 

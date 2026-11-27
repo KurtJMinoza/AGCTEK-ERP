@@ -80,8 +80,8 @@ type DataTableProps<T> = {
     renderSubRow?: (row: T) => ReactNode
     /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
     rowClassName?: (row: T, index: number) => string | undefined
-    /** Optional row click (ignored when the click target is a nested control). */
-    onRowClick?: (row: T, index: number) => void
+    /** Navigate or open detail when the row is clicked (controls are ignored). */
+    onRowClick?: (row: T, index?: number) => void
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -312,34 +312,27 @@ function DataTable<T>(props: DataTableProps<T>) {
         }
     }
 
-    const isNestedControlClick = (event: MouseEvent<HTMLTableRowElement>) =>
+    const isInteractiveRowTarget = (event: MouseEvent<HTMLTableRowElement>) =>
         Boolean(
             (event.target as HTMLElement).closest(
-                'button, a, input, select, textarea, label',
+                'button, a, input, select, textarea, label, [data-stop-row-nav]',
             ),
         )
 
-    const handleRowExpansion = (
+    const handleRowPointer = (
         event: MouseEvent<HTMLTableRowElement>,
+        row: T,
         rowId: string,
+        index: number,
     ) => {
-        if (loading) return
-        // Controls living inside a cell own their click; do not toggle on them.
-        if (isNestedControlClick(event)) {
+        if (loading || isInteractiveRowTarget(event)) return
+        if (onRowClick) {
+            onRowClick(row, index)
             return
         }
-        setExpandedRowId((current) => (current === rowId ? null : rowId))
-    }
-
-    const handleRowClick = (
-        event: MouseEvent<HTMLTableRowElement>,
-        row: Row<T>,
-    ) => {
-        if (loading || isNestedControlClick(event)) return
         if (renderSubRow) {
-            handleRowExpansion(event, row.id)
+            setExpandedRowId((current) => (current === rowId ? null : rowId))
         }
-        onRowClick?.(row.original as T, row.index)
     }
 
     const totalSize = table.getTotalSize() || 1
@@ -458,8 +451,7 @@ function DataTable<T>(props: DataTableProps<T>) {
                                             <Tr
                                                 className={
                                                     classNames(
-                                                        (renderSubRow ||
-                                                            onRowClick) &&
+                                                        (onRowClick || renderSubRow) &&
                                                             'cursor-pointer',
                                                         rowClassName?.(
                                                             row.original as T,
@@ -468,11 +460,13 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                     ) || undefined
                                                 }
                                                 onClick={
-                                                    renderSubRow || onRowClick
+                                                    onRowClick || renderSubRow
                                                         ? (event) =>
-                                                              handleRowClick(
+                                                              handleRowPointer(
                                                                   event,
-                                                                  row as Row<T>,
+                                                                  row.original as T,
+                                                                  row.id,
+                                                                  row.index,
                                                               )
                                                         : undefined
                                                 }

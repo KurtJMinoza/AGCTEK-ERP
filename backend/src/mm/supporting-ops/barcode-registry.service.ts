@@ -6,14 +6,10 @@ import {
 } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
-import { ComplianceAuditService } from './compliance-audit.service'
 
 @Injectable()
 export class BarcodeRegistryService {
-    constructor(
-        private prisma: PrismaService,
-        private complianceAudit: ComplianceAuditService,
-    ) {}
+    constructor(private prisma: PrismaService) {}
 
     async list(query: {
         companyId?: string
@@ -136,19 +132,10 @@ export class BarcodeRegistryService {
             },
         })
 
-        await this.complianceAudit.record({
-            companyId,
-            domain: 'barcode_registry',
-            action: 'BARCODE_REGISTERED',
-            entityType: 'BARCODE',
-            entityId: row.id,
-            entityNumber: row.barcodeValue,
-            performedBy: input.createdBy,
-        })
         return row
     }
 
-    async archive(id: string, performedBy?: string) {
+    async archive(id: string) {
         const row = await this.prisma.mmBarcode.findFirst({
             where: { id, deletedAt: null },
         })
@@ -157,17 +144,6 @@ export class BarcodeRegistryService {
             where: { id },
             data: { status: 'ARCHIVED', archivedAt: new Date(), isPrimary: false },
         })
-        if (row.companyId) {
-            await this.complianceAudit.record({
-                companyId: row.companyId,
-                domain: 'barcode_registry',
-                action: 'BARCODE_ARCHIVED',
-                entityType: 'BARCODE',
-                entityId: id,
-                entityNumber: row.barcodeValue,
-                performedBy,
-            })
-        }
         return updated
     }
 

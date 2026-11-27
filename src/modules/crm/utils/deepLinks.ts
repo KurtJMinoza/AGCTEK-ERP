@@ -13,6 +13,7 @@ export const CRM_PATHS = {
     leads: '/crm/leads',
     opportunities: '/crm/opportunities',
     tickets: '/crm/tickets',
+    calendar: '/crm/calendar',
 } as const
 
 export const opportunityHref = (id: string) => `${CRM_PATHS.opportunities}/${encodeURIComponent(id)}`

@@ -31,6 +31,7 @@ import {
     PcBadgeCell,
     PcCategoryCell,
     PcCompanyCell,
+    PcCostCell,
     PcPriceCell,
     PcProductIdentityCell,
     PcStockCell,
@@ -56,6 +57,8 @@ export type ProductCatalogTableSectionProps = {
     onDelete: (product: SdProductRecord) => void
     onAddProduct: () => void
     onAddVariant?: (product: SdProductRecord) => void
+    onBulkImport?: () => void
+    onScanBarcode?: () => void
     onRefresh?: () => void
     refreshing?: boolean
 }
@@ -83,6 +86,8 @@ const ProductCatalogTableSection = ({
     onDelete,
     onAddProduct,
     onAddVariant,
+    onBulkImport,
+    onScanBarcode,
     onRefresh,
     refreshing,
 }: ProductCatalogTableSectionProps) => {
@@ -154,6 +159,11 @@ const ProductCatalogTableSection = ({
                     return compareString(a.category, b.category)
                 case 'price':
                     return compareNumber(a.price, b.price)
+                case 'cost':
+                    return compareNumber(
+                        a.standardCost ?? -1,
+                        b.standardCost ?? -1,
+                    )
                 case 'badge':
                     return compareString(a.badge ?? '', b.badge ?? '')
                 case 'visible':
@@ -250,6 +260,15 @@ const ProductCatalogTableSection = ({
                 cell: ({ row }) => <PcPriceCell product={row.original} />,
             },
             {
+                id: 'cost',
+                header: 'Cost',
+                enableSorting: true,
+                size: 100,
+                minSize: 88,
+                meta: { className: 'hidden md:table-cell' },
+                cell: ({ row }) => <PcCostCell product={row.original} />,
+            },
+            {
                 id: 'stock',
                 header: 'Stock',
                 enableSorting: true,
@@ -262,6 +281,74 @@ const ProductCatalogTableSection = ({
                         variantsSummary={variantsSummary[row.original.id]}
                     />
                 ),
+            },
+            {
+                id: 'barcode',
+                header: 'Barcode',
+                enableSorting: false,
+                size: 140,
+                minSize: 110,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.barcode
+                    return v ? (
+                        <span className="truncate font-mono text-xs" title={v}>
+                            {v}
+                        </span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                id: 'batchNumber',
+                header: 'Batch #',
+                enableSorting: false,
+                size: 110,
+                minSize: 88,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.primaryBatchNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                id: 'lotNumber',
+                header: 'Lot #',
+                enableSorting: false,
+                size: 100,
+                minSize: 80,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v = stockByProductId[row.original.id]?.primaryLotNumber
+                    return v ? (
+                        <span className="truncate font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
+            },
+            {
+                id: 'expiry',
+                header: 'Expiry',
+                enableSorting: false,
+                size: 112,
+                minSize: 96,
+                meta: { className: 'hidden lg:table-cell' },
+                cell: ({ row }) => {
+                    const v =
+                        variantsSummary[row.original.id]?.displayExpiryDate ??
+                        stockByProductId[row.original.id]?.primaryProductExpiry
+                    return v ? (
+                        <span className="font-mono text-xs">{v}</span>
+                    ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                    )
+                },
             },
             {
                 id: 'badge',
@@ -381,6 +468,24 @@ const ProductCatalogTableSection = ({
                     >
                         Export
                     </Button>
+                    {canCreate && onBulkImport ? (
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineUpload className="text-lg" />}
+                            onClick={onBulkImport}
+                        >
+                            Bulk import
+                        </Button>
+                    ) : null}
+                    {canCreate && onScanBarcode ? (
+                        <Button
+                            size="sm"
+                            icon={<HiOutlineSearch className="text-lg" />}
+                            onClick={onScanBarcode}
+                        >
+                            Scan barcode
+                        </Button>
+                    ) : null}
                     {canCreate && (
                         <Button
                             size="sm"
@@ -470,6 +575,8 @@ const ProductCatalogTableSection = ({
             ) : null}
 
             <SdDataTable
+                    // Wide register: columns keep their widths and the table scrolls horizontally (same as External Platform Sales).
+                    wide
                     columns={columns}
                     data={pagedProducts}
                     loading={(loading || stockLoading || refreshing) && products.length === 0}

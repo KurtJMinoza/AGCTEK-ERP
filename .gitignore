@@ -8,9 +8,16 @@ node_modules/
 
 # testing
 /coverage
+/e2e-results/
+/e2e-report/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # next.js
 /.next/
+/.next-dev/
 /out/
 
 # production

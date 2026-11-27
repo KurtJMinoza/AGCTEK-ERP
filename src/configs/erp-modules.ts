@@ -114,6 +114,15 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/billing',
                         icon: 'fileText',
                     },
+                    {
+                        code: 'ext-platform-sales',
+                        permissionCode: 'sd.ext-platform-sales',
+                        title: 'External Platform Sales',
+                        description:
+                            'Manually record sales from Shopee, Lazada, TikTok Shop, Facebook Marketplace, distributors, resellers, and other external channels with automatic tax determination.',
+                        path: '/modules/sd/ext-platform-sales',
+                        icon: 'shoppingCart',
+                    },
                 ],
             },
             {
@@ -138,29 +147,14 @@ export const ERP_MODULES: ErpModule[] = [
                         path: '/modules/sd/backorder-report',
                         icon: 'lineChart',
                     },
-                ],
-            },
-            {
-                code: 'configuration',
-                title: 'Configuration',
-                submodules: [
                     {
-                        code: 'sales-org',
-                        permissionCode: 'sd.configuration',
-                        title: 'Sales Organization',
+                        code: 'monthly-collection',
+                        permissionCode: 'sd.reports',
+                        title: 'Monthly Collection',
                         description:
-                            'Configure sales orgs, distribution channels, and divisions.',
-                        path: '/modules/sd/sales-org',
-                        icon: 'building',
-                    },
-                    {
-                        code: 'document-types',
-                        permissionCode: 'sd.configuration',
-                        title: 'Document Types',
-                        description:
-                            'Define SD document types and number ranges.',
-                        path: '/modules/sd/document-types',
-                        icon: 'settings',
+                            'Monthly collection monitoring by tender type — Cash, GCash, bank, cheque, and others.',
+                        path: '/modules/sd/monthly-collection',
+                        icon: 'receipt',
                     },
                 ],
             },
@@ -186,138 +180,180 @@ export const ERP_MODULES: ErpModule[] = [
         icon: 'calculator',
         categories: [
             {
-                code: 'master-data',
-                title: 'Master Data',
+                code: 'general-ledger',
+                title: 'General Ledger',
                 submodules: [
                     {
-                        code: 'company-settings',
-                        permissionCode: 'fico.company-settings',
-                        title: 'Company Accounting Settings',
+                        code: 'overview',
+                        permissionCode: 'fico.overview',
+                        title: 'Financial Overview',
                         description:
-                            'Assign the chart, fiscal calendar, currency, and accounting configuration for each company.',
-                        path: '/modules/fico/company-settings',
-                        icon: 'building',
-                        children: [
-                            {
-                                code: 'company-accounting-settings',
-                                title: 'Company Accounting Settings',
-                                description:
-                                    'Configure company-level financial accounting rules and posting controls.',
-                                path: '/modules/fico/company-accounting-settings',
-                                icon: 'building',
-                            },
-                        ],
+                            'Company financial health, period status, and recent accounting activity.',
+                        path: '/modules/fico/overview',
+                        icon: 'lineChart',
                     },
                     {
-                        code: 'chart-of-accounts',
-                        permissionCode: 'fico.chart-of-accounts',
-                        title: 'Chart of Accounts',
+                        code: 'journal-entries',
+                        permissionCode: 'fico.journal-entries',
+                        title: 'Journal Entries',
                         description:
-                            'Define the shared ledger structure: charts, account groups, G/L accounts, and posting controls.',
-                        path: '/modules/fico/chart-of-accounts',
-                        icon: 'landmark',
-                    },
-                    {
-                        code: 'gl-accounts',
-                        // Hosts three tabs with their own permissions; the page hides the ones the user cannot read.
-                        permissionCode: 'fico',
-                        title: 'G/L Accounts',
-                        description:
-                            'G/L accounts, account determination for MM, SD and PP, and the FICO posting monitor.',
-                        path: '/modules/fico/gl-accounts',
+                            'Manual journal workbench: create, approve, post, and reverse documents.',
+                        path: '/modules/fico/journal-entries',
                         icon: 'fileText',
                     },
                     {
-                        code: 'account-determination',
-                        permissionCode: 'fico.account-determination',
-                        title: 'Account Determination',
+                        code: 'general-ledger',
+                        permissionCode: 'fico.journal-entries',
+                        title: 'General Ledger',
                         description:
-                            'Centralized MM, SD and PP rules: debit/credit lines, dimensions, priorities, approval and activation.',
-                        path: '/modules/fico/account-determination-rules',
+                            'Committed G/L line inquiry with drill-down to journals and source documents.',
+                        path: '/modules/fico/general-ledger',
                         icon: 'fileText',
                     },
                     {
-                        code: 'cost-centers',
-                        title: 'Cost Centers',
+                        code: 'account-balances',
+                        permissionCode: 'fico.reports',
+                        title: 'Account Balances',
                         description:
-                            'Define cost centers and responsibility areas.',
-                        path: '/modules/fico/cost-centers',
-                        icon: 'building',
+                            'Company-wide opening, movement, and closing balances by G/L account.',
+                        path: '/modules/fico/account-balances',
+                        icon: 'lineChart',
                     },
                     {
-                        code: 'profit-centers',
-                        title: 'Profit Centers',
+                        code: 'trial-balance',
+                        permissionCode: 'fico.reports',
+                        title: 'Trial Balance',
                         description:
-                            'Configure profit centers for internal reporting.',
-                        path: '/modules/fico/profit-centers',
+                            'Opening, period, and closing trial balance with reconciliation totals.',
+                        path: '/modules/fico/trial-balance',
                         icon: 'lineChart',
                     },
                 ],
             },
             {
-                code: 'transactional',
-                title: 'Transactional',
+                code: 'accounts-receivable',
+                title: 'Accounts Receivable',
                 submodules: [
                     {
-                        code: 'journal-entries',
-                        title: 'Journal Entries',
-                        description:
-                            'Post and reverse financial accounting documents.',
-                        path: '/modules/fico/journal-entries',
-                        icon: 'fileText',
-                    },
-                    {
-                        code: 'accounts-payable',
-                        title: 'Accounts Payable',
-                        description:
-                            'Process vendor invoices and outgoing payments.',
-                        path: '/modules/fico/accounts-payable',
-                        icon: 'creditCard',
-                    },
-                    {
-                        code: 'accounts-receivable',
+                        code: 'ar-workbench',
+                        permissionCode: 'fico.accounts-receivable',
                         title: 'Accounts Receivable',
                         description:
-                            'Manage customer invoices and incoming payments.',
+                            'Customer invoices, collections, open items, credit exposure, and AR reconciliation.',
                         path: '/modules/fico/accounts-receivable',
+                        icon: 'fileText',
+                    },
+                ],
+            },
+            {
+                code: 'treasury',
+                title: 'Treasury & tax',
+                submodules: [
+                    {
+                        code: 'treasury-accounts',
+                        permissionCode: 'fico.treasury',
+                        title: 'Cash & bank',
+                        description:
+                            'Treasury master data, settlements, and payment account resolution.',
+                        path: '/modules/fico/treasury',
+                        icon: 'landmark',
+                    },
+                    {
+                        code: 'tax-reconciliation',
+                        permissionCode: 'fico.treasury',
+                        title: 'Tax reconciliation',
+                        description:
+                            'Posted tax snapshots vs tax G/L balances (management report, not statutory filing).',
+                        path: '/modules/fico/tax-reconciliation',
                         icon: 'receipt',
                     },
                 ],
             },
             {
-                code: 'reports',
-                title: 'Reports & Analytics',
+                code: 'accounts-payable',
+                title: 'Accounts Payable',
                 submodules: [
                     {
-                        code: 'financial-statements',
-                        permissionCode: 'fico.reports',
-                        title: 'Financial Statements',
+                        code: 'ap-workbench',
+                        permissionCode: 'fico.accounts-payable',
+                        title: 'Accounts Payable',
                         description:
-                            'Balance sheet, P&L, and cash flow reports.',
-                        path: '/modules/fico/financial-statements',
-                        icon: 'fileSpreadsheet',
+                            'Supplier open items, AP documents, outgoing payments, and clearings (MM match → FICO subledger).',
+                        path: '/modules/fico/accounts-payable',
+                        icon: 'fileText',
                     },
                     {
-                        code: 'cost-center-reporting',
-                        permissionCode: 'fico.reports',
-                        title: 'Cost Center Reporting',
+                        code: 'grir-clearing',
+                        permissionCode: 'fico.accounts-payable',
+                        title: 'GR/IR clearing',
                         description:
-                            'Analyze actual vs. plan costs by cost center.',
-                        path: '/modules/fico/cost-center-reporting',
-                        icon: 'barChart',
+                            'Procurement GR/IR open items, invoice verification outcomes, blocked invoices, and G/L reconciliation.',
+                        path: '/modules/fico/grir-clearing',
+                        icon: 'fileText',
                     },
                 ],
             },
             {
-                code: 'configuration',
-                title: 'Configuration',
+                code: 'master-data',
+                title: 'Master Data',
                 submodules: [
+                    {
+                        code: 'chart-of-accounts',
+                        permissionCode: 'fico.chart-of-accounts',
+                        title: 'Chart of Accounts',
+                        description:
+                            'Define the shared ledger structure: charts, account groups, and posting controls.',
+                        path: '/modules/fico/chart-of-accounts',
+                        icon: 'landmark',
+                    },
+                    {
+                        code: 'gl-accounts',
+                        permissionCode: 'fico.gl-accounts',
+                        title: 'G/L Account Master',
+                        description:
+                            'Maintain account master data, classifications, company assignments, and posting controls (not live ledger balances).',
+                        path: '/modules/fico/gl-accounts',
+                        icon: 'fileText',
+                    },
+                ],
+            },
+            {
+                code: 'accounting-configuration',
+                title: 'Accounting Configuration',
+                submodules: [
+                    {
+                        code: 'company-accounting-settings',
+                        permissionCode: 'fico.company-settings',
+                        title: 'Company Accounting Settings',
+                        description:
+                            'Assign chart, fiscal calendar, currency, and activate company accounting.',
+                        path: '/modules/fico/company-accounting-settings',
+                        icon: 'building',
+                    },
+                    {
+                        code: 'account-determination-rules',
+                        permissionCode: 'fico.account-determination',
+                        title: 'Account Determination Rules',
+                        description:
+                            'Centralized MM, SD, and PP determination rules with approval lifecycle.',
+                        path: '/modules/fico/account-determination-rules',
+                        icon: 'fileText',
+                    },
+                    {
+                        code: 'mm-account-determination',
+                        permissionCode: 'fico.account-determination',
+                        title: 'MM Transaction-Key Mappings',
+                        description:
+                            'Debit and credit G/L mappings for automatic MM inventory journal posting.',
+                        path: '/modules/fico/account-determination',
+                        icon: 'settings',
+                    },
                     {
                         code: 'fiscal-years',
                         permissionCode: 'fico.periods',
-                        title: 'Fiscal Years & Variants',
+                        title: 'Fiscal Year Variants',
                         description:
-                            'Define the shared financial calendar, generate company fiscal years, and control when posting is allowed.',
+                            'Define fiscal year variants and generate company posting calendars.',
                         path: '/modules/fico/fiscal-years',
                         icon: 'calendar',
                     },
@@ -326,17 +362,8 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.periods',
                         title: 'Posting Periods',
                         description:
-                            'Period status dashboard, generation, opening, closing, locking, reopening, details and audit history.',
+                            'Open, restrict, close, lock, and reopen financial posting periods.',
                         path: '/modules/fico/fiscal-periods',
-                        icon: 'calendar',
-                    },
-                    {
-                        code: 'fiscal-year-variant',
-                        permissionCode: 'fico.configuration',
-                        title: 'Fiscal Year Variant',
-                        description:
-                            'Define posting periods and fiscal year structure.',
-                        path: '/modules/fico/fiscal-year-variant',
                         icon: 'calendar',
                     },
                     {
@@ -344,7 +371,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.document-types',
                         title: 'Document Types',
                         description:
-                            'Configure accounting document types, numbering, posting controls, and reversal settings.',
+                            'Accounting document types, numbering controls, and reversal settings.',
                         path: '/modules/fico/document-types',
                         icon: 'settings',
                     },
@@ -353,7 +380,7 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.number-ranges',
                         title: 'Number Ranges',
                         description:
-                            'Configure document number ranges for accounting and financial documents.',
+                            'Document number ranges for accounting and financial documents.',
                         path: '/modules/fico/number-ranges',
                         icon: 'settings',
                     },
@@ -362,9 +389,66 @@ export const ERP_MODULES: ErpModule[] = [
                         permissionCode: 'fico.tax-codes',
                         title: 'Tax Codes',
                         description:
-                            'Configure tax classifications, rates, calculation methods, and General Ledger mappings for financial transactions.',
+                            'Tax classifications, effective-dated rates, and G/L mappings.',
                         path: '/modules/fico/tax-codes',
                         icon: 'receipt',
+                    },
+                ],
+            },
+            {
+                code: 'integration-monitoring',
+                title: 'Integration & Monitoring',
+                submodules: [
+                    {
+                        code: 'accounting-events',
+                        permissionCode: 'fico.journal-entries',
+                        title: 'Accounting Events',
+                        description:
+                            'Posting monitor for MM, SD, POS, and PP accounting events reaching FICO.',
+                        path: '/modules/fico/accounting-events',
+                        icon: 'activity',
+                    },
+                    {
+                        code: 'accounting-reconciliation',
+                        permissionCode: 'fico.accounting-reconciliation',
+                        title: 'Accounting Reconciliation',
+                        description:
+                            'Integrity exceptions, investigation workflow, and authorized retries without silent G/L edits.',
+                        path: '/modules/fico/accounting-reconciliation',
+                        icon: 'activity',
+                    },
+                ],
+            },
+            {
+                code: 'period-end',
+                title: 'Period End & Migration',
+                submodules: [
+                    {
+                        code: 'period-closing',
+                        permissionCode: 'fico.period-close',
+                        title: 'Period Closing',
+                        description:
+                            'Closing readiness checklist before close or lock; unsupported controls marked N/A.',
+                        path: '/modules/fico/period-closing',
+                        icon: 'calendar',
+                    },
+                    {
+                        code: 'year-end-closing',
+                        permissionCode: 'fico.year-end-close',
+                        title: 'Year-End Closing',
+                        description:
+                            'Validate the ledger, close P&L to retained earnings, and audit idempotent year-end journals.',
+                        path: '/modules/fico/year-end-closing',
+                        icon: 'calendar',
+                    },
+                    {
+                        code: 'opening-balances',
+                        permissionCode: 'fico.opening-balances',
+                        title: 'Opening Balances',
+                        description:
+                            'Migration batches: import, approve, and post opening journals via the financial engine.',
+                        path: '/modules/fico/opening-balances',
+                        icon: 'fileText',
                     },
                 ],
             },
@@ -390,6 +474,15 @@ export const ERP_MODULES: ErpModule[] = [
                             'New leads, pipeline by stage and open tickets at a glance.',
                         path: '/crm',
                         icon: 'barChart',
+                    },
+                    {
+                        code: 'calendar',
+                        title: 'Activity calendar',
+                        description:
+                            'Week and month view of calls, meetings and tasks (Asia/Manila).',
+                        path: '/crm/calendar',
+                        icon: 'calendar',
+                        permissionCode: 'crm.activities',
                     },
                     {
                         code: 'customers',
@@ -434,6 +527,22 @@ export const ERP_MODULES: ErpModule[] = [
                             'Customer service cases with priorities, status and comments.',
                         path: '/crm/tickets',
                         icon: 'clipboard',
+                    },
+                ],
+            },
+            {
+                code: 'communications',
+                title: 'Communications',
+                submodules: [
+                    {
+                        code: 'emails',
+                        title: 'Emails',
+                        description:
+                            'Cover letters sent with quotations: subject, message, placeholders, default and active.',
+                        path: '/emails',
+                        icon: 'mail',
+                        // Mail hub; messages for compose/sent, templates for cover letters.
+                        permissionCode: 'emails.messages',
                     },
                 ],
             },
@@ -562,6 +671,17 @@ export const ERP_MODULES: ErpModule[] = [
             'HRIS — people, attendance, payroll, and workforce operations.',
         path: 'https://hris.agctek.co/',
         icon: 'users',
+        isExternalLink: true,
+        categories: [],
+    },
+    {
+        code: 'wpd',
+        shortTitle: 'WPD',
+        title: 'Workforce Productivity Dashboard',
+        description:
+            'Workforce productivity KPIs and operational performance (opens in a new tab).',
+        path: 'https://wpd.agctek.co/',
+        icon: 'lineChart',
         isExternalLink: true,
         categories: [],
     },

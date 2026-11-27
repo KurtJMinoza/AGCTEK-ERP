@@ -42,6 +42,9 @@ export type UpsertCompanySettingsInput = {
     defaultTaxOutputAccountId?: string | null
     documentNumberPrefix?: string
     documentNumberPadding?: number
+    postingPrecision?: number
+    defaultFinancialDimensions?: Record<string, unknown> | null
+    reconciliationPolicy?: string
     allowNegativePostings?: boolean
     backdatedPostingAllowed?: boolean
     maxBackdatedPostingDays?: number | null
@@ -101,6 +104,8 @@ export class FicoCompanySettingsService {
         return {
             ...FICO_PHILIPPINES_DEFAULTS,
             status: 'DRAFT' as const,
+            postingPrecision: 4,
+            reconciliationPolicy: 'BLOCK_MANUAL',
             closeChecklist: {
                 items: FICO_PHILIPPINES_DEFAULTS
                     ? [
@@ -208,6 +213,10 @@ export class FicoCompanySettingsService {
             documentNumberPadding:
                 input.documentNumberPadding ??
                 FICO_PHILIPPINES_DEFAULTS.documentNumberPadding,
+            postingPrecision: input.postingPrecision ?? 4,
+            defaultFinancialDimensions:
+                (input.defaultFinancialDimensions ?? null) as never,
+            reconciliationPolicy: input.reconciliationPolicy ?? 'BLOCK_MANUAL',
             allowNegativePostings: input.allowNegativePostings ?? false,
             backdatedPostingAllowed: input.backdatedPostingAllowed ?? true,
             maxBackdatedPostingDays: input.maxBackdatedPostingDays ?? null,
@@ -391,6 +400,18 @@ export class FicoCompanySettingsService {
                 : {}),
             ...(input.documentNumberPadding !== undefined
                 ? { documentNumberPadding: input.documentNumberPadding }
+                : {}),
+            ...(input.postingPrecision !== undefined
+                ? { postingPrecision: input.postingPrecision }
+                : {}),
+            ...(input.defaultFinancialDimensions !== undefined
+                ? {
+                      defaultFinancialDimensions:
+                          input.defaultFinancialDimensions as never,
+                  }
+                : {}),
+            ...(input.reconciliationPolicy !== undefined
+                ? { reconciliationPolicy: input.reconciliationPolicy }
                 : {}),
             ...(input.closeChecklist !== undefined
                 ? { closeChecklist: input.closeChecklist as never }
@@ -772,6 +793,8 @@ export class FicoCompanySettingsService {
         countryCode?: string
         accountingMethod?: string
         documentNumberPadding?: number
+        postingPrecision?: number
+        reconciliationPolicy?: string
         maxBackdatedPostingDays?: number | null
         status?: string
     }) {
@@ -811,6 +834,26 @@ export class FicoCompanySettingsService {
             )
         }
         if (
+            input.postingPrecision !== undefined &&
+            (!Number.isInteger(input.postingPrecision) ||
+                input.postingPrecision < 0 ||
+                input.postingPrecision > 4)
+        ) {
+            throw new BadRequestException(
+                'Posting precision must be an integer between 0 and 4.',
+            )
+        }
+        if (
+            input.reconciliationPolicy !== undefined &&
+            !['BLOCK_MANUAL', 'ALLOW_MANUAL'].includes(
+                input.reconciliationPolicy,
+            )
+        ) {
+            throw new BadRequestException(
+                'Reconciliation policy must be BLOCK_MANUAL or ALLOW_MANUAL.',
+            )
+        }
+        if (
             input.maxBackdatedPostingDays !== undefined &&
             input.maxBackdatedPostingDays !== null &&
             (input.maxBackdatedPostingDays < 0 ||
@@ -838,6 +881,8 @@ export class FicoCompanySettingsService {
             timezone: string
             accountingMethod: string
             documentNumberPadding: number
+            postingPrecision: number
+            reconciliationPolicy: string
             maxBackdatedPostingDays?: number | null
         },
         errors: FicoValidationIssue[],
@@ -888,6 +933,29 @@ export class FicoCompanySettingsService {
                 code: 'PADDING_INVALID',
                 field: 'documentNumberPadding',
                 message: 'Document number padding must be between 3 and 12.',
+            })
+        }
+        if (
+            !Number.isInteger(settings.postingPrecision) ||
+            settings.postingPrecision < 0 ||
+            settings.postingPrecision > 4
+        ) {
+            errors.push({
+                code: 'PRECISION_INVALID',
+                field: 'postingPrecision',
+                message: 'Posting precision must be an integer between 0 and 4.',
+            })
+        }
+        if (
+            !['BLOCK_MANUAL', 'ALLOW_MANUAL'].includes(
+                settings.reconciliationPolicy,
+            )
+        ) {
+            errors.push({
+                code: 'RECON_POLICY_INVALID',
+                field: 'reconciliationPolicy',
+                message:
+                    'Reconciliation policy must be BLOCK_MANUAL or ALLOW_MANUAL.',
             })
         }
         if (

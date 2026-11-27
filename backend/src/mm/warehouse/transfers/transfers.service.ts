@@ -104,6 +104,18 @@ export class TransfersService {
         if (!sourceWh?.companyId) {
             throw new BadRequestException('Source warehouse company is required')
         }
+        const destinationWh = await this.prisma.warehouse.findUnique({
+            where: { id: dto.destinationWarehouseId },
+            select: { id: true, companyId: true },
+        })
+        if (!destinationWh?.companyId) {
+            throw new BadRequestException('Destination warehouse company is required')
+        }
+        if (destinationWh.companyId !== sourceWh.companyId) {
+            throw new BadRequestException(
+                'Cross-company warehouse transfers require the intercompany transfer accounting flow and cannot use the intra-company transfer process.',
+            )
+        }
 
         const materialIds = [...new Set(dto.lines.map((l) => l.materialId))]
         const materials = await this.prisma.mmMaterial.findMany({

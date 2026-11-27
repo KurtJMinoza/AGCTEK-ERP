@@ -22,6 +22,8 @@ export type SdProductRecord = {
     description: string
     price: number
     originalPrice: number | null
+    /** MM material standard cost from the primary product ↔ material link. */
+    standardCost?: number | null
     category: string
     /** Category image from the linked MM material category (storefront). */
     categoryImageUrl?: string | null
@@ -100,6 +102,13 @@ export type ProductInput = {
      * Catalog never creates a material.
      */
     materialId?: string
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material without a
+     * sale-ready tax configuration. Without it the API rejects the product.
+     */
+    allowIncompleteTaxSetup?: boolean
+    /** SD catalog override (YYYY-MM-DD) for the default / simple variant. */
+    catalogExpiryDate?: string | null
 }
 
 /** Stock ownership for the product (variants link existing materials). */
@@ -159,15 +168,23 @@ export function productAttribute<T>(
     return value === undefined || value === null ? fallback : (value as T)
 }
 
-type ApiProduct = Omit<SdProductRecord, 'price' | 'originalPrice'> & {
+type ApiProduct = Omit<
+    SdProductRecord,
+    'price' | 'originalPrice' | 'standardCost'
+> & {
     price: string | number
     originalPrice: string | number | null
+    standardCost?: string | number | null
 }
 
 const fromApi = (p: ApiProduct): SdProductRecord => ({
     ...p,
     price: Number(p.price),
     originalPrice: p.originalPrice === null ? null : Number(p.originalPrice),
+    standardCost:
+        p.standardCost === null || p.standardCost === undefined
+            ? null
+            : Number(p.standardCost),
     variants: p.variants?.map((variant) => ({
         ...variant,
         price: variant.price == null ? null : Number(variant.price),
@@ -207,6 +224,10 @@ export type StorefrontAvailability = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
+    /** Variant barcode, else the material's primary MM barcode. */
+    barcode?: string | null
     state?:
         | 'IN_STOCK'
         | 'LOW_STOCK'
@@ -261,8 +282,34 @@ export async function fetchStorefrontAvailability(
     }
 }
 
-export async function suggestProductSku(divisionId: string): Promise<string> {
+/**
+ * Live ATP for MANY products in one call — the POS terminal polls its whole
+ * cart here instead of one request per line. The backend answers in the same
+ * order as the requested items.
+ */
+export async function fetchStorefrontAvailabilityBatch(
+    divisionId: string,
+    items: Array<{ sku: string; variantId?: string | null }>,
+): Promise<StorefrontAvailability[]> {
+    if (!items.length) return []
     try {
+        const { data } = await ErpAxiosBase.post<StorefrontAvailability[]>(
+            '/sd/products/availability/batch',
+            {
+                divisionId,
+                items: items.map((item) => ({
+                    sku: item.sku,
+                    variantId: item.variantId ?? undefined,
+                })),
+            },
+        )
+        return data ?? []
+    } catch (error) {
+        throw toError(error, 'Unable to load stock')
+    }
+}
+
+export async function suggestProductSku(divisionId: string): Promise<string> {    try {
         const { data } = await ErpAxiosBase.get<{ sku: string }>(
             '/sd/products/suggested-sku',
             { params: { divisionId } },
@@ -372,6 +419,7 @@ export type CreateProductFamilyInput = {
     }
     /** SIMPLE products: the existing material the hidden default links to. */
     existingMaterialId?: string
+    catalogExpiryDate?: string
     options?: Array<{
         name: string
         displayStyle?: string
@@ -395,6 +443,7 @@ export type CreateProductFamilyInput = {
         optionValues: string[]
         materialOverrides?: Record<string, unknown>
         existingMaterialId?: string
+        catalogExpiryDate?: string
     }>
 }
 
@@ -408,6 +457,7 @@ export type CatalogVariantsSummary = {
     onHandQty: number
     reservedQty: number
     availableQty: number
+    displayExpiryDate: string | null
 }
 
 /**
@@ -530,6 +580,7 @@ export async function updateProductVariant(
         isActive?: boolean
         isPublished?: boolean
         isDefault?: boolean
+        catalogExpiryDate?: string | null
     },
 ): Promise<SdProductRecord> {
     try {
@@ -654,6 +705,9 @@ export type CatalogStockSnapshot = {
     hasVariants?: boolean
     variantId?: string | null
     materialId?: string | null
+    primaryBatchNumber?: string | null
+    primaryLotNumber?: string | null
+    barcode?: string | null
 }
 
 /** MM-backed available qty per product (storefront ATP by division + SKU). */
@@ -683,6 +737,9 @@ export async function fetchProductCatalogStock(
                         hasVariants: data.hasVariants ?? false,
                         variantId: data.variantId ?? null,
                         materialId: data.materialId ?? null,
+                        primaryBatchNumber: data.primaryBatchNumber ?? null,
+                        primaryLotNumber: data.primaryLotNumber ?? null,
+                        barcode: data.barcode ?? null,
                     },
                 ] as const
             } catch (error) {

@@ -1,5 +1,6 @@
 import {
     ArrayMaxSize,
+    ArrayMinSize,
     IsArray,
     IsBoolean,
     IsIn,
@@ -14,8 +15,9 @@ import {
     MaxLength,
     Min,
     ValidateIf,
+    ValidateNested,
 } from 'class-validator'
-import { Transform } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import { RETAIL_SALES_DIVISIONS } from './sales-order.dto'
 
 const MAX_PRICE = 999_999_999.99
@@ -190,6 +192,15 @@ export class CreateProductDto {
     @IsOptional()
     @IsString()
     companyId?: string
+
+    /**
+     * Explicit incomplete-setup workflow: allow linking a material whose tax
+     * configuration is missing, expired or inactive. Without this flag a
+     * STOCK_ITEM product requires a sale-ready MM tax configuration.
+     */
+    @IsOptional()
+    @IsBoolean()
+    allowIncompleteTaxSetup?: boolean
 }
 
 /**
@@ -303,4 +314,36 @@ export class UpdateProductStatusDto {
     @IsOptional()
     @IsString()
     updatedBy?: string
+}
+
+/** One stock question: a SKU and, for variant products, the chosen variant. */
+export class ProductAvailabilityRequestDto {
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(64)
+    sku!: string
+
+    /** Selected variant of the product (required once the product has variants). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    variantId?: string
+}
+
+/**
+ * Batch live ATP (POST /sd/products/availability/batch). The POS terminal
+ * polls its whole cart in one request instead of one request per line.
+ */
+export class ProductAvailabilityBatchDto {
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(64)
+    divisionId!: string
+
+    @IsArray()
+    @ArrayMinSize(1)
+    @ArrayMaxSize(200)
+    @ValidateNested({ each: true })
+    @Type(() => ProductAvailabilityRequestDto)
+    items!: ProductAvailabilityRequestDto[]
 }

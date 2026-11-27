@@ -73,7 +73,8 @@ function setup() {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
+        { customerReturnPosted: jest.fn() } as never,
+        { assertCanPost: jest.fn() } as never,
         permissions as never,
     )
     return { service, prisma, permissions, returns, audits }

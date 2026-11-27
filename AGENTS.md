@@ -38,7 +38,7 @@ backend/AGENTS.md                      = NestJS / Prisma / API conventions
 src/AGENTS.md                          = Next.js / ECME UI conventions
 .cursor/rules/*.mdc                    = Scoped Cursor rules (UI, modules, MM gate)
 .cursor/skills/*/SKILL.md              = WHAT each domain knows (load when relevant)
-docs/MM_* · docs/SCM_* · …             = Domain depth (must not contradict master flow)
+docs/MM_* · docs/SCM_* · docs/POS_* · … = Domain depth (must not contradict master flow)
 ```
 
 ```text
@@ -255,7 +255,8 @@ Quality decides whether stock may be used; inventory owns quantity and movement.
 Do not directly modify another module’s tables. Prefer: domain transaction → outbox → typed event → consumer → consumer-owned transaction.
 
 **Master ownership & event catalog:** `docs/MASTER_ENTERPRISE_SYSTEM_FLOW.md`  
-**Detail:** `.cursor/skills/integration/SKILL.md`, `docs/MM_INTEGRATION_CONTRACTS.md`
+**Detail:** `.cursor/skills/integration/SKILL.md`, `docs/MM_INTEGRATION_CONTRACTS.md`  
+**Retail POS:** `docs/POS_CHECKOUT_AND_PAYMENTS.md` (staged checkout, tenders, cashier shift)
 
 ---
 
@@ -379,5 +380,7 @@ Before reporting completion, verify applicable items:
 | [.cursor/skills/mrp/SKILL.md](.cursor/skills/mrp/SKILL.md) | Planning / MRP |
 | [.cursor/skills/integration/SKILL.md](.cursor/skills/integration/SKILL.md) | Cross-module events |
 | [.cursor/skills/implement-iso9001-inventory-control/SKILL.md](.cursor/skills/implement-iso9001-inventory-control/SKILL.md) | ISO 9001 inventory control (counts, variance, adjustments) |
+| [.cursor/skills/ai-browser-qa/SKILL.md](.cursor/skills/ai-browser-qa/SKILL.md) | AI browser QA (Playwright MCP / T3 preview + e2e regression) |
+| [docs/AI_BROWSER_QA.md](docs/AI_BROWSER_QA.md) | AI QA modes, MCP caps, e2e commands |
 
 **UI catalog:** `docs/COMPONENT_CATALOG.md`

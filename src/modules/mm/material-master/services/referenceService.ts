@@ -125,6 +125,8 @@ export const batchService = {
         ErpAxiosBase.get<MmBatch[]>(`${API}/batches`, { params: materialId ? { materialId } : {} }).then((r) => r.data),
     create: (data: {
         materialId: string
+        batchNumber?: string
+        lotNumber?: string
         manufacturingDate?: string
         expiryDate?: string
         supplierId?: string

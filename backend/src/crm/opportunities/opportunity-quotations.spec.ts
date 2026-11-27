@@ -5,7 +5,11 @@ import type { QuotationService } from '../../sd/quotation.service'
 import { CrmOpportunityQuotationsService } from './opportunity-quotations.service'
 
 const user = { id: 'user-1', role: 'sales' }
-const dto = { lines: [{ productId: 'p1', quantity: 2.5 }], notes: 'Rush' }
+const dto = {
+    lines: [{ productId: 'p1', quantity: 2.5 }],
+    notes: 'Rush',
+    paymentTerms: '50% on order, 50% on delivery',
+}
 
 function setup(opp: Record<string, unknown> | null = { id: 'opp-1', stage: 'PROPOSAL', customerId: 'cust-1', sdSalesOrderId: null }) {
     const order: string[] = []
@@ -51,6 +55,7 @@ describe('CrmOpportunityQuotationsService.create', () => {
                     customerId: 'cust-1',
                     lines: [{ productId: 'p1', quantity: 2.5 }],
                     notes: 'Rush',
+                    paymentTerms: '50% on order, 50% on delivery',
                     createdBy: 'user-1',
                 },
                 { tx: prisma },

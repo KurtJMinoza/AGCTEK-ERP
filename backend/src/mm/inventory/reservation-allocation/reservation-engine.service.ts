@@ -330,6 +330,68 @@ export class ReservationEngineService {
         })
     }
 
+    /**
+     * Releases the demand of a sale that was voided.
+     *
+     * The goods issue of the sale was reversed, so the stock is back on the
+     * shelf — but the reversal reserved it again for the demand of that sale.
+     * A voided sale has no demand left: the reservation goes and the stock
+     * becomes available again.
+     */
+    async releaseVoidedDemand(args: {
+        sourceModule: string
+        sourceDocumentType: string
+        sourceDocumentId: string
+    }) {
+        const headers = await this.findBySourceDocument(args)
+        const released: string[] = []
+        for (const header of headers) {
+            if (['CANCELLED', 'RELEASED', 'EXPIRED'].includes(header.status)) {
+                released.push(header.id)
+                continue
+            }
+            // The legacy reservation rows hold the quantity that the goods
+            // issue reversal put back on hold.
+            const legacyRows =
+                await this.prisma.mmInventoryReservation.findMany({
+                    where: { reservationHeaderId: header.id },
+                })
+            for (const legacy of legacyRows) {
+                const restored = new Decimal(legacy.reservedQuantity).minus(
+                    new Decimal(legacy.fulfilledQuantity),
+                )
+                if (restored.gt(0)) {
+                    await releaseWarehouseQuantity(this.prisma, {
+                        companyId: legacy.companyId,
+                        warehouseId: legacy.warehouseId,
+                        materialId: legacy.materialId,
+                        quantity: restored,
+                        stockStatus: legacy.stockStatus,
+                        batchId: legacy.batchId,
+                        serialNumberId: legacy.serialNumberId,
+                    })
+                }
+                await this.prisma.mmInventoryReservation.update({
+                    where: { id: legacy.id },
+                    data: {
+                        status: 'CANCELLED',
+                        reservedQuantity: legacy.fulfilledQuantity,
+                    },
+                })
+            }
+            await this.prisma.mmInventoryReservationLine.updateMany({
+                where: { headerId: header.id },
+                data: { status: 'CANCELLED' },
+            })
+            await this.prisma.mmInventoryReservationHeader.update({
+                where: { id: header.id },
+                data: { status: 'CANCELLED' },
+            })
+            released.push(header.id)
+        }
+        return released
+    }
+
     async releaseBySourceDocument(args: {
         sourceModule: string
         sourceDocumentType: string

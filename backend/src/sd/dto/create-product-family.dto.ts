@@ -132,6 +132,12 @@ export class VariantInput {
     @IsOptional()
     @IsString()
     existingMaterialId?: string
+
+    /** Catalog expiry override (YYYY-MM-DD). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    catalogExpiryDate?: string
 }
 
 // ─── Material defaults ──────────────────────────────────────────────────────
@@ -222,6 +228,12 @@ export class CreateProductFamilyDto {
     @IsOptional()
     @IsString()
     existingMaterialId?: string
+
+    /** SIMPLE products: optional catalog expiry override (YYYY-MM-DD). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    catalogExpiryDate?: string
 
     @IsOptional()
     @IsArray()

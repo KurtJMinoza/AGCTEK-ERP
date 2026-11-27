@@ -7,6 +7,8 @@ import type {
     FicoDeterminationReference,
     FicoDeterminationRule,
     FicoDeterminationSummary,
+    FicoDeterminationWorkbenchOverview,
+    TransactionKeyCatalogRow,
 } from '../accountDeterminationTypes'
 
 const API = '/fico/account-determination'
@@ -92,6 +94,100 @@ export const ficoAccountDeterminationRuleService = {
         ErpAxiosBase.get<FicoDeterminationSummary>(
             `${API}/summary${queryString({ companyId })}`,
         ).then((response) => response.data),
+    workbenchOverview: (companyId: string) =>
+        ErpAxiosBase.get<FicoDeterminationWorkbenchOverview>(
+            `${API}/workbench/overview${queryString({ companyId })}`,
+        ).then((response) => response.data),
+    transactionKeyCatalog: () =>
+        ErpAxiosBase.get<{ catalog: TransactionKeyCatalogRow[] }>(
+            `${API}/transaction-keys`,
+        ).then((response) => response.data.catalog),
+    resolveDetermination: (payload: Record<string, unknown>) =>
+        ErpAxiosBase.post<Record<string, unknown>>(
+            `${API}/resolve-determination`,
+            payload,
+        ).then((response) => response.data),
+    simulate: (payload: Record<string, unknown>) =>
+        ErpAxiosBase.post<import('../accountDeterminationTypes').DeterminationSimulationResult>(
+            `${API}/simulate`,
+            payload,
+        ).then((response) => response.data),
+    validateDraft: (payload: Record<string, unknown>) =>
+        ErpAxiosBase.post<{ ok: boolean; errors: string[]; warnings: string[] }>(
+            `${API}/rules/validate-draft`,
+            payload,
+        ).then((response) => response.data),
+    eligibleGlAccounts: (query: {
+        companyId: string
+        search?: string
+        transactionKeyCode?: string
+    }) =>
+        ErpAxiosBase.get<
+            import('../accountDeterminationTypes').FicoDeterminationEligibleGlAccount[]
+        >(
+            `${API}/gl-accounts${queryString(query)}`,
+        ).then((response) => response.data),
+    duplicateRule: (id: string) =>
+        ErpAxiosBase.post<FicoDeterminationRule>(`${API}/rules/${id}/duplicate`).then(
+            (response) => response.data,
+        ),
+    validateRule: (id: string) =>
+        ErpAxiosBase.post<{
+            ruleId: string
+            determinationCode: string
+            ok: boolean
+            errors: string[]
+            warnings: string[]
+        }>(`${API}/rules/${id}/validate`).then((response) => response.data),
+    newVersion: (id: string, body: { effectiveFrom?: string; changeReason?: string }) =>
+        ErpAxiosBase.post<{
+            predecessor: { id: string; determinationCode: string; proposedEffectiveTo: string }
+            successor: FicoDeterminationRule
+            note: string
+        }>(`${API}/rules/${id}/new-version`, body).then((response) => response.data),
+    exceptions: (query: {
+        companyId: string
+        category?: string
+        page?: number
+        pageSize?: number
+    }) =>
+        ErpAxiosBase.get<
+            import('../accountDeterminationTypes').FicoDeterminationExceptionList
+        >(`${API}/exceptions${queryString(query)}`).then((response) => response.data),
+    moduleCoverage: (companyId: string) =>
+        ErpAxiosBase.get<
+            import('../accountDeterminationTypes').FicoDeterminationModuleCoverage
+        >(`${API}/module-coverage${queryString({ companyId })}`).then(
+            (response) => response.data,
+        ),
+    usage: (query: {
+        companyId: string
+        glAccountId?: string
+        transactionKeyCode?: string
+    }) =>
+        ErpAxiosBase.get<{
+            companyId: string
+            rules: FicoDeterminationRule[]
+            legacyMappingCount: number
+            postedJournalLineCount: number
+        }>(`${API}/usage${queryString(query)}`).then((response) => response.data),
+    validateConflicts: (body: {
+        companyId: string
+        sourceModule?: string
+        transactionKeyCode?: string
+    }) =>
+        ErpAxiosBase.post<{
+            safeDryRun: boolean
+            examinedRules: number
+            ambiguous: number
+            conflicts: Array<{
+                left: string
+                right: string
+                transactionType: string
+                reason: string
+                sameTarget: boolean
+            }>
+        }>(`${API}/validate-conflicts`, body).then((response) => response.data),
     reference: (companyId: string) =>
         ErpAxiosBase.get<FicoDeterminationReference>(
             `${API}/reference${queryString({ companyId })}`,

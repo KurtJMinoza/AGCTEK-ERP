@@ -4,19 +4,30 @@ import getMyPermissions from '@/server/actions/permissions/getMyPermissions'
 export const metadata = {
     title: 'FICO — Finance & Controlling | AGCTEK ERP',
     description: 'Chart of accounts and fiscal year configuration.',
-}/** FICO module submodules. Phase 1: chart of accounts + fiscal calendar.
- * Phase 2: company accounting settings + posting periods + number ranges.
- * Add further submodules here as their UI is completed.
- */
+}
+
+/** FICO landing cards (rollout filter). Submodule `code` from `src/configs/erp-modules.ts`. */
 const FICO_SUBMODULES = [
+    'overview',
+    'journal-entries',
+    'general-ledger',
+    'account-balances',
+    'trial-balance',
+    'ar-workbench',
+    'treasury-accounts',
+    'tax-reconciliation',
+    'ap-workbench',
+    'grir-clearing',
     'chart-of-accounts',
     'gl-accounts',
+    'company-accounting-settings',
+    'account-determination-rules',
     'fiscal-years',
-    'company-settings',
     'fiscal-periods',
     'number-ranges',
     'tax-codes',
     'document-types-fi',
+    'accounting-events',
 ]
 export default async function Page() {
     return (

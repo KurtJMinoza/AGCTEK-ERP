@@ -213,6 +213,11 @@ export const FICO_AUDIT_ACTIONS = {
     GL_ACCOUNT_STATUS_CHANGE: 'GL_ACCOUNT_STATUS_CHANGE',
     GL_ACCOUNT_DELETE: 'GL_ACCOUNT_DELETE',
     GL_ACCOUNT_IMPORT: 'GL_ACCOUNT_IMPORT',
+    GL_ACCOUNT_ACTIVATE: 'GL_ACCOUNT_ACTIVATE',
+    GL_ACCOUNT_DEACTIVATE: 'GL_ACCOUNT_DEACTIVATE',
+    GL_ACCOUNT_REACTIVATE: 'GL_ACCOUNT_REACTIVATE',
+    COMPANY_GL_POSTING_BLOCKED: 'COMPANY_GL_POSTING_BLOCKED',
+    COMPANY_GL_POSTING_UNBLOCKED: 'COMPANY_GL_POSTING_UNBLOCKED',
     COMPANY_GL_ASSIGNMENT_UPSERT: 'COMPANY_GL_ASSIGNMENT_UPSERT',
     COMPANY_GL_ASSIGNMENT_DELETE: 'COMPANY_GL_ASSIGNMENT_DELETE',
     FISCAL_VARIANT_CREATE: 'FISCAL_VARIANT_CREATE',
@@ -231,7 +236,50 @@ export const FICO_AUDIT_ACTIONS = {
     PERIOD_REOPEN: 'PERIOD_REOPEN',
     PERIOD_UNLOCK: 'PERIOD_UNLOCK',
     PERIOD_UPDATE: 'PERIOD_UPDATE',
+    YEAR_END_VALIDATE: 'YEAR_END_VALIDATE',
+    YEAR_END_APPROVE: 'YEAR_END_APPROVE',
+    YEAR_END_EXECUTE: 'YEAR_END_EXECUTE',
+    OPENING_BALANCE_POST: 'OPENING_BALANCE_POST',
 } as const
+
+export const FICO_CLOSING_RUN_TYPES = ['PERIOD', 'YEAR_END'] as const
+export type FicoClosingRunType = (typeof FICO_CLOSING_RUN_TYPES)[number]
+
+export const FICO_CLOSING_RUN_STATUSES = [
+    'VALIDATED',
+    'APPROVED',
+    'EXECUTED',
+    'FAILED',
+] as const
+export type FicoClosingRunStatus = (typeof FICO_CLOSING_RUN_STATUSES)[number]
+
+export const FICO_FINANCIAL_ERROR_CODES = {
+    FICO_COMPANY_ACCESS_DENIED: 'FICO_COMPANY_ACCESS_DENIED',
+    FICO_COMPANY_ACCOUNTING_INACTIVE: 'FICO_COMPANY_ACCOUNTING_INACTIVE',
+    FICO_COA_NOT_ASSIGNED: 'FICO_COA_NOT_ASSIGNED',
+    FICO_ACCOUNT_NOT_FOUND: 'FICO_ACCOUNT_NOT_FOUND',
+    FICO_PERIOD_CLOSED: 'FICO_PERIOD_CLOSED',
+    FICO_PERIOD_LOCKED: 'FICO_PERIOD_LOCKED',
+    FICO_JOURNAL_UNBALANCED: 'FICO_JOURNAL_UNBALANCED',
+    FICO_DUPLICATE_POSTING: 'FICO_DUPLICATE_POSTING',
+    FICO_RECONCILIATION_REQUIRED: 'FICO_RECONCILIATION_REQUIRED',
+    FICO_YEAR_END_ALREADY_EXECUTED: 'FICO_YEAR_END_ALREADY_EXECUTED',
+    FICO_YEAR_END_NOT_APPROVED: 'FICO_YEAR_END_NOT_APPROVED',
+    FICO_YEAR_END_VALIDATION_FAILED: 'FICO_YEAR_END_VALIDATION_FAILED',
+    FICO_RETAINED_EARNINGS_NOT_CONFIGURED:
+        'FICO_RETAINED_EARNINGS_NOT_CONFIGURED',
+    FICO_UNSUPPORTED_CURRENCY: 'FICO_UNSUPPORTED_CURRENCY',
+    FICO_MIXED_CURRENCY_LEDGER: 'FICO_MIXED_CURRENCY_LEDGER',
+} as const
+export type FicoFinancialErrorCode =
+    (typeof FICO_FINANCIAL_ERROR_CODES)[keyof typeof FICO_FINANCIAL_ERROR_CODES]
+
+export function yearEndCloseIdempotencyKey(
+    companyId: string,
+    fiscalYear: number,
+): string {
+    return `YEAR_END_CLOSE:${companyId}:${fiscalYear}`
+}
 
 export function formatFicoPeriodKey(
     fiscalYear: number,
@@ -531,6 +579,157 @@ export const FICO_DOCUMENT_TYPE_AUDIT_ACTIONS = {
     DOCUMENT_TYPE_DEACTIVATE: 'DOCUMENT_TYPE_DEACTIVATE',
     DOCUMENT_TYPE_DELETE: 'DOCUMENT_TYPE_DELETE',
 } as const
+
+// ============================================================================
+// FICO — Journal posting status (GL inclusion uses postedAt + status, not approval)
+// ============================================================================
+
+export const FICO_JOURNAL_POSTING_STATUSES = [
+    'DRAFT',
+    'POSTED',
+    'REVERSED',
+    'CANCELLED',
+    'LEGACY',
+] as const
+export type FicoJournalPostingStatus =
+    (typeof FICO_JOURNAL_POSTING_STATUSES)[number]
+
+export const FICO_JOURNAL_POSTING_LABELS: Record<
+    FicoJournalPostingStatus,
+    string
+> = {
+    DRAFT: 'Draft',
+    POSTED: 'Posted',
+    REVERSED: 'Reversed (original)',
+    CANCELLED: 'Cancelled',
+    LEGACY: 'Legacy',
+}
+
+/** Statuses that may contribute to the general ledger (when postedAt is set). */
+export const FICO_JOURNAL_LEDGER_STATUSES = ['POSTED', 'REVERSED'] as const
+
+export function isFicoJournalPostingStatus(
+    value: string,
+): value is FicoJournalPostingStatus {
+    return (FICO_JOURNAL_POSTING_STATUSES as readonly string[]).includes(value)
+}
+
+// ============================================================================
+// FICO Phase 2 - Journal Entry Approval Workflow
+// ============================================================================
+
+export const FICO_JOURNAL_APPROVAL_STATUSES = [
+    'DRAFT',
+    'PENDING_APPROVAL',
+    'APPROVED',
+    'REJECTED',
+    'NOT_REQUIRED',
+    /** @deprecated Legacy mirror of posted state; do not use for ledger inclusion */
+    'POSTED',
+    /** @deprecated Legacy mirror of reversed original; do not use for ledger inclusion */
+    'REVERSED',
+] as const
+export type FicoJournalApprovalStatus =
+    (typeof FICO_JOURNAL_APPROVAL_STATUSES)[number]
+
+export const FICO_JOURNAL_APPROVAL_LABELS: Record<
+    FicoJournalApprovalStatus,
+    string
+> = {
+    DRAFT: 'Draft',
+    PENDING_APPROVAL: 'Pending Approval',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected',
+    NOT_REQUIRED: 'Approval Not Required',
+    POSTED: 'Posted (legacy)',
+    REVERSED: 'Reversed (legacy)',
+}
+
+export const FICO_JOURNAL_APPROVAL_TRANSITIONS: Record<
+    string,
+    string[]
+> = {
+    DRAFT: ['PENDING_APPROVAL'],
+    PENDING_APPROVAL: ['APPROVED', 'REJECTED', 'DRAFT'],
+    REJECTED: ['PENDING_APPROVAL'],
+    APPROVED: ['DRAFT', 'POSTED'],
+    NOT_REQUIRED: [],
+    POSTED: ['REVERSED'],
+    REVERSED: [],
+} as const
+
+export const FICO_JOURNAL_APPROVAL_AUDIT_ACTIONS = {
+    SUBMIT: 'JOURNAL_SUBMIT',
+    APPROVE: 'JOURNAL_APPROVE',
+    REJECT: 'JOURNAL_REJECT',
+    RESUBMIT: 'JOURNAL_RESUBMIT',
+    POST: 'JOURNAL_POST_APPROVED',
+    WITHDRAW: 'JOURNAL_WITHDRAW',
+    CANCEL: 'JOURNAL_CANCEL',
+    UPDATE_DRAFT: 'JOURNAL_UPDATE_DRAFT',
+} as const
+
+/** Standard FI document type codes (Phase 06). */
+export const FICO_STANDARD_DOCUMENT_TYPE_CODES = {
+    JE: 'JE',
+    AJ: 'AJ',
+    RV: 'RV',
+    OB: 'OB',
+    GR: 'GR',
+    GI: 'GI',
+    IA: 'IA',
+    VI: 'VI',
+    VP: 'VP',
+    CI: 'CI',
+    CR: 'CR',
+    PS: 'PS',
+    SR: 'SR',
+    DP: 'DP',
+    YC: 'YC',
+} as const
+
+/** Map internal journal documentType values to official type codes for numbering. */
+export const FICO_JOURNAL_DOCUMENT_TYPE_CODE_MAP: Record<string, string> = {
+    JOURNAL: FICO_STANDARD_DOCUMENT_TYPE_CODES.JE,
+    JOURNAL_REVERSAL: FICO_STANDARD_DOCUMENT_TYPE_CODES.RV,
+    MM_GR: FICO_STANDARD_DOCUMENT_TYPE_CODES.GR,
+    MM_GI: FICO_STANDARD_DOCUMENT_TYPE_CODES.GI,
+    MM_ADJUSTMENT: FICO_STANDARD_DOCUMENT_TYPE_CODES.IA,
+    SD_REVENUE: FICO_STANDARD_DOCUMENT_TYPE_CODES.PS,
+    SD_REVERSAL: FICO_STANDARD_DOCUMENT_TYPE_CODES.SR,
+    SD_COLLECTION: FICO_STANDARD_DOCUMENT_TYPE_CODES.CR,
+    AR_COLLECTION: FICO_STANDARD_DOCUMENT_TYPE_CODES.CR,
+    CUSTOMER_INVOICE: FICO_STANDARD_DOCUMENT_TYPE_CODES.CI,
+    AR_ADVANCE: FICO_STANDARD_DOCUMENT_TYPE_CODES.DP,
+    MM_REVERSAL: FICO_STANDARD_DOCUMENT_TYPE_CODES.VP,
+}
+
+export function isFicoJournalApprovalStatus(
+    value: string,
+): value is FicoJournalApprovalStatus {
+    return (FICO_JOURNAL_APPROVAL_STATUSES as readonly string[]).includes(
+        value,
+    )
+}
+
+export function isValidJournalApprovalTransition(
+    from: string,
+    to: string,
+): boolean {
+    if (
+        from === 'APPROVED' &&
+        to === 'DRAFT' &&
+        FICO_JOURNAL_APPROVAL_TRANSITIONS.APPROVED?.includes('DRAFT')
+    ) {
+        return true
+    }
+    return (
+        FICO_JOURNAL_APPROVAL_TRANSITIONS[from]?.includes(to) ?? false
+    )
+}
+
+/** Automatic postings use server-side exemption, not client flags. */
+export const FICO_JOURNAL_AUTOMATIC_APPROVAL_STATUS = 'NOT_REQUIRED' as const
 
 /**
  * Accepted Number Range `documentCategory` values per document category.

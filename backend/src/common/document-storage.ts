@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { randomUUID } from 'crypto'
 import type { ReadStream } from 'fs'
@@ -43,6 +43,11 @@ export function createDocumentStorage(...segments: string[]) {
             const absolutePath = join(root, storageKey)
             if (!existsSync(absolutePath)) throw new Error('File not found on disk')
             return createReadStream(absolutePath)
+        },
+        /** Whole file, or null when it is missing (callers decide how to degrade). */
+        readBuffer(storageKey: string): Buffer | null {
+            const absolutePath = join(root, storageKey)
+            return existsSync(absolutePath) ? readFileSync(absolutePath) : null
         },
         remove(storageKey: string | null | undefined): void {
             if (!storageKey) return

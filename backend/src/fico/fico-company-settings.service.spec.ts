@@ -42,6 +42,8 @@ function settings(overrides: Record<string, unknown> = {}) {
         postingPeriodVariant: { id: 'ppv-1', code: 'M', name: 'Monthly', status: 'ACTIVE' },
         accountDeterminationProfileId: 'profile-1',
         documentNumberPadding: 6,
+        postingPrecision: 4,
+        reconciliationPolicy: 'BLOCK_MANUAL',
         maxBackdatedPostingDays: null,
         backdatedPostingAllowed: true,
         allowNegativePostings: false,

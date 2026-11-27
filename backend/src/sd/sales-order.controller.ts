@@ -209,7 +209,7 @@ export class SalesOrderController {
 
     /** Read-only FICO journals + accounting events linked to this sales order. */
     @Get(':id/accounting')
-    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
+    @RequirePermission(['sd.sales-orders', 'sd.pos', 'fico.journal-entries'], 'read')
     findAccounting(
         @Param('id') id: string,
         @Query('companyId') companyId?: string,

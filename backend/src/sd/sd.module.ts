@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { MmModule } from '../mm/mm.module'
 import { ScmModule } from '../scm/scm.module'
+import { FicoModule } from '../fico/fico.module'
 import { RetailModule } from '../retail/retail.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { CustomerController } from './customer.controller'
@@ -10,6 +11,8 @@ import { ProductService } from './product.service'
 import { SalesOrderController } from './sales-order.controller'
 import { OrderTrackingService } from './order-tracking.service'
 import { SalesOrderService } from './sales-order.service'
+import { SdSalesOrderFinanceService } from './sd-sales-order-finance.service'
+import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SdMmEventConsumer } from './sd-mm-event.consumer'
 import { SdMmOrchestrationService } from './sd-mm-orchestration.service'
@@ -24,8 +27,14 @@ import { SdMmPipelineService } from './sd-mm-pipeline.service'
 import { SdMaterialReferenceService } from './sd-material-reference.service'
 import { SdMaterialReferenceController } from './sd-material-reference.controller'
 import { QuotationService } from './quotation.service'
+import { QuotationMailService } from './mail.service'
 import { QuotationController } from './quotation.controller'
 import { QuotationPdfService } from './quotation-pdf.service'
+import { QuotationEmailService } from './quotation-email.service'
+import {
+    QuotationEmailController,
+    QuotationEmailTemplateController,
+} from './quotation-email.controller'
 import { SalesReturnService } from './sales-return.service'
 import { SalesReturnController } from './sales-return.controller'
 import { SalesInvoiceService } from './sales-invoice.service'
@@ -47,13 +56,35 @@ import { PricingResolutionService } from './pricing-resolution.service'
 import { SalesAnalyticsController } from './sales-analytics.controller'
 import { UploadsController } from './uploads.controller'
 import { SalesAnalyticsService } from './sales-analytics.service'
+import { SalesPerformanceService } from './sales-performance.service'
+import { MonthlyCollectionService } from './monthly-collection.service'
 import { BackorderReportController } from './backorder-report.controller'
 import { BackorderReportService } from './backorder-report.service'
+import { ProductImportController } from './product-import.controller'
+import { ProductImportService } from './product-import.service'
+import { ProductBarcodeController } from './product-barcode.controller'
+import { ProductBarcodeService } from './product-barcode.service'
+import { PosController } from './pos/pos.controller'
+import { PosCheckoutService } from './pos/pos-checkout.service'
+import { PosSessionService } from './pos/pos-session.service'
+import { PosHoldService } from './pos/pos-hold.service'
+import { PosCustomerService } from './pos/pos-customer.service'
+import { PosVoidService } from './pos/pos-void.service'
+import { PosPaymentMethodService } from './pos/pos-payment-method.service'
+import { PosRefundService } from './pos/pos-refund.service'
+import { PosCollectionService } from './pos/pos-collection.service'
+import { PosDepositService } from './pos/pos-deposit.service'
+import { PosAccountingService } from './pos/pos-accounting.service'
+import { PosRevenuePostingListener } from './pos/pos-revenue-posting.listener'
+import { PosEmployeeService } from './pos/pos-employee.service'
+import { ExtPlatformTransactionController } from './ext-platform-transaction.controller'
+import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 
 @Module({
     imports: [
         forwardRef(() => MmModule),
         forwardRef(() => ScmModule),
+        FicoModule,
         RetailModule,
         NotificationsModule,
         ReviewModule,
@@ -65,6 +96,8 @@ import { BackorderReportService } from './backorder-report.service'
         ProductMaterialAssignmentController,
         SdMaterialReferenceController,
         QuotationController,
+        QuotationEmailController,
+        QuotationEmailTemplateController,
         SalesReturnController,
         ReturnRequestController,
         DeliveryController,
@@ -73,11 +106,17 @@ import { BackorderReportService } from './backorder-report.service'
         SalesAnalyticsController,
         UploadsController,
         BackorderReportController,
+        ProductImportController,
+        ProductBarcodeController,
+        PosController,
+        ExtPlatformTransactionController,
     ],
     providers: [
         CustomerService,
         ProductService,
         SalesOrderService,
+        SdSalesOrderFinanceService,
+        SdExtPlatformFinanceService,
         SdEventEmitterService,
         SdMmEventConsumer,
         SdMmOrchestrationService,
@@ -91,6 +130,8 @@ import { BackorderReportService } from './backorder-report.service'
         SdMaterialReferenceService,
         QuotationService,
         QuotationPdfService,
+        QuotationMailService,
+        QuotationEmailService,
         SalesReturnService,
         SalesInvoiceService,
         SdFulfillmentEventsListener,
@@ -105,7 +146,24 @@ import { BackorderReportService } from './backorder-report.service'
         PricingConditionService,
          PricingResolutionService,
         SalesAnalyticsService,
+        SalesPerformanceService,
+        MonthlyCollectionService,
         BackorderReportService,
+        ProductImportService,
+        ProductBarcodeService,
+        PosCheckoutService,
+        PosSessionService,
+        PosHoldService,
+        PosCustomerService,
+        PosVoidService,
+        PosPaymentMethodService,
+        PosRefundService,
+        PosEmployeeService,
+        PosCollectionService,
+        PosDepositService,
+        PosAccountingService,
+        PosRevenuePostingListener,
+        ExtPlatformTransactionService,
     ],
     exports: [
         SalesOrderService,
@@ -114,6 +172,8 @@ import { BackorderReportService } from './backorder-report.service'
         SdMmPipelineService,
         CustomerService,
         QuotationService,
+        QuotationEmailService,
+        QuotationMailService,
         SalesReturnService,
         ReturnRequestService,
         ReviewModule,

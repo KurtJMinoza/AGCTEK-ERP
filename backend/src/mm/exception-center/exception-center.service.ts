@@ -972,65 +972,6 @@ export class ExceptionCenterService {
             )
         }
 
-        const docsReview = await this.prisma.mmControlledDocument.findMany({
-            where: {
-                companyId: ctx.companyId,
-                status: { in: ['UNDER_REVIEW', 'DRAFT'] },
-                archivedAt: null,
-            },
-            take: 30,
-        })
-        for (const d of docsReview) {
-            items.push(
-                this.item(
-                    {
-                        sourceId: d.id,
-                        type: 'CONTROLLED_DOCUMENT_REVIEW',
-                        domain: 'supporting_ops',
-                        severity: 'MEDIUM',
-                        status: d.status,
-                        title: `Controlled document: ${d.documentNumber}`,
-                        source: 'MmControlledDocument',
-                        detectedAt: d.updatedAt.toISOString(),
-                        companyId: d.companyId,
-                        recommendedAction: 'Complete document review and approval',
-                        href: '/modules/mm/supporting-operations/document-management',
-                    },
-                    ctx,
-                ),
-            )
-        }
-
-        const expiredDocs = await this.prisma.mmControlledDocument.findMany({
-            where: {
-                companyId: ctx.companyId,
-                expirationDate: { lt: ctx.now },
-                archivedAt: null,
-                status: { not: 'ARCHIVED' },
-            },
-            take: 20,
-        })
-        for (const d of expiredDocs) {
-            items.push(
-                this.item(
-                    {
-                        sourceId: d.id,
-                        type: 'CONTROLLED_DOCUMENT_EXPIRED',
-                        domain: 'supporting_ops',
-                        severity: 'HIGH',
-                        status: d.status,
-                        title: `Expired controlled document: ${d.documentNumber}`,
-                        source: 'MmControlledDocument',
-                        detectedAt: (d.expirationDate ?? d.updatedAt).toISOString(),
-                        companyId: d.companyId,
-                        recommendedAction: 'Review, revise, or mark obsolete',
-                        href: '/modules/mm/supporting-operations/document-management',
-                    },
-                    ctx,
-                ),
-            )
-        }
-
         return items
     }
 

@@ -18,6 +18,11 @@ import Segment from '@/components/ui/Segment'
 import CreateTmsTripDialog from '../components/tms/CreateTmsTripDialog'
 import TmsTripPanel from '../components/tms/TmsTripPanel'
 import TripRoutePreviewMap from '../components/trips/TripRoutePreviewMap'
+import OcularRoutePreview from '../components/trips/OcularRoutePreview'
+import OcularTripFormDialog from '../components/trips/OcularTripFormDialog'
+import OcularTripStopsDialog from '../components/trips/OcularTripStopsDialog'
+import { useTrips } from '../hooks/useTrips'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import { useTripPlanning } from '../hooks/useTripPlanning'
 import { useTripRoutePreview } from '../hooks/useTripRoutePreview'
 import { formatStatusLabel, statusTone } from '../utils/status'
@@ -32,6 +37,8 @@ function notify(type: 'success' | 'danger', msg: string) {
     )
 }
 
+type PlanningView = 'LOADS' | 'OCULAR'
+
 const actionSuccess = {
     validate: 'Trip validated — ready to dispatch',
     dispatch: 'Trip dispatched to the driver',
@@ -45,6 +52,16 @@ const actionSuccess = {
  */
 export default function TripPlanningPage() {
     const tp = useTripPlanning()
+    const { canCreate } = useResourceAccess()
+    // Ocular trips are planned here too, but have no load plan, so they never appear in the cargo-first list.
+    const ocular = useTrips({ purpose: 'OCULAR', pageSize: 10 })
+    const [ocularCreateOpen, setOcularCreateOpen] = useState(false)
+    const [ocularTripId, setOcularTripId] = useState<string | null>(null)
+    const [view, setView] = useState<PlanningView>('LOADS')
+    const [ocularPreviewId, setOcularPreviewId] = useState<string | null>(null)
+    // Bumped when the plan changes in the stop planner so the preview refetches.
+    const [ocularPreviewVersion, setOcularPreviewVersion] = useState(0)
+    const previewTripId = ocularPreviewId ?? ocular.data[0]?.id ?? null
     const [creating, setCreating] = useState<TripCandidate | null>(null)
     const [planningId, setPlanningId] = useState<string | null>(null)
     const [stopOrder, setStopOrder] = useState<string[] | null>(null)
@@ -194,14 +211,67 @@ export default function TripPlanningPage() {
 
     const selected = tp.selected
 
+    const ocularColumns = useMemo<ColumnDef<Trip>[]>(
+        () => [
+            { header: 'Code', accessorKey: 'code' },
+            {
+                header: 'Vehicle',
+                cell: ({ row }) =>
+                    row.original.vehicle
+                        ? `${row.original.vehicle.code} (${row.original.vehicle.plateNumber})`
+                        : '—',
+            },
+            {
+                header: 'Window',
+                cell: ({ row }) =>
+                    row.original.plannedStartAt
+                        ? new Date(row.original.plannedStartAt).toLocaleString()
+                        : '—',
+            },
+            { header: 'Stops', cell: ({ row }) => row.original.stops?.length ?? 0 },
+            {
+                header: 'Status',
+                cell: ({ row }) => (
+                    <StatusBadge tone={statusTone(row.original.status)}>
+                        {formatStatusLabel(row.original.status)}
+                    </StatusBadge>
+                ),
+            },
+            {
+                header: '',
+                id: 'actions',
+                cell: ({ row }) => (
+                    <div className="flex gap-2">
+                        <Button
+                            size="xs"
+                            variant={previewTripId === row.original.id ? 'solid' : 'default'}
+                            onClick={() => setOcularPreviewId(row.original.id)}
+                        >
+                            Preview route
+                        </Button>
+                        <Button size="xs" onClick={() => setOcularTripId(row.original.id)}>
+                            Plan stops
+                        </Button>
+                    </div>
+                ),
+            },
+        ],
+        [previewTripId],
+    )
+
     return (
         <PageContainer>
             <PageHeader
                 title="Trip Planning"
-                description="Trips are created only from READY loads. Stops are derived from the cargo on the vehicle: load (ship-from), deliver (ship-to), return."
+                description="Delivery trips are created only from READY loads (stops derived from the cargo). Ocular trips are planned separately: pick a vehicle and add the places to visit."
                 breadcrumbs={scmPageBreadcrumbs('Trip Planning')}
                 actions={
                     <div className="flex gap-2">
+                        {canCreate && view === 'OCULAR' ? (
+                            <Button variant="solid" onClick={() => setOcularCreateOpen(true)}>
+                                New ocular trip
+                            </Button>
+                        ) : null}
                         <Link href="/scm/load-building">
                             <Button>Load Building</Button>
                         </Link>
@@ -218,6 +288,18 @@ export default function TripPlanningPage() {
                 </Alert>
             ) : null}
 
+            <div className="mb-4">
+                <Segment
+                    size="sm"
+                    value={view}
+                    onChange={(v) => v && setView(v as PlanningView)}
+                >
+                    <Segment.Item value="LOADS">READY loads</Segment.Item>
+                    <Segment.Item value="OCULAR">Ocular trips</Segment.Item>
+                </Segment>
+            </div>
+
+            {view === 'LOADS' ? (
             <AdaptiveCard className="mb-4">
                 <h5 className="mb-3">READY loads</h5>
                 <DataTable
@@ -237,7 +319,49 @@ export default function TripPlanningPage() {
                     </p>
                 ) : null}
             </AdaptiveCard>
+            ) : null}
 
+            {view === 'OCULAR' ? (
+            <AdaptiveCard className="mb-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                        <h5>Ocular trips</h5>
+                        <p className="text-xs text-gray-500">
+                            Field visits to prospects. No cargo; leads captured on site get source Ocular.
+                        </p>
+                    </div>
+                </div>
+                <DataTable
+                    columns={ocularColumns}
+                    data={ocular.data}
+                    loading={ocular.loading}
+                    noData={!ocular.loading && ocular.data.length === 0}
+                    hidePagination
+                />
+                {ocular.error ? (
+                    <p className="mt-2 text-sm text-red-500">{ocular.error}</p>
+                ) : null}
+            </AdaptiveCard>
+            ) : null}
+
+            {view === 'OCULAR' ? (
+            <AdaptiveCard className="mb-4">
+                <div className="mb-4">
+                    <h5>Route preview</h5>
+                    <p className="text-xs text-gray-500">
+                        Stops in the order you planned them. Nothing is saved here; change the order or add stops in Plan stops.
+                    </p>
+                </div>
+                <OcularRoutePreview
+                    key={previewTripId ?? 'none'}
+                    tripId={previewTripId}
+                    version={ocularPreviewVersion}
+                />
+            </AdaptiveCard>
+            ) : null}
+
+            {view === 'LOADS' ? (
+            <>
             <AdaptiveCard className="mb-4">
                 <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
@@ -345,6 +469,27 @@ export default function TripPlanningPage() {
                     )}
                 </div>
             </div>
+            </>
+            ) : null}
+
+            <OcularTripFormDialog
+                open={ocularCreateOpen}
+                onClose={() => setOcularCreateOpen(false)}
+                onCreated={(id) => {
+                    void ocular.reload()
+                    setOcularPreviewId(id)
+                    setOcularTripId(id)
+                }}
+            />
+            <OcularTripStopsDialog
+                isOpen={Boolean(ocularTripId)}
+                tripId={ocularTripId}
+                onClose={() => setOcularTripId(null)}
+                onChanged={() => {
+                    void ocular.reload()
+                    setOcularPreviewVersion((v) => v + 1)
+                }}
+            />
 
             <CreateTmsTripDialog
                 candidate={creating}

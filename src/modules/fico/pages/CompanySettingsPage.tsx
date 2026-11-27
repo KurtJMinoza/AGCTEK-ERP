@@ -122,6 +122,8 @@ type FormState = {
     defaultTaxCode: string
     documentNumberPrefix: string
     documentNumberPadding: number
+    postingPrecision: number
+    reconciliationPolicy: 'BLOCK_MANUAL' | 'ALLOW_MANUAL'
     allowNegativePostings: boolean
     backdatedPostingAllowed: boolean
     maxBackdatedPostingDays: string
@@ -143,6 +145,8 @@ const EMPTY: FormState = {
     defaultTaxCode: '',
     documentNumberPrefix: 'JE',
     documentNumberPadding: 6,
+    postingPrecision: 4,
+    reconciliationPolicy: 'BLOCK_MANUAL' as const,
     allowNegativePostings: false,
     backdatedPostingAllowed: true,
     maxBackdatedPostingDays: '',
@@ -419,6 +423,11 @@ const CompanySettingsPage = () => {
                       defaultTaxCode: settings.defaultTaxCode ?? '',
                       documentNumberPrefix: settings.documentNumberPrefix,
                       documentNumberPadding: settings.documentNumberPadding,
+                      postingPrecision: settings.postingPrecision ?? 4,
+                      reconciliationPolicy:
+                          settings.reconciliationPolicy === 'ALLOW_MANUAL'
+                              ? 'ALLOW_MANUAL'
+                              : 'BLOCK_MANUAL',
                       allowNegativePostings:
                           settings.allowNegativePostings ?? false,
                       backdatedPostingAllowed:
@@ -1288,6 +1297,53 @@ const CompanySettingsPage = () => {
                                     documentNumberPadding: Number(
                                         event.target.value || 6,
                                     ),
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Posting precision (decimals)">
+                        <Input
+                            type="number"
+                            min={0}
+                            max={4}
+                            value={form.postingPrecision}
+                            onChange={(event) =>
+                                setForm((current) => ({
+                                    ...current,
+                                    postingPrecision: Number(
+                                        event.target.value || 4,
+                                    ),
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Reconciliation account policy">
+                        <Select
+                            options={[
+                                {
+                                    value: 'BLOCK_MANUAL',
+                                    label: 'Block manual posting',
+                                },
+                                {
+                                    value: 'ALLOW_MANUAL',
+                                    label: 'Allow manual posting',
+                                },
+                            ]}
+                            value={{
+                                value: form.reconciliationPolicy,
+                                label:
+                                    form.reconciliationPolicy === 'ALLOW_MANUAL'
+                                        ? 'Allow manual posting'
+                                        : 'Block manual posting',
+                            }}
+                            onChange={(option) =>
+                                setForm((current) => ({
+                                    ...current,
+                                    reconciliationPolicy:
+                                        ((option as { value: string } | null)
+                                            ?.value ?? 'BLOCK_MANUAL') as
+                                            | 'BLOCK_MANUAL'
+                                            | 'ALLOW_MANUAL',
                                 }))
                             }
                         />

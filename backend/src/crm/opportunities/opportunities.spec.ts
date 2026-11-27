@@ -552,10 +552,20 @@ describe('Phase 2 pipeline quality', () => {
         ).rejects.toBeInstanceOf(ConflictException)
     })
 
+    it('sets stageEnteredAt when the stage changes', async () => {
+        const prisma = mockPrisma()
+        await service(prisma).update('opp-1', { stage: 'PROPOSAL' }, 'user-1')
+        expect(updateData(prisma).stageEnteredAt).toBeInstanceOf(Date)
+        expect(updateData(prisma).stage).toBe('PROPOSAL')
+    })
+
     it('creates with the stage default probability and gates the starting stage', async () => {
         const prisma = mockPrisma()
         await service(prisma).create({ customerId: 'cust-1', name: 'Deal', assignedTo: 'user-2' }, 'user-1')
         expect(prisma.crmOpportunity.create.mock.calls[0][0].data.probability).toBe(10)
+        expect(prisma.crmOpportunity.create.mock.calls[0][0].data.stageEnteredAt).toBeInstanceOf(
+            Date,
+        )
         await expect(
             service(prisma).create(
                 { customerId: 'cust-1', name: 'Deal', stage: 'NEGOTIATION', assignedTo: 'user-2' },

@@ -37,6 +37,33 @@ export class CreateMaterialDto {
     @IsString()
     sku?: string
 
+    /** Primary barcode to register for this material. */
+    @IsOptional()
+    @IsString()
+    barcodeValue?: string
+
+    /** Barcode type (EAN13, UPC_A, CODE128, QR). Defaults to EAN13. */
+    @IsOptional()
+    @IsString()
+    barcodeType?: string
+
+    /** Serial number to register for serial-managed materials. */
+    @IsOptional()
+    @IsString()
+    serialNumber?: string
+
+    /** Optional initial batch # — creates an `MmBatch` row (also visible under Batches). */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    initialBatchNumber?: string
+
+    /** Optional initial lot # — paired with initial batch on create/update. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(64)
+    initialLotNumber?: string
+
     @IsOptional()
     @IsString()
     brand?: string
@@ -135,8 +162,19 @@ export class CreateMaterialDto {
     serialManaged?: boolean
 
     @IsOptional()
+    @IsString()
+    @IsIn(['NOT_SERIALIZED', 'SERIALIZED_AT_RECEIPT', 'SERIALIZED_AT_ISSUE', 'SERIALIZED_AT_BOTH'])
+    serialTrackingPolicy?: string
+
+    @IsOptional()
     @IsBoolean()
     expiryManaged?: boolean
+
+    /** Calendar default expiry (YYYY-MM-DD) for SD / non-batch materials. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    defaultExpiryDate?: string | null
 
     @IsOptional()
     @IsBoolean()
@@ -221,6 +259,42 @@ export class CreateMaterialDto {
     @IsOptional()
     @IsString()
     preferredSupplierId?: string
+
+    // ------------------------------------------------------------------
+    // Tax information (MM owns product tax classification; FICO owns the
+    // tax code and rate). Leave all fields empty only for the explicit
+    // incomplete-setup flow (imports, auto-created variant materials).
+    // ------------------------------------------------------------------
+
+    @IsOptional()
+    @IsIn(['VATABLE', 'VAT_EXEMPT', 'ZERO_RATED'])
+    taxClassification?: string
+
+    /** FICO Tax Code id — the single source of the tax rate. */
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string
+
+    @IsOptional()
+    @IsIn(['VAT_INCLUSIVE', 'VAT_EXCLUSIVE'])
+    priceTaxTreatment?: string
+
+    @IsOptional()
+    @IsIn(['ACTIVE', 'INACTIVE'])
+    taxStatus?: string
+
+    @IsOptional()
+    @IsString()
+    taxEffectiveFrom?: string
+
+    @IsOptional()
+    @IsString()
+    taxEffectiveTo?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    taxDescription?: string
 
     /** SD variant that triggered auto-creation of this material (set by ProductFamilyService). */
     @IsOptional()

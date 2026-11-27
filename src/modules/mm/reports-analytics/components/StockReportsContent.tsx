@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useMemo } from 'react'
 import DataTable, { type ColumnDef } from '@/components/shared/DataTable'
@@ -73,7 +73,7 @@ function groupIcon(groupBy: StockGroupBy) {
 
 function rowEnterClass(index: number) {
     const delay = Math.min(index, 14) * 40
-    return `animate-mm-row-in motion-reduce:animate-none opacity-0 [animation-delay:${delay}ms]`
+    return `animate-mm-row-in motion-reduce:animate-none [animation-delay:${delay}ms]`
 }
 
 function formatQty(n: number) {

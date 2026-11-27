@@ -1,3 +1,4 @@
+/// <reference path="../../node_modules/@types/jest/index.d.ts" />
 import { NotFoundException } from '@nestjs/common'
 import { RetailClientAddressService } from './retail-client-address.service'
 

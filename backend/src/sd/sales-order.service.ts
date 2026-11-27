@@ -4,7 +4,9 @@ import {
     ConflictException,
     NotFoundException,
     UnauthorizedException,
+    Optional,
 } from '@nestjs/common'
+import { FicoArCreditCheckService } from '../fico/fico-ar-credit-check.service'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { randomUUID } from 'crypto'
@@ -163,6 +165,7 @@ export class SalesOrderService {
         private commercialAvailability: CommercialAvailabilityService,
         private invoices: SalesInvoiceService,
         private pricingResolution: PricingResolutionService,
+        @Optional() private readonly arCreditCheck?: FicoArCreditCheckService,
     ) {}
 
     private readonly includes = {
@@ -2308,6 +2311,25 @@ export class SalesOrderService {
         }
     }
 
+    private async assertCreditForOrder(
+        order: Awaited<ReturnType<SalesOrderService['findOne']>>,
+    ) {
+        if (!order.customerId || !order.companyId || !this.arCreditCheck) return
+        if (order.paymentStatus === 'Paid') return
+        const customer = await this.prisma.sdCustomer.findUnique({
+            where: { id: order.customerId },
+            select: { customerAccountType: true },
+        })
+        if (customer?.customerAccountType !== 'CREDIT') return
+        await this.arCreditCheck.assertWithinCreditLimit({
+            companyId: order.companyId,
+            customerId: order.customerId,
+            additionalExposure: order.totalAmount?.toString() ?? '0',
+            context: `Sales order ${order.orderNumber} confirmation`,
+        })
+
+    }
+
     async confirm(id: string) {
         const order = await this.findOne(id)
         if (order.status === 'CANCELLED') {
@@ -2339,6 +2361,8 @@ export class SalesOrderService {
                 'Sales order must reference a company, warehouse and MM materials before confirmation',
             )
         }
+
+        await this.assertCreditForOrder(enriched)
 
         const updated = await this.prisma.sdSalesOrder.update({
             where: { id },

@@ -6,12 +6,20 @@ import {
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoPostingPeriodService } from './fico-posting-period.service'
 import { formatFicoPeriodKey } from './fico.constants'
+import { assertPostingCurrencyPolicy } from './fico-currency-policy'
+import {
+    assertDocumentTypeControl,
+    assertPostingPrecision,
+    assertRequiredDimensions,
+    type Phase01DimensionLine,
+} from './fico-phase01-policy'
 
-export type PostingValidationLine = {
+export type PostingValidationLine = Phase01DimensionLine & {
     glAccountId: string
     debitAmount?: number
     creditAmount?: number
     currency?: string
+    description?: string | null
 }
 
 export type ValidatePostingInput = {
@@ -20,6 +28,11 @@ export type ValidatePostingInput = {
     source?: 'MANUAL' | 'AUTOMATIC'
     currencyCode?: string
     lines?: PostingValidationLine[]
+    /** User attempting a manual posting; used for restricted-period permissions. */
+    actor?: { id?: string; name?: string | null; role?: string }
+    documentType?: string
+    sourceDocumentId?: string | null
+    description?: string | null
 }
 
 @Injectable()
@@ -42,6 +55,8 @@ export class FicoPostingValidationService {
             where: { companyId: input.companyId },
             include: {
                 chartOfAccounts: { select: { id: true, status: true, code: true } },
+                fiscalYearVariant: { select: { id: true, status: true } },
+                postingPeriodVariant: { select: { id: true, status: true } },
                 company: { select: { id: true, name: true } },
             },
         })
@@ -65,6 +80,29 @@ export class FicoPostingValidationService {
                 'Accounting postings are blocked because the assigned chart of accounts is inactive.',
             )
         }
+        if (
+            !settings.fiscalYearVariant ||
+            settings.fiscalYearVariant.status !== 'ACTIVE'
+        ) {
+            throw new BadRequestException(
+                'Accounting postings are blocked because no active fiscal calendar is assigned to the company.',
+            )
+        }
+        if (
+            !settings.postingPeriodVariant ||
+            settings.postingPeriodVariant.status !== 'ACTIVE'
+        ) {
+            throw new BadRequestException(
+                'Accounting postings are blocked because no active posting period control is assigned to the company.',
+            )
+        }
+        assertPostingPrecision(
+            (input.lines ?? []).flatMap((line) => [
+                line.debitAmount ?? 0,
+                line.creditAmount ?? 0,
+            ]),
+            settings.postingPrecision,
+        )
 
         const postingDay = new Date(
             Date.UTC(
@@ -111,10 +149,15 @@ export class FicoPostingValidationService {
             }
         }
 
+        const allowRestrictedManual =
+            source === 'MANUAL' &&
+            Boolean(input.actor) &&
+            (await this.canPostInRestrictedPeriod(input.actor?.role))
         const period = await this.periods.assertPostingAllowed(
             input.companyId,
             postingDate,
             source,
+            { allowRestrictedManual },
         )
 
         const currency = (
@@ -124,13 +167,37 @@ export class FicoPostingValidationService {
         )
             .trim()
             .toUpperCase()
+
+        assertPostingCurrencyPolicy({
+            companyCurrency: settings.baseCurrency,
+            documentCurrency: currency,
+            lineCurrencies: (input.lines ?? [])
+                .map((line) => line.currency)
+                .filter((c): c is string => Boolean(c)),
+        })
+
+        const lines = input.lines ?? []
+        const totalDebit = lines.reduce(
+            (sum, line) => sum + (line.debitAmount ?? 0),
+            0,
+        )
+        const totalCredit = lines.reduce(
+            (sum, line) => sum + (line.creditAmount ?? 0),
+            0,
+        )
+        if (Math.abs(totalDebit - totalCredit) > 0.0001) {
+            throw new BadRequestException(
+                'Journal entry is unbalanced: total debits must equal total credits.',
+            )
+        }
+
         const accounts: Array<{
             glAccountId: string
             accountCode: string
             accountName: string
             accountType: string
         }> = []
-        for (const line of input.lines ?? []) {
+        for (const line of lines) {
             const account = await this.assertAccountPostable(
                 input.companyId,
                 line.glAccountId,
@@ -138,8 +205,33 @@ export class FicoPostingValidationService {
                 line.currency?.toUpperCase() || currency,
                 settings.chartOfAccountsId,
                 postingDate,
+                line,
             )
             accounts.push(account)
+        }
+
+        if (input.documentType?.trim()) {
+            const documentType = input.documentType.trim()
+            const row = await this.prisma.ficoDocumentType.findUnique({
+                where: {
+                    companyId_code: {
+                        companyId: input.companyId,
+                        code: documentType,
+                    },
+                },
+            })
+            // Legacy journals use JOURNAL without a configured document type.
+            if (row || documentType !== 'JOURNAL') {
+                assertDocumentTypeControl({
+                    documentType,
+                    companyLabel: settings.company?.name ?? input.companyId,
+                    documentTypeRow: row,
+                    accountTypes: accounts.map((account) => account.accountType),
+                    lines,
+                    sourceDocumentId: input.sourceDocumentId,
+                    description: input.description,
+                })
+            }
         }
 
         return {
@@ -164,6 +256,7 @@ export class FicoPostingValidationService {
         currency: string,
         chartOfAccountsId?: string,
         postingDate = new Date(),
+        dimensions?: Phase01DimensionLine,
     ) {
         const account = await this.prisma.ficoGlAccount.findUnique({
             where: { id: glAccountId },
@@ -243,11 +336,36 @@ export class FicoPostingValidationService {
                 `G/L account ${account.accountCode} is no longer effective for this company.`,
             )
         }
+        if (dimensions) {
+            assertRequiredDimensions(
+                dimensions,
+                account,
+                `${account.accountCode} (${account.accountName})`,
+            )
+        }
         return {
             glAccountId: account.id,
             accountCode: account.accountCode,
             accountName: account.accountName,
             accountType: account.accountType,
         }
+    }
+
+    /** Restricted periods accept manual postings only from authorized roles. */
+    private async canPostInRestrictedPeriod(role?: string) {
+        if (!role) return false
+        const row = await this.prisma.role.findUnique({
+            where: { code: role },
+            select: {
+                permissions: {
+                    where: {
+                        canUpdate: true,
+                        resource: { code: 'fico.period-reopen' },
+                    },
+                    select: { id: true },
+                },
+            },
+        })
+        return (row?.permissions.length ?? 0) > 0
     }
 }

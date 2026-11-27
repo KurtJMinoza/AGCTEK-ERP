@@ -8,6 +8,7 @@ import {
     type KeyboardEvent,
     type PointerEvent,
     type TouchEvent,
+    type MouseEvent,
 } from 'react'
 import {
     HiOutlineArrowsExpand,
@@ -28,7 +29,7 @@ const ROUND_BUTTON =
     'flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-gray-100 bg-white/90 text-gray-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-shop-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-shop-500'
 
 const stopClick = {
-    onClick: (event: React.MouseEvent) => event.stopPropagation(),
+    onClick: (event: MouseEvent) => event.stopPropagation(),
 }
 
 const Arrows = ({

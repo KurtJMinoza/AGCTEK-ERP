@@ -24,11 +24,19 @@ module.exports = {
             name: 'erp-frontend',
             cwd: root,
             script: path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next'),
-            args: 'start -p 3020',
+            // Listen on loopback only — LAN/public traffic enters via erp-edge :3010.
+            // Binding 0.0.0.0 made Auth.js emit broken https://0.0.0.0:3020 URLs.
+            args: 'start -H 127.0.0.1 -p 3020',
             interpreter: 'node',
             env: {
                 NODE_ENV: 'production',
                 API_INTERNAL_URL: 'http://127.0.0.1:3011',
+                AUTH_TRUST_HOST: 'true',
+                // Canonical public origin for this machine (edge proxy :3010).
+                // Without this, Auth.js may redirect to the internal Next :3020 host.
+                AUTH_URL: 'http://localhost:3010',
+                // Keep session cookies readable in RSC (see src/auth.ts).
+                AUTH_SECURE_COOKIES: 'false',
             },
         },
         {

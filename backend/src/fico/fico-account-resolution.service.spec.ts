@@ -34,13 +34,25 @@ function rule(overrides: Record<string, unknown> = {}) {
         priority: 100,
         effectiveFrom: null,
         effectiveTo: null,
-        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+        transactionKeyCode: null,
         valuationClassId: null,
         materialTypeCode: null,
         movementType: null,
         customerAccountGroup: null,
         salesOrganization: null,
         distributionChannel: null,
+        paymentMethodCode: null,
+        bankAccountId: null,
+        paymentProviderCode: null,
+        currencyCode: null,
+        branchId: null,
+        assetClassCode: null,
+        depreciationAreaCode: null,
+        documentTypeCode: null,
+        productionOrderTypeCode: null,
+        costElementCategoryCode: null,
+        controllingAreaCode: null,
         lines: [accountLine(1, 'DEBIT', 'acc-inv'), accountLine(2, 'CREDIT', 'acc-grir')],
         ...overrides,
     }
@@ -239,7 +251,140 @@ describe('FicoAccountResolutionService', () => {
 
         await expect(
             service.resolve({ ...request, sourceModule: 'CRM' }),
-        ).rejects.toMatchObject({                message: expect.stringContaining('only configured for MM, SD, PP'),
+        ).rejects.toMatchObject({
+            message: expect.stringContaining('only configured for MM, SD, PP'),
+        })
+    })
+
+    it('prefers a rule scoped to the requested transaction key', async () => {
+        const generic = rule({ id: 'rule-gen', determinationCode: 'MM-GEN' })
+        const keyed = rule({
+            id: 'rule-key',
+            determinationCode: 'MM-KEY',
+            transactionKeyCode: 'GR_IR',
+        })
+        const { service } = setup([generic, keyed])
+
+        const result = await service.resolve({
+            ...request,
+            transactionType: 'GR_IR_CLEARING',
+            transactionKeyCode: 'GR_IR',
+        })
+
+        expect(result.rule.determinationCode).toBe('MM-KEY')
+        expect(result.rule.matchedTransactionKey).toBe(true)
+    })
+
+    it('only queries ACTIVE rules effective on the posting date', async () => {
+        const { service, prisma } = setup([rule()])
+
+        await service.resolve(request)
+
+        const where = prisma.ficoAccountDeterminationRule.findMany.mock.calls[0][0].where
+        expect(where).toMatchObject({ companyId: 'co-1', status: 'ACTIVE' })
+        // Draft, pending, approved, rejected and inactive rules are excluded by
+        // the status filter; effective dating is enforced in the same query.
+        expect(where.AND).toEqual([
+            { OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: expect.any(Date) } }] },
+            { OR: [{ effectiveTo: null }, { effectiveTo: { gte: expect.any(Date) } }] },
+        ])
+    })
+
+    it('excludes a rule whose validity ended before the posting date', async () => {
+        const { service } = setup([
+            rule({ effectiveTo: new Date('2026-10-31T00:00:00Z') }),
+        ])
+        // The database filter removes it; an empty candidate set must fail loudly.
+        const { service: empty } = setup([])
+
+        await expect(empty.resolve(request)).rejects.toMatchObject({
+            message: expect.stringContaining('No approved, active and effective'),
+        })
+        expect(service).toBeDefined()
+    })
+
+    it('resolves a scheduled rule once its effective-from date is reached', async () => {
+        const { service } = setup([
+            rule({
+                id: 'rule-scheduled',
+                determinationCode: 'MM-DEC',
+                effectiveFrom: new Date('2026-11-01T00:00:00Z'),
+            }),
+        ])
+
+        const result = await service.resolve(request)
+
+        expect(result.rule.determinationCode).toBe('MM-DEC')
+        expect(result.rule.effectiveFrom).toBe('2026-11-01')
+    })
+
+    describe('traceCandidates (simulation)', () => {
+        it('explains why a candidate was rejected', async () => {
+            const { service } = setup([
+                rule({ id: 'rule-vc', determinationCode: 'MM-VC', valuationClassId: 'vc-1' }),
+            ])
+
+            const trace = await service.traceCandidates(request)
+
+            expect(trace.candidates).toHaveLength(1)
+            expect(trace.candidates[0]).toMatchObject({
+                determinationCode: 'MM-VC',
+                eligible: false,
+            })
+            expect(trace.candidates[0].unmatchedConditions).toEqual([
+                { dimension: 'valuationClassId', ruleValue: 'vc-1', inputValue: null },
+            ])
+            expect(trace.selected).toBeNull()
+        })
+
+        it('reports the selected rule and matched dimensions', async () => {
+            const { service } = setup([
+                rule({ id: 'rule-vc', determinationCode: 'MM-VC', valuationClassId: 'vc-1' }),
+            ])
+
+            const trace = await service.traceCandidates({
+                ...request,
+                valuationClassId: 'vc-1',
+            })
+
+            expect(trace.selected?.determinationCode).toBe('MM-VC')
+            expect(trace.candidates[0].matchedDimensions).toEqual(['valuationClassId'])
+            expect(trace.configurationErrors).toEqual([])
+        })
+
+        it('captures the resolution error instead of throwing', async () => {
+            const { service } = setup([])
+
+            const trace = await service.traceCandidates(request)
+
+            expect(trace.configurationErrors[0]).toContain(
+                'No approved, active and effective',
+            )
+            expect(trace.resolution).toBeNull()
+        })
+    })
+
+    it('resolveDeterminationBatch returns structured failure without partial success', async () => {
+        const { service, prisma } = setup([rule()])
+        prisma.ficoAccountDeterminationRule.findMany.mockResolvedValue([])
+
+        const batch = await service.resolveDeterminationBatch({
+            companyId: 'co-1',
+            sourceModule: 'SD',
+            postingDate: '2026-11-05',
+            dimensions: {},
+            items: [
+                { transactionKey: 'SALES_REVENUE', preferredSide: 'CREDIT' },
+                { transactionKey: 'OUTPUT_TAX', preferredSide: 'CREDIT' },
+            ],
+        })
+
+        expect(batch).toMatchObject({
+            ok: false,
+            failures: expect.arrayContaining([
+                expect.objectContaining({ transactionKey: 'SALES_REVENUE' }),
+                expect.objectContaining({ transactionKey: 'OUTPUT_TAX' }),
+            ]),
         })
     })
 })

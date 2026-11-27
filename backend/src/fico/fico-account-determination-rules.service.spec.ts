@@ -88,13 +88,23 @@ function setup(options: {
     const access = { assertAccess: jest.fn().mockResolvedValue(undefined) }
     const audit = { log: jest.fn().mockResolvedValue(undefined), listForEntity: jest.fn() }
     const validation = { assertAccountPostable: jest.fn().mockResolvedValue({}) }
+    const determinationValidation = {
+        assertSafeToActivate: jest.fn().mockResolvedValue(undefined),
+    }
+    const sod = {
+        isEnabled: jest.fn().mockResolvedValue(true),
+        assertCanApprove: jest.fn().mockResolvedValue(undefined),
+        assertCanActivate: jest.fn().mockResolvedValue(undefined),
+    }
     const service = new FicoAccountDeterminationRulesService(
         prisma as never,
         access as never,
         audit as never,
         validation as never,
+        determinationValidation as never,
+        sod as never,
     )
-    return { service, prisma, access, audit, validation }
+    return { service, prisma, access, audit, validation, determinationValidation, sod }
 }
 
 const createInput = {
@@ -275,7 +285,18 @@ describe('FicoAccountDeterminationRulesService', () => {
                 approvedBy: 'approver',
                 approvedAt: new Date('2026-02-01T00:00:00Z'),
             }),
-            activeClones: [{ determinationCode: 'MM-OLD' }],
+            activeClones: [
+                {
+                    determinationCode: 'MM-OLD',
+                    transactionKeyCode: 'GR_IR',
+                    valuationClassId: null,
+                    materialTypeCode: null,
+                    movementType: null,
+                    customerAccountGroup: null,
+                    salesOrganization: null,
+                    distributionChannel: null,
+                },
+            ],
         })
 
         await expect(service.activate('rule-1', user)).rejects.toBeInstanceOf(ConflictException)
