@@ -46,9 +46,17 @@ describe('FicoSdPostingService sales return refund', () => {
             resolveDetermination: overrides.resolveDetermination ??
                 jest.fn().mockRejectedValue(new Error('no rule')),
         }
+        const treasuryPayment = {
+            resolvePaymentAccount: jest.fn(),
+        }
+        const salesRevenueResolution = {
+            resolveSalesRevenueGlAccountId: jest.fn(),
+        }
         return new FicoSdPostingService(
             prisma as never,
             accountResolution as never,
+            treasuryPayment as never,
+            salesRevenueResolution as never,
         )
     }
 

@@ -11,17 +11,34 @@ import type {
 
 const EXT_GI_SOURCE = 'EXT_PLATFORM_SALE'
 
+export type ExtPlatformReceivableSnapshot = {
+    arDocumentId: string | null
+    openAmount: string | null
+    originalAmount: string | null
+    openItemStatus: string | null
+    customerId: string | null
+    customerName: string | null
+    dueDate: string | null
+}
+
 export type ExtPlatformAccountingSnapshot = {
     transactionId: string
     transactionNumber: string
     companyId: string
     status: string
+    settlementStatus: string
+    platformFees: string
+    actualPlatformFees: string | null
+    actualPayout: string | null
+    settledAt: string | null
+    settlementJournalEntryId: string | null
     recordedByUserId: string | null
     recordedByName: string | null
     recordedByEmployeeCode: string | null
     approvedByUserId: string | null
     approvedByName: string | null
     approvedByEmployeeCode: string | null
+    receivable: ExtPlatformReceivableSnapshot | null
     journals: SalesOrderJournalSummary[]
     accountingEvents: SalesOrderAccountingSnapshot['accountingEvents']
 }
@@ -44,8 +61,30 @@ export class SdExtPlatformFinanceService {
                 transactionNumber: true,
                 companyId: true,
                 status: true,
+                settlementStatus: true,
+                platformFees: true,
+                actualPlatformFees: true,
+                actualPayout: true,
+                settledAt: true,
+                settlementJournalEntryId: true,
                 createdBy: true,
                 approvedBy: true,
+                ficoArDocument: {
+                    select: {
+                        id: true,
+                        customerId: true,
+                        receivableAmount: true,
+                        dueDate: true,
+                        customer: { select: { companyName: true } },
+                        openItem: {
+                            select: {
+                                originalAmount: true,
+                                openAmount: true,
+                                status: true,
+                            },
+                        },
+                    },
+                },
             },
         })
         if (!tx) throw new NotFoundException('Transaction not found.')
@@ -125,17 +164,39 @@ export class SdExtPlatformFinanceService {
             },
         })
 
+        const ar = tx.ficoArDocument
+        const receivable: ExtPlatformReceivableSnapshot | null = ar
+            ? {
+                  arDocumentId: ar.id,
+                  openAmount: ar.openItem?.openAmount.toString() ?? null,
+                  originalAmount:
+                      ar.openItem?.originalAmount.toString() ??
+                      ar.receivableAmount.toString(),
+                  openItemStatus: ar.openItem?.status ?? null,
+                  customerId: ar.customerId,
+                  customerName: ar.customer.companyName,
+                  dueDate: ar.dueDate?.toISOString().slice(0, 10) ?? null,
+              }
+            : null
+
         return {
             transactionId: tx.id,
             transactionNumber: tx.transactionNumber,
             companyId: tx.companyId,
             status: tx.status,
+            settlementStatus: tx.settlementStatus,
+            platformFees: tx.platformFees.toString(),
+            actualPlatformFees: tx.actualPlatformFees?.toString() ?? null,
+            actualPayout: tx.actualPayout?.toString() ?? null,
+            settledAt: tx.settledAt?.toISOString() ?? null,
+            settlementJournalEntryId: tx.settlementJournalEntryId,
             recordedByUserId: recorded.userId,
             recordedByName: recorded.fullName,
             recordedByEmployeeCode: recorded.employeeCode,
             approvedByUserId: approved.userId,
             approvedByName: approved.fullName,
             approvedByEmployeeCode: approved.employeeCode,
+            receivable,
             journals: journals.map((row) => this.mapJournal(row)),
             accountingEvents: events,
         }

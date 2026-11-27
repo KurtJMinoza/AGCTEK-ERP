@@ -151,17 +151,29 @@ export function ExtPlatformTrackingCell({
 export function ExtPlatformTotalCell({
     total,
     tax,
+    saleTaxPolicy,
+    lines,
 }: {
     total: number
     tax: number
+    /** When FOLLOW_MATERIAL and lines lack tax, show "Tax not set" instead of "No VAT". */
+    saleTaxPolicy?: string | null
+    lines?: Array<{ taxClassification?: string | null; taxCodeId?: string | null }>
 }) {
-    return (
-        <SdMoneyCell
-            amount={total}
-            emphasize
-            subline={tax > 0 ? `incl. VAT ${tax.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}` : 'No VAT'}
-        />
-    )
+    const policy = saleTaxPolicy ?? 'FOLLOW_MATERIAL'
+    const taxUnconfigured =
+        policy === 'FOLLOW_MATERIAL' &&
+        tax <= 0 &&
+        (lines ?? []).some((l) => !l.taxClassification || !l.taxCodeId)
+
+    const subline =
+        tax > 0
+            ? `incl. VAT ${tax.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}`
+            : taxUnconfigured
+              ? 'Tax not set'
+              : 'No VAT'
+
+    return <SdMoneyCell amount={total} emphasize subline={subline} />
 }
 
 export const uniqueLineValues = (

@@ -1139,8 +1139,15 @@ export default function ExtPlatformTransactionDialog({
                                     <SummaryRow label="VAT amount" value={totals.vatAmount} muted />
                                     <SummaryRow label="VAT-exempt sales" value={totals.exemptSales} muted />
                                     <SummaryRow label="Zero-rated sales" value={totals.zeroRatedSales} muted />
+                                    {totals.taxUnconfiguredSales > 0 ? (
+                                        <SummaryRow
+                                            label="Tax not configured"
+                                            value={totals.taxUnconfiguredSales}
+                                            muted
+                                        />
+                                    ) : null}
                                     {totals.nonTaxableSales > 0 ? (
-                                        <SummaryRow label="No tax setup" value={totals.nonTaxableSales} muted />
+                                        <SummaryRow label="Non-VAT sales" value={totals.nonTaxableSales} muted />
                                     ) : null}
                                     <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
                                     <SummaryRow label="Net of VAT" value={totals.netAmount} muted />

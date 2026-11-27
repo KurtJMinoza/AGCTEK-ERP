@@ -23,6 +23,8 @@ export type MmAccountingLineContext = {
     materialTypeCode?: string | null
     valuationClassId?: string | null
     valuationClassCode?: string | null
+    materialCategoryCode?: string | null
+    materialCategoryName?: string | null
     movementType: string
     quantity: number
     unitCost: number

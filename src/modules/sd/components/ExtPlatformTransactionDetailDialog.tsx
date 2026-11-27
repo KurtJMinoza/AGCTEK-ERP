@@ -218,7 +218,10 @@ export default function ExtPlatformTransactionDetailDialog({
     const vatableSales = sum((l) => l.taxableAmount)
     const exemptSales = sum((l) => l.exemptAmount)
     const zeroRatedSales = sum((l) => l.zeroRatedAmount)
-    const nonVatSales = sum((l) => (l.taxClassification ? 0 : l.netAmount))
+    const unconfiguredTaxSales = sum((l) =>
+        !l.taxClassification || !l.taxCode ? l.netAmount : 0,
+    )
+    const nonVatSales = sum((l) => (l.taxClassification === 'NON_VAT' ? l.netAmount : 0))
     const vatRates = [...new Set(lines.filter((l) => l.taxClassification === 'VATABLE' && l.taxRate).map((l) => Number(l.taxRate)))]
     const total = Number(tx.grandTotal)
     const fees = Number(tx.platformFees)
@@ -418,6 +421,12 @@ export default function ExtPlatformTransactionDetailDialog({
                             />
                             <SummaryRow label="VAT-exempt sales" value={exemptSales} muted />
                             <SummaryRow label="Zero-rated sales" value={zeroRatedSales} muted />
+                            {unconfiguredTaxSales > 0 ? (
+                                <div className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                                    Tax not configured: {money(unconfiguredTaxSales)} — fix MM material tax
+                                    before approval.
+                                </div>
+                            ) : null}
                             {nonVatSales > 0 ? <SummaryRow label="Non-VAT sales" value={nonVatSales} muted /> : null}
                             <div className="mt-2 flex items-end justify-between border-t border-gray-200 pt-3 dark:border-gray-700">
                                 <span className="text-sm font-semibold heading-text">Total amount</span>
@@ -435,9 +444,16 @@ export default function ExtPlatformTransactionDetailDialog({
                         <Panel icon={<HiOutlineCreditCard />} title="Payment & stock">
                             <dl className="space-y-3">
                                 <Field label="Payment method">{tx.paymentMethod ? paymentMethodLabel(tx.paymentMethod) : null}</Field>
+                                <Field label="Settlement status">
+                                    {tx.settlementStatus ?? 'PENDING'}
+                                    {tx.settledAt ? ` · ${dateTime(tx.settledAt)}` : null}
+                                </Field>
                                 <Field label="Settlement / payout ref.">
                                     {tx.settlementReference ? <span className="font-mono">{tx.settlementReference}</span> : null}
                                 </Field>
+                                {tx.actualPayout != null ? (
+                                    <Field label="Actual payout">{money(tx.actualPayout)}</Field>
+                                ) : null}
                                 <Field label="Inventory">
                                     {tx.isCompanyInventory ? 'Company-owned stock' : 'Third-party stock'}
                                 </Field>

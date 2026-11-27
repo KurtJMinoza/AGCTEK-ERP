@@ -10,6 +10,11 @@ import {
     loadCompanyGlDefaults,
 } from './fico-company-gl-defaults'
 import { ficoTransactionKeyForPaymentMethod } from './fico-treasury-payment-determination.policy'
+import {
+    type SalesRevenueMaterialContext,
+    salesRevenueBucketKey,
+    FicoSdSalesRevenueResolutionService,
+} from './fico-sd-sales-revenue-resolution'
 
 type FlatLine = {
     glAccountId: string
@@ -49,12 +54,15 @@ export class FicoSdPostingService {
         private readonly prisma: PrismaService,
         private readonly accountResolution: FicoAccountResolutionService,
         private readonly treasuryPayment: FicoTreasuryPaymentResolutionService,
+        private readonly salesRevenueResolution: FicoSdSalesRevenueResolutionService,
     ) {}
 
     isSdAccountingPayload(payload: MmAccountingDispatchPayload): boolean {
         return (
             payload.sourceModule === 'SD' ||
             payload.eventType.startsWith('Pos') ||
+            payload.eventType === 'ExtPlatformSaleApproved' ||
+            payload.eventType === 'ExtPlatformSaleVoided' ||
             payload.eventType === 'SdCustomerCollection' ||
             payload.eventType === 'SdSalesReturnRefundPaid' ||
             payload.eventType === 'SdSalesReturnCreditMemo'
@@ -66,6 +74,9 @@ export class FicoSdPostingService {
     ): Promise<FlatLine[]> {
         if (payload.eventType === 'PosSaleCompleted') {
             return this.posSaleLines(payload)
+        }
+        if (payload.eventType === 'ExtPlatformSaleApproved') {
+            return this.extPlatformSaleLines(payload)
         }
         if (payload.eventType === 'PosCollectionCompleted') {
             return this.posCollectionLines(payload)
@@ -227,7 +238,10 @@ export class FicoSdPostingService {
         } catch (error) {
             if (
                 dimensions?.valuationClassId?.trim() ||
-                dimensions?.paymentMethodCode?.trim()
+                dimensions?.materialTypeCode?.trim() ||
+                dimensions?.materialGroupCode?.trim() ||
+                dimensions?.paymentMethodCode?.trim() ||
+                dimensions?.salesChannelCode?.trim()
             ) {
                 const message =
                     error instanceof Error
@@ -320,7 +334,14 @@ export class FicoSdPostingService {
                         lineTotal: true,
                         materialId: true,
                         material: {
-                            select: { valuationClassId: true },
+                            select: {
+                                materialCode: true,
+                                valuationClassId: true,
+                                materialType: { select: { code: true } },
+                                materialCategory: {
+                                    select: { code: true, name: true },
+                                },
+                            },
                         },
                     },
                 },
@@ -406,6 +427,114 @@ export class FicoSdPostingService {
 
         this.assertBalanced(lines, sale.orderNumber)
         return lines
+    }
+
+    /**
+     * External platform sale (Shopee, Lazada, …): Dr marketplace AR / Cr revenue (+ output tax).
+     * No cash clearing — settlement is a separate event when the platform pays out.
+     */
+    private async extPlatformSaleLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & {
+            transactionNumber: string
+            totalAmount: string
+            taxAmount?: string
+            salesSourceCode?: string
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const totalAmount = new Decimal(data.totalAmount)
+        const taxAmount = new Decimal(data.taxAmount ?? '0')
+        const netRevenue = Decimal.max(totalAmount.minus(taxAmount), new Decimal(0))
+        const channelCode = data.salesSourceCode?.trim().toUpperCase() ?? 'EXT_PLATFORM'
+
+        const lines = await this.prisma.sdExtPlatformTransactionLine.findMany({
+            where: { transactionId: payload.documentId },
+            select: {
+                taxAmount: true,
+                grossAmount: true,
+                materialId: true,
+                material: {
+                    select: {
+                        materialCode: true,
+                        valuationClassId: true,
+                        materialType: { select: { code: true } },
+                        materialCategory: { select: { code: true, name: true } },
+                    },
+                },
+            },
+        })
+
+        const flat: FlatLine[] = []
+        if (totalAmount.gt(0)) {
+            let arAccountId = settings.defaultReceivableAccountId
+            try {
+                arAccountId = await this.resolveRuleAccount(
+                    payload.companyId,
+                    postingDate,
+                    currency,
+                    'ACCOUNTS_RECEIVABLE',
+                    'DEBIT',
+                    settings.defaultReceivableAccountId,
+                    { salesChannelCode: channelCode },
+                )
+            } catch {
+                arAccountId = await this.resolveRuleAccount(
+                    payload.companyId,
+                    postingDate,
+                    currency,
+                    'ACCOUNTS_RECEIVABLE',
+                    'DEBIT',
+                    settings.defaultReceivableAccountId,
+                )
+            }
+            flat.push({
+                glAccountId: arAccountId,
+                debit: totalAmount,
+                credit: new Decimal(0),
+                description: `Marketplace receivable · ${data.transactionNumber} (${channelCode})`,
+            })
+        }
+
+        if (netRevenue.gt(0)) {
+            const revenueCredits = await this.buildPosRevenueCreditLines({
+                companyId: payload.companyId,
+                postingDate,
+                currency,
+                orderNumber: data.transactionNumber,
+                netRevenue,
+                orderLines: lines.map((line) => ({
+                    taxAmount: line.taxAmount,
+                    lineTotal: line.grossAmount,
+                    materialId: line.materialId,
+                    material: line.material,
+                })),
+                defaultRevenueAccountId: settings.defaultSalesRevenueAccountId,
+            })
+            flat.push(...revenueCredits)
+        }
+
+        if (taxAmount.gt(0)) {
+            const taxAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'OUTPUT_TAX',
+                'CREDIT',
+                settings.defaultTaxOutputAccountId,
+            )
+            flat.push({
+                glAccountId: taxAccountId,
+                debit: new Decimal(0),
+                credit: taxAmount,
+                description: `Output tax · ${data.transactionNumber}`,
+            })
+        }
+
+        this.assertBalanced(flat, data.transactionNumber)
+        return flat
     }
 
     /**
@@ -825,13 +954,18 @@ export class FicoSdPostingService {
             taxAmount: Decimal | null
             lineTotal: Decimal | null
             materialId: string | null
-            material: { valuationClassId: string | null } | null
+            material: {
+                materialCode: string | null
+                valuationClassId: string | null
+                materialType: { code: string } | null
+                materialCategory: { code: string; name: string } | null
+            } | null
         }>
         defaultRevenueAccountId: string | null
     }): Promise<FlatLine[]> {
         const buckets = new Map<
             string,
-            { valuationClassId: string | null; amount: Decimal }
+            { material: SalesRevenueMaterialContext; amount: Decimal }
         >()
         if (input.orderLines.length) {
             for (const line of input.orderLines) {
@@ -842,18 +976,31 @@ export class FicoSdPostingService {
                     new Decimal(0),
                 )
                 if (lineNet.lte(0)) continue
-                const classId = line.material?.valuationClassId ?? null
-                const key = classId ?? '__DEFAULT__'
-                const prev = buckets.get(key) ?? {
-                    valuationClassId: classId,
-                    amount: new Decimal(0),
+                const material: SalesRevenueMaterialContext = {
+                    materialId: line.materialId,
+                    materialCode: line.material?.materialCode ?? null,
+                    valuationClassId: line.material?.valuationClassId ?? null,
+                    materialTypeCode: line.material?.materialType?.code ?? null,
+                    materialCategoryCode:
+                        line.material?.materialCategory?.code ?? null,
+                    materialCategoryName:
+                        line.material?.materialCategory?.name ?? null,
                 }
+                const key = salesRevenueBucketKey(material)
+                const prev = buckets.get(key) ?? { material, amount: new Decimal(0) }
                 prev.amount = prev.amount.plus(lineNet)
                 buckets.set(key, prev)
             }
         } else {
-            buckets.set('__DEFAULT__', {
-                valuationClassId: null,
+            buckets.set('|||', {
+                material: {
+                    materialId: null,
+                    materialCode: null,
+                    valuationClassId: null,
+                    materialTypeCode: null,
+                    materialCategoryCode: null,
+                    materialCategoryName: null,
+                },
                 amount: input.netRevenue,
             })
         }
@@ -861,17 +1008,14 @@ export class FicoSdPostingService {
         const lines: FlatLine[] = []
         let allocated = new Decimal(0)
         for (const bucket of buckets.values()) {
-            const revenueAccountId = await this.resolveRuleAccount(
-                input.companyId,
-                input.postingDate,
-                input.currency,
-                'SALES_REVENUE',
-                'CREDIT',
-                bucket.valuationClassId ? null : input.defaultRevenueAccountId,
-                bucket.valuationClassId
-                    ? { valuationClassId: bucket.valuationClassId }
-                    : undefined,
-            )
+            const revenueAccountId =
+                await this.salesRevenueResolution.resolveSalesRevenueGlAccountId({
+                    companyId: input.companyId,
+                    postingDate: input.postingDate,
+                    currency: input.currency,
+                    material: bucket.material,
+                    defaultRevenueAccountId: input.defaultRevenueAccountId,
+                })
             lines.push({
                 glAccountId: revenueAccountId,
                 debit: new Decimal(0),

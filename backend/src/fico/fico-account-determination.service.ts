@@ -19,6 +19,7 @@ import {
     companyDefaultForMmPair,
     loadCompanyGlDefaults,
 } from './fico-company-gl-defaults'
+import { FicoMmMerchandisingAccountResolutionService } from './fico-mm-merchandising-account-resolution'
 
 /**
  * Transaction keys `transactionKey()` below can return. Other keys (e.g. supplier
@@ -87,11 +88,14 @@ export class FicoAccountDeterminationService {
         private readonly postingValidation: FicoPostingValidationService,
         @Optional()
         private readonly accountResolution?: FicoAccountResolutionService,
+        @Optional()
+        private readonly merchandisingResolution?: FicoMmMerchandisingAccountResolutionService,
     ) {}
 
     async resolveMmPosting(
         payload: MmAccountingDispatchPayload,
     ): Promise<ResolvedMmPostingLine[]> {
+        await this.hydrateMaterialCategoryOnLines(payload)
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
             where: { companyId: payload.companyId },
             include: {
@@ -233,15 +237,36 @@ export class FicoAccountDeterminationService {
                 chosen = legacy
             }
         } else {
-            chosen = central ?? legacy
+            chosen = central
+            if (!chosen?.length && transactionKey === 'GI_COGS') {
+                chosen = await this.tryMerchandisingGiCogs(
+                    payload,
+                    postingDate,
+                    currency,
+                )
+            }
+            if (!chosen?.length) {
+                chosen = legacy
+            }
         }
 
         if (!chosen?.length) {
+            const classified = payload.lines.some(
+                (line) =>
+                    !!line.valuationClassId?.trim() ||
+                    !!line.materialCategoryCode?.trim(),
+            )
             const companyFallback = await this.resolveCompanyDefaultMmLines(
                 payload,
                 transactionKey,
             )
             if (companyFallback?.length) {
+                if (classified && transactionKey === 'GI_COGS') {
+                    throw new FicoAccountingDeterminationException(
+                        `Material category or valuation class is set but no ${transactionKey} account determination matches. ` +
+                            'Assign a valuation class or configure GI_COGS rules per material group (e.g. CAPS → COGS/Inventory CAP accounts).',
+                    )
+                }
                 this.logger.warn(
                     `MM company GL defaults used for ${transactionKey} (company ${payload.companyId}).`,
                 )
@@ -441,6 +466,7 @@ export class FicoAccountDeterminationService {
                     currencyCode: currency,
                     transactionKeyCode: transactionKey,
                     valuationClassId: line.valuationClassId ?? null,
+                    materialGroupCode: line.materialCategoryCode?.trim().toUpperCase() ?? null,
                     movementType: line.movementType ?? null,
                 })
                 if (result.lines.length > 2) {
@@ -495,6 +521,92 @@ export class FicoAccountDeterminationService {
                 `No automatic account-determination transaction key is defined for ${payload.eventType}.`,
             )
         }
+    }
+
+    private async hydrateMaterialCategoryOnLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<void> {
+        const needsHydration = payload.lines.some(
+            (line) => line.materialId && !line.materialCategoryCode?.trim(),
+        )
+        if (!needsHydration) return
+
+        const materialIds = [
+            ...new Set(
+                payload.lines
+                    .map((line) => line.materialId)
+                    .filter((id): id is string => !!id),
+            ),
+        ]
+        if (!materialIds.length) return
+
+        const materials = await this.prisma.mmMaterial.findMany({
+            where: { id: { in: materialIds } },
+            select: {
+                id: true,
+                valuationClassId: true,
+                valuationClass: { select: { code: true } },
+                materialCategory: { select: { code: true, name: true } },
+            },
+        })
+        const byId = new Map(materials.map((m) => [m.id, m]))
+        for (const line of payload.lines) {
+            const material = byId.get(line.materialId)
+            if (!material) continue
+            if (!line.valuationClassId && material.valuationClassId) {
+                line.valuationClassId = material.valuationClassId
+                line.valuationClassCode = material.valuationClass?.code ?? null
+            }
+            if (!line.materialCategoryCode && material.materialCategory) {
+                line.materialCategoryCode = material.materialCategory.code
+                line.materialCategoryName = material.materialCategory.name
+            }
+        }
+    }
+
+    private async tryMerchandisingGiCogs(
+        payload: MmAccountingDispatchPayload,
+        postingDate: Date,
+        currency: string,
+    ): Promise<ResolvedMmPostingLine[] | null> {
+        if (!this.merchandisingResolution) return null
+        const resolved: ResolvedMmPostingLine[] = []
+        for (const line of payload.lines) {
+            const amount = new Decimal(line.totalCost ?? 0).abs()
+            if (amount.isZero()) continue
+            const pair = await this.merchandisingResolution.resolveGiCogsPair({
+                companyId: payload.companyId,
+                postingDate,
+                currencyCode: currency,
+                line,
+            })
+            if (!pair) return null
+            resolved.push(
+                {
+                    glAccountId: pair.debitAccountId,
+                    debitAmount: amount,
+                    creditAmount: new Decimal(0),
+                    description: `GI_COGS · ${pair.determinationCode ?? 'category map'}`,
+                    materialId: line.materialId,
+                    warehouseId: line.warehouseId,
+                    transactionKey: 'GI_COGS',
+                    resolutionSource: 'CENTRAL_RULE',
+                    accountDeterminationRuleId: pair.ruleId,
+                },
+                {
+                    glAccountId: pair.creditAccountId,
+                    debitAmount: new Decimal(0),
+                    creditAmount: amount,
+                    description: `GI_COGS · inventory`,
+                    materialId: line.materialId,
+                    warehouseId: line.warehouseId,
+                    transactionKey: 'GI_COGS',
+                    resolutionSource: 'CENTRAL_RULE',
+                    accountDeterminationRuleId: pair.ruleId,
+                },
+            )
+        }
+        return resolved.length ? resolved : null
     }
 
     private async resolveCompanyDefaultMmLines(

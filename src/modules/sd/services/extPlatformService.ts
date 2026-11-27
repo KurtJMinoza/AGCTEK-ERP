@@ -53,7 +53,12 @@ export async function createSalesSource(
 
 export async function updateSalesSource(
     id: string,
-    input: Partial<Pick<SalesSource, 'name' | 'description' | 'badgeColor' | 'isActive' | 'sortOrder'>>,
+    input: Partial<
+        Pick<
+            SalesSource,
+            'name' | 'description' | 'badgeColor' | 'isActive' | 'sortOrder' | 'saleTaxPolicy'
+        >
+    >,
 ): Promise<SalesSource> {
     try {
         const { data } = await ErpAxiosBase.patch<SalesSource>(

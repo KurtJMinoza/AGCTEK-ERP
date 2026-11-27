@@ -1280,6 +1280,287 @@ export class FicoAccountsReceivableService {
     }
 
     /**
+     * After ExtPlatformSaleApproved revenue journal posts: create marketplace AR
+     * open item (subledger only — revenue journal already debited AR control).
+     */
+    async registerMarketplaceReceivableFromJournal(input: {
+        companyId: string
+        transactionId: string
+        journalEntryId: string
+        currencyCode?: string
+        postingDate?: string | Date
+    }): Promise<ArPostingResult> {
+        const existingByTx = await this.prisma.ficoArDocument.findUnique({
+            where: { sourceExtPlatformTransactionId: input.transactionId },
+            select: { id: true, journalEntryId: true },
+        })
+        if (existingByTx) {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: existingByTx.journalEntryId,
+            }
+        }
+
+        const existingByJournal = await this.prisma.ficoArDocument.findUnique({
+            where: { journalEntryId: input.journalEntryId },
+            select: { id: true, journalEntryId: true },
+        })
+        if (existingByJournal) {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: existingByJournal.journalEntryId,
+            }
+        }
+
+        const tx = await this.prisma.sdExtPlatformTransaction.findUnique({
+            where: { id: input.transactionId },
+            include: {
+                salesSource: {
+                    select: {
+                        code: true,
+                        name: true,
+                        counterpartyCustomerId: true,
+                    },
+                },
+                lines: { select: { taxAmount: true } },
+            },
+        })
+        if (!tx) {
+            throw new NotFoundException('External platform transaction not found for AR.')
+        }
+        if (tx.companyId !== input.companyId) {
+            throw new BadRequestException(
+                'Transaction company does not match the accounting event.',
+            )
+        }
+
+        const customerId = await this.resolveMarketplaceCustomerId(tx)
+        const journal = await this.prisma.ficoJournalEntry.findUnique({
+            where: { id: input.journalEntryId },
+            select: {
+                id: true,
+                companyId: true,
+                postingDate: true,
+                documentDate: true,
+                currencyCode: true,
+                status: true,
+                lines: {
+                    select: {
+                        glAccountId: true,
+                        debitAmount: true,
+                        creditAmount: true,
+                    },
+                },
+            },
+        })
+        if (!journal || journal.companyId !== input.companyId) {
+            throw new NotFoundException(
+                'Marketplace revenue journal not found for AR attach.',
+            )
+        }
+        if (journal.status !== 'POSTED') {
+            throw new BadRequestException(
+                'Revenue journal must be posted before AR subledger attach.',
+            )
+        }
+
+        const grossAmount = money(tx.grandTotal)
+        if (!grossAmount.gt(MONEY_TOLERANCE)) {
+            return {
+                created: false,
+                duplicate: false,
+                skipped: true,
+                skipReason: 'Marketplace sale has no receivable amount.',
+            }
+        }
+
+        const settings = await this.loadCompanyAccounts(input.companyId)
+        const arLine = journal.lines.find((line) =>
+            money(line.debitAmount).gt(MONEY_TOLERANCE),
+        )
+        const receivableAccountId =
+            arLine?.glAccountId ??
+            settings.defaultReceivableAccountId ??
+            (await this.resolveRuleAccount(
+                input.companyId,
+                day(journal.postingDate),
+                (journal.currencyCode || 'PHP').toUpperCase(),
+                'ACCOUNTS_RECEIVABLE',
+                'DEBIT',
+                settings.defaultReceivableAccountId,
+            ))
+        const receivableGl = await this.prisma.ficoGlAccount.findUnique({
+            where: { id: receivableAccountId },
+            select: { id: true, accountCode: true },
+        })
+        if (!receivableGl) {
+            throw new BadRequestException('Receivable G/L account was not found.')
+        }
+
+        const taxAmount = tx.lines.reduce(
+            (sum, line) => sum.plus(line.taxAmount ?? 0),
+            new Decimal(0),
+        )
+        const netAmount = Decimal.max(grossAmount.minus(taxAmount), new Decimal(0))
+        const postingDate = day(
+            input.postingDate ?? journal.postingDate ?? tx.transactionDate,
+        )
+        const documentDate = day(journal.documentDate ?? postingDate)
+        const baselineDate = postingDate
+        const dueDate = this.addDays(baselineDate, 30)
+        const currencyCode = (
+            input.currencyCode ||
+            tx.currency ||
+            journal.currencyCode ||
+            'PHP'
+        ).toUpperCase()
+
+        await this.prisma.$transaction(async (txPrisma) => {
+            const arTx = txPrisma as ArTx
+            const document = await arTx.ficoArDocument.create({
+                data: {
+                    companyId: input.companyId,
+                    customerId,
+                    sourceExtPlatformTransactionId: tx.id,
+                    journalEntryId: journal.id,
+                    documentType: 'MARKETPLACE_SALE',
+                    status: 'POSTED',
+                    referenceNumber: tx.transactionNumber,
+                    documentDate,
+                    postingDate,
+                    baselineDate,
+                    dueDate,
+                    currencyCode,
+                    netAmount,
+                    taxAmount,
+                    grossAmount,
+                    receivableAmount: grossAmount,
+                    reconciliationAccountId: receivableGl.id,
+                    reconciliationAccountCode: receivableGl.accountCode,
+                    createdBy: null,
+                },
+            })
+            await arTx.ficoArOpenItem.create({
+                data: {
+                    companyId: input.companyId,
+                    customerId,
+                    documentId: document.id,
+                    reconciliationAccountId: receivableGl.id,
+                    itemType: 'MARKETPLACE_RECEIVABLE',
+                    direction: 'DEBIT',
+                    originalAmount: grossAmount,
+                    openAmount: grossAmount,
+                    currencyCode,
+                    baselineDate,
+                    dueDate,
+                    status: 'OPEN',
+                },
+            })
+            await arTx.ficoAccountingAuditLog.create({
+                data: {
+                    companyId: input.companyId,
+                    actorId: null,
+                    action: 'AR_MARKETPLACE_ATTACH',
+                    entityType: 'FicoArDocument',
+                    entityId: document.id,
+                    newValues: {
+                        transactionId: tx.id,
+                        transactionNumber: tx.transactionNumber,
+                        salesSourceCode: tx.salesSource.code,
+                        journalEntryId: journal.id,
+                        receivableAmount: grossAmount.toString(),
+                    },
+                },
+            })
+        })
+
+        await this.recalculateCreditExposure(input.companyId, customerId)
+
+        return {
+            created: true,
+            duplicate: false,
+            journalEntryId: journal.id,
+        }
+    }
+
+  async applyMarketplaceSettlementToOpenItem(input: {
+        companyId: string
+        transactionId: string
+        clearingJournalEntryId: string
+        clearedAmount: string | number
+    }): Promise<void> {
+        const document = await this.prisma.ficoArDocument.findUnique({
+            where: { sourceExtPlatformTransactionId: input.transactionId },
+            include: { openItem: true },
+        })
+        if (!document?.openItem) {
+            throw new NotFoundException(
+                'Marketplace AR open item not found for settlement.',
+            )
+        }
+        const clearAmount = money(input.clearedAmount)
+        const openItem = document.openItem
+        const remaining = money(openItem.openAmount).minus(clearAmount)
+        const newStatus = remaining.lte(MONEY_TOLERANCE) ? 'CLEARED' : 'PARTIALLY_CLEARED'
+
+        await this.prisma.$transaction(async (txPrisma) => {
+            const arTx = txPrisma as ArTx
+            await arTx.ficoArOpenItem.update({
+                where: { id: openItem.id },
+                data: {
+                    openAmount: Decimal.max(remaining, new Decimal(0)),
+                    status: newStatus,
+                    clearedAt: newStatus === 'CLEARED' ? new Date() : openItem.clearedAt,
+                },
+            })
+            await arTx.ficoArDocument.update({
+                where: { id: document.id },
+                data: { clearingJournalEntryId: input.clearingJournalEntryId },
+            })
+            await arTx.ficoAccountingAuditLog.create({
+                data: {
+                    companyId: input.companyId,
+                    actorId: null,
+                    action: 'AR_MARKETPLACE_SETTLEMENT_CLEAR',
+                    entityType: 'FicoArDocument',
+                    entityId: document.id,
+                    newValues: {
+                        transactionId: input.transactionId,
+                        clearingJournalEntryId: input.clearingJournalEntryId,
+                        clearedAmount: clearAmount.toString(),
+                    },
+                },
+            })
+        })
+        await this.recalculateCreditExposure(input.companyId, document.customerId)
+    }
+
+    private async resolveMarketplaceCustomerId(tx: {
+        customerId: string | null
+        salesSource: {
+            code: string
+            name: string
+            counterpartyCustomerId: string | null
+        }
+    }): Promise<string> {
+        if (tx.customerId) return tx.customerId
+        if (tx.salesSource.counterpartyCustomerId) {
+            return tx.salesSource.counterpartyCustomerId
+        }
+        const fallbackNumber = `MP-${tx.salesSource.code}`
+        const fallback = await this.prisma.sdCustomer.findFirst({
+            where: { customerNumber: fallbackNumber },
+            select: { id: true },
+        })
+        if (fallback) return fallback.id
+        throw new BadRequestException(
+            `Assign a customer on the EPT or set counterparty customer on sales source ${tx.salesSource.name} (${tx.salesSource.code}) for AR.`,
+        )
+    }
+
+    /**
      * After PosCollectionCompleted journal posts: reduce/clear the POS AR open
      * item. Does not post a second clearing journal (POS collection owns GL).
      */

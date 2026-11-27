@@ -16,6 +16,7 @@ import {
     ValidateNested,
 } from 'class-validator'
 import { Transform, Type } from 'class-transformer'
+import { SD_SALE_TAX_POLICIES } from '../sd-sale-tax-policy'
 
 const trim = ({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value
@@ -71,6 +72,11 @@ export class UpdateSalesSourceDto {
     @IsOptional()
     @IsInt()
     sortOrder?: number
+
+    /** FOLLOW_MATERIAL (default) or NON_VAT_OUTPUT for this marketplace channel. */
+    @IsOptional()
+    @IsIn(SD_SALE_TAX_POLICIES)
+    saleTaxPolicy?: (typeof SD_SALE_TAX_POLICIES)[number]
 }
 
 // ── Ext Platform Transaction CRUD ──
@@ -301,6 +307,10 @@ export class PreviewExtPlatformTransactionDto {
     @IsString()
     @IsNotEmpty()
     companyId!: string
+
+    @IsOptional()
+    @IsString()
+    salesSourceId?: string
 
     /** Company-owned stock is limited by MM availability; third-party stock is not. */
     @IsOptional()

@@ -56,10 +56,14 @@ describe('FicoSdPostingService merchant fees', () => {
                 .fn()
                 .mockResolvedValue({ glAccountId: 'gl-card', source: 'PAYMENT_METHOD_GL' }),
         }
+        const salesRevenueResolution = {
+            resolveSalesRevenueGlAccountId: jest.fn(),
+        }
         const service = new FicoSdPostingService(
             prisma as never,
             accountResolution as never,
             treasuryPayment as never,
+            salesRevenueResolution as never,
         )
         const lines = await service.resolveFlatLines({
             sourceModule: 'SD',

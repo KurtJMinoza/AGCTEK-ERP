@@ -4167,6 +4167,7 @@ model FicoJournalEntry {
   treasurySettlement  FicoTreasurySettlement? @relation("FicoTreasurySettlementJournal")
   bankStatementLine   FicoTreasuryBankStatementLine? @relation("FicoBankStatementJournal")
   taxPostingSnapshots FicoTaxPostingSnapshot[] @relation("FicoTaxSnapshotJournal")
+  extPlatformSettlement SdExtPlatformTransaction? @relation("ExtPlatformSettlementJournal")
 
   @@unique([companyId, documentNumber])
   @@index([companyId, postingDate])
@@ -4542,6 +4543,8 @@ model FicoArDocument {
   sourceSalesOrder          SdSalesOrder?               @relation(fields: [sourceSalesOrderId], references: [id], onDelete: Restrict)
   sourcePosReceivableId     String?                     @unique
   sourcePosReceivable       SdPosReceivable?            @relation(fields: [sourcePosReceivableId], references: [id], onDelete: Restrict)
+  sourceExtPlatformTransactionId String?                  @unique
+  sourceExtPlatformTransaction SdExtPlatformTransaction? @relation(fields: [sourceExtPlatformTransactionId], references: [id], onDelete: Restrict)
   journalEntryId            String                      @unique
   journalEntry              FicoJournalEntry            @relation("FicoArDocumentJournal", fields: [journalEntryId], references: [id], onDelete: Restrict)
   clearingJournalEntryId    String?                     @unique
@@ -4832,6 +4835,8 @@ model FicoCompanyAccountingSettings {
   defaultFinancialDimensions       Json?
   /// Phase 01 — manual posting policy for reconciliation accounts.
   reconciliationPolicy             String                           @default("BLOCK_MANUAL") // BLOCK_MANUAL | ALLOW_MANUAL
+  /// POS checkout tax: FOLLOW_MATERIAL | NON_VAT_OUTPUT (store non-VAT while material may be VATable online).
+  posSaleTaxPolicy                 String                           @default("FOLLOW_MATERIAL")
   allowNegativePostings            Boolean                          @default(false)
   /// Phase 04.27 — maker-checker: submitter/creator may not approve or activate determination rules.
   determinationSeparationOfDuties  Boolean                          @default(true)
@@ -5779,6 +5784,7 @@ model SdCustomer {
   sdSalesReturns    SdSalesReturn[]
   crmEmailMessages  CrmEmailMessage[]
   extPlatformTransactions SdExtPlatformTransaction[] @relation("ExtPlatformTxCustomer")
+  salesSourceCounterparties SdSalesSource[] @relation("SalesSourceCounterparty")
   ficoCustomerCompanyAccounts FicoCustomerCompanyAccount[]
   ficoArCreditProfiles        FicoArCreditProfile[]
   ficoArDocuments             FicoArDocument[]
@@ -10566,12 +10572,18 @@ model SdSalesSource {
   origin      String    @default("USER") // SYSTEM | USER
   isActive    Boolean   @default(true)
   sortOrder   Int       @default(0)
+  /// Marketplace counterparty for AR when the EPT header has no customer.
+  counterpartyCustomerId String?
+  counterpartyCustomer   SdCustomer? @relation("SalesSourceCounterparty", fields: [counterpartyCustomerId], references: [id], onDelete: SetNull)
+  /// FOLLOW_MATERIAL | NON_VAT_OUTPUT — how this channel applies MM tax on sales.
+  saleTaxPolicy          String    @default("FOLLOW_MATERIAL")
   createdBy   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   transactions SdExtPlatformTransaction[]
 
   @@index([isActive, sortOrder])
+  @@index([counterpartyCustomerId])
   @@map("sd_sales_sources")
 }
 
@@ -10607,6 +10619,16 @@ model SdExtPlatformTransaction {
   settlementReference   String?
   /// Platform fees / marketplace commission.
   platformFees          Decimal   @default(0) @db.Decimal(18, 4)
+  /// PENDING | PARTIAL | SETTLED — marketplace payout lifecycle (fees at settlement per policy A).
+  settlementStatus      String    @default("PENDING")
+  /// Confirmed marketplace fees on settlement (defaults from platformFees when not supplied).
+  actualPlatformFees    Decimal?  @db.Decimal(18, 4)
+  /// Bank / payout amount received from the marketplace.
+  actualPayout          Decimal?  @db.Decimal(18, 4)
+  settledAt             DateTime?
+  settlementJournalEntryId String? @unique
+  settlementJournalEntry FicoJournalEntry? @relation("ExtPlatformSettlementJournal", fields: [settlementJournalEntryId], references: [id], onDelete: SetNull)
+  ficoArDocument        FicoArDocument?
   remarks               String?
   /// Whether the inventory is company-owned (true = deduct stock) or third-party.
   isCompanyInventory    Boolean   @default(true)

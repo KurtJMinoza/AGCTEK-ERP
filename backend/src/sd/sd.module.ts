@@ -81,6 +81,8 @@ import { ReturnRefundPostingListener } from './return-refund-posting.listener'
 import { PosEmployeeService } from './pos/pos-employee.service'
 import { ExtPlatformTransactionController } from './ext-platform-transaction.controller'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
+import { SdExtPlatformSettlementService } from './sd-ext-platform-settlement.service'
+import { SdSaleTaxResolutionService } from './sd-sale-tax-resolution.service'
 
 @Module({
     imports: [
@@ -168,6 +170,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         PosRevenuePostingListener,
         ReturnRefundPostingListener,
         ExtPlatformTransactionService,
+        SdExtPlatformSettlementService,
+        SdSaleTaxResolutionService,
     ],
     exports: [
         SalesOrderService,

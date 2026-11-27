@@ -37,6 +37,8 @@ import {
 } from '../mm/batches/line-tracking.util'
 import { parseCalendarDateString } from '../mm/common/calendar-date.util'
 import { resolveSellableProductExpiry } from './sd-product-expiry.util'
+import { FicoSdAccountingBridgeService } from '../fico/fico-sd-accounting-bridge.service'
+import { SdSaleTaxResolutionService } from './sd-sale-tax-resolution.service'
 
 const Decimal = Prisma.Decimal
 
@@ -126,6 +128,8 @@ export class ExtPlatformTransactionService {
         private readonly products: ProductService,
         private readonly availability: CommercialAvailabilityService,
         private readonly goodsIssue: GoodsIssueService,
+        private readonly sdAccounting: FicoSdAccountingBridgeService,
+        private readonly saleTax: SdSaleTaxResolutionService,
     ) {}
 
     // ─── Sales Sources ───────────────────────────────────────────
@@ -170,6 +174,7 @@ export class ExtPlatformTransactionService {
                 badgeColor: dto.badgeColor,
                 isActive: dto.isActive,
                 sortOrder: dto.sortOrder,
+                saleTaxPolicy: dto.saleTaxPolicy,
             },
         })
     }
@@ -296,6 +301,7 @@ export class ExtPlatformTransactionService {
             dto.companyId,
             dto.transactionDate,
             dto.isCompanyInventory ?? true,
+            dto.salesSourceId,
         )
         const { subtotal, discountTotal, taxTotal, grandTotal } =
             headerTotals(lines)
@@ -369,6 +375,7 @@ export class ExtPlatformTransactionService {
                 existing.companyId,
                 txDate,
                 dto.isCompanyInventory ?? existing.isCompanyInventory,
+                dto.salesSourceId ?? existing.salesSourceId,
             )
             linesData = lines
             totals = headerTotals(lines)
@@ -449,10 +456,24 @@ export class ExtPlatformTransactionService {
         }
 
         try {
+            if (dto.status === 'CONFIRMED' || dto.status === 'APPROVED') {
+                await this.refreshTransactionLinesTaxFromMaterial(existing.id)
+                await this.assertTaxConfiguredForApproval(existing.id)
+            }
             // Company-owned stock leaves MM only when the sale is approved;
             // voiding an approved sale returns it.
             if (dto.status === 'APPROVED' && existing.isCompanyInventory) {
                 await this.issueStock(existing, actor)
+            }
+            try {
+                if (dto.status === 'APPROVED') {
+                    await this.postRevenue(existing.id, actor)
+                }
+            } catch (revenueErr) {
+                if (existing.isCompanyInventory) {
+                    await this.reverseStock(existing.id, actor)
+                }
+                throw revenueErr
             }
         } catch (err) {
             await this.prisma.sdExtPlatformTransaction.update({
@@ -506,7 +527,15 @@ export class ExtPlatformTransactionService {
         }
 
         try {
-            if (existing.status === 'APPROVED') await this.reverseStock(existing.id, actor)
+            if (existing.status === 'APPROVED') {
+                await this.reverseStock(existing.id, actor)
+                await this.sdAccounting.reverseExtPlatformRevenueJournal(
+                    existing.companyId,
+                    existing.id,
+                    reason,
+                    `ext-platform-void:${existing.id}`,
+                )
+            }
         } catch (err) {
             await this.prisma.sdExtPlatformTransaction.update({
                 where: { id },
@@ -516,6 +545,37 @@ export class ExtPlatformTransactionService {
         }
 
         return this.findById(id)
+    }
+
+    /** SD revenue + marketplace AR when the sale is approved (COGS remains on MM GI). */
+    private async postRevenue(transactionId: string, _actor: string | null) {
+        const tx = await this.prisma.sdExtPlatformTransaction.findUnique({
+            where: { id: transactionId },
+            include: { salesSource: { select: { code: true } } },
+        })
+        if (!tx) throw new NotFoundException('Transaction not found.')
+        if (tx.grandTotal.lte(0)) return
+        const postingDate = tx.approvedAt ?? new Date()
+        await this.sdAccounting.recordAndDispatch({
+            eventType: 'ExtPlatformSaleApproved',
+            documentType: 'EXT_PLATFORM_SALE',
+            documentId: tx.id,
+            companyId: tx.companyId,
+            postingDate,
+            currencyCode: tx.currency ?? 'PHP',
+            idempotencyKey: `ext-platform-revenue:${tx.id}`,
+            totalValue: tx.grandTotal,
+            payload: {
+                transactionId: tx.id,
+                transactionNumber: tx.transactionNumber,
+                companyId: tx.companyId,
+                branchId: tx.branchId,
+                salesSourceCode: tx.salesSource.code,
+                totalAmount: tx.grandTotal.toString(),
+                taxAmount: tx.taxTotal.toString(),
+                platformFees: tx.platformFees.toString(),
+            },
+        })
     }
 
     // ─── MM stock (goods issue) ──────────────────────────────────
@@ -794,7 +854,12 @@ export class ExtPlatformTransactionService {
             })
         }
         const linked = toLinked()
-        const lines = await this.computeLines(linked, dto.companyId, dto.transactionDate)
+        const lines = await this.computeLines(
+            linked,
+            dto.companyId,
+            dto.transactionDate,
+            dto.salesSourceId,
+        )
         const byNumber = new Map(lines.map((l) => [l.lineNumber, l]))
         const sum = (pick: (l: (typeof lines)[number]) => Prisma.Decimal) =>
             lines.reduce((s, l) => s.plus(pick(l)), new Decimal(0))
@@ -832,15 +897,162 @@ export class ExtPlatformTransactionService {
                 vatAmount: sum((l) => l.taxAmount).toNumber(),
                 exemptSales: sum((l) => l.exemptAmount).toNumber(),
                 zeroRatedSales: sum((l) => l.zeroRatedAmount).toNumber(),
+                taxUnconfiguredSales: sum((l) =>
+                    !l.taxClassification || !l.taxCodeId
+                        ? l.netAmount
+                        : new Decimal(0),
+                ).toNumber(),
                 nonTaxableSales: sum((l) =>
-                    l.taxClassification ? new Decimal(0) : l.netAmount,
+                    l.taxClassification === 'NON_VAT' ? l.netAmount : new Decimal(0),
                 ).toNumber(),
                 netAmount: sum((l) => l.netAmount).toNumber(),
                 grandTotal: grandTotal.toNumber(),
                 platformFees: platformFees.toNumber(),
                 netSettlement: grandTotal.minus(platformFees).toNumber(),
             },
+            profitability: await this.buildProfitabilityPreview(
+                lines,
+                grandTotal,
+                platformFees,
+            ),
         }
+    }
+
+    private async buildProfitabilityPreview(
+        lines: Array<{ materialId: string; quantity: Prisma.Decimal }>,
+        grandTotal: Prisma.Decimal,
+        platformFees: Prisma.Decimal,
+    ) {
+        const materialIds = [...new Set(lines.map((l) => l.materialId))]
+        const materials = materialIds.length
+            ? await this.prisma.mmMaterial.findMany({
+                  where: { id: { in: materialIds } },
+                  select: { id: true, standardCost: true },
+              })
+            : []
+        const costByMaterial = new Map(
+            materials.map((m) => [m.id, new Decimal(m.standardCost ?? 0)]),
+        )
+        const inventoryCost = lines.reduce(
+            (sum, line) =>
+                sum.plus(
+                    (costByMaterial.get(line.materialId) ?? new Decimal(0)).mul(
+                        line.quantity,
+                    ),
+                ),
+            new Decimal(0),
+        )
+        const grossProfit = grandTotal.minus(inventoryCost)
+        const expectedPayout = grandTotal.minus(platformFees)
+        const contributionAfterFees = grossProfit.minus(platformFees)
+        const contributionMarginPct = grandTotal.gt(0)
+            ? contributionAfterFees.div(grandTotal).mul(100)
+            : new Decimal(0)
+        return {
+            inventoryCost: inventoryCost.toNumber(),
+            grossProfit: grossProfit.toNumber(),
+            platformFees: platformFees.toNumber(),
+            expectedPayout: expectedPayout.toNumber(),
+            contributionAfterFees: contributionAfterFees.toNumber(),
+            contributionMarginPct: contributionMarginPct.toNumber(),
+            negativeProfitWarning: contributionAfterFees.lt(0),
+        }
+    }
+
+    /** Re-snapshot line tax from current MM material + FICO before confirm/approve. */
+    private async refreshTransactionLinesTaxFromMaterial(
+        transactionId: string,
+    ): Promise<void> {
+        const tx = await this.prisma.sdExtPlatformTransaction.findUnique({
+            where: { id: transactionId },
+            include: {
+                lines: { orderBy: { lineNumber: 'asc' } },
+            },
+        })
+        if (!tx?.lines.length) return
+
+        const txDate = tx.transactionDate.toISOString().slice(0, 10)
+        const catalogLines: CatalogLine[] = tx.lines.map((line) => ({
+            lineNumber: line.lineNumber,
+            productId: line.productId ?? line.materialId,
+            variantId: line.variantId ?? null,
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            discount: Number(line.discount),
+            uomId: line.uomId ?? undefined,
+            description: line.description ?? undefined,
+            batchNumber: line.batchNumber ?? undefined,
+            lotNumber: line.lotNumber ?? undefined,
+            expiryDate: line.expiryDate
+                ? line.expiryDate.toISOString().slice(0, 10)
+                : undefined,
+            productName: line.productName ?? line.materialName ?? 'Item',
+            variantName: line.variantName,
+            productSku: line.sku ?? line.materialCode ?? '',
+            materialId: line.materialId,
+            variantBarcode: line.barcode,
+        }))
+
+        const lines = await this.computeLines(
+            catalogLines,
+            tx.companyId,
+            txDate,
+            tx.salesSourceId,
+        )
+        const totals = headerTotals(lines)
+
+        await this.prisma.$transaction(async (db) => {
+            await db.sdExtPlatformTransactionLine.deleteMany({
+                where: { transactionId },
+            })
+            await db.sdExtPlatformTransaction.update({
+                where: { id: transactionId },
+                data: {
+                    subtotal: totals.subtotal,
+                    discountTotal: totals.discountTotal,
+                    taxTotal: totals.taxTotal,
+                    grandTotal: totals.grandTotal,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- computeLines → Prisma create shape
+                    lines: { create: lines as any },
+                },
+            })
+        })
+    }
+
+    private async assertTaxConfiguredForApproval(transactionId: string) {
+        const tx = await this.prisma.sdExtPlatformTransaction.findUnique({
+            where: { id: transactionId },
+            select: { salesSourceId: true },
+        })
+        if (!tx) return
+        const channelTax = await this.saleTax.resolveExtPlatformPolicy(
+            tx.salesSourceId,
+        )
+        if (!channelTax.requireMaterialTax) return
+
+        const lines = await this.prisma.sdExtPlatformTransactionLine.findMany({
+            where: { transactionId },
+            select: {
+                lineNumber: true,
+                materialCode: true,
+                productName: true,
+                taxClassification: true,
+                taxCodeId: true,
+            },
+        })
+        const unconfigured = lines.filter(
+            (line) => !line.taxClassification || !line.taxCodeId,
+        )
+        if (!unconfigured.length) return
+        const refs = unconfigured
+            .map(
+                (line) =>
+                    `line ${line.lineNumber} (${line.productName ?? line.materialCode ?? 'item'})`,
+            )
+            .join(', ')
+        throw new BadRequestException(
+            `Tax is not configured for: ${refs}. Set tax classification and FICO tax code on the MM material before approval.`,
+        )
     }
 
     private async assertUniqueRef(
@@ -1056,6 +1268,7 @@ export class ExtPlatformTransactionService {
         companyId: string,
         transactionDate: string,
         checkStock: boolean,
+        salesSourceId?: string,
     ) {
         const links = await this.linkCatalogLines(dtoLines, companyId)
         const failed = links.find((l): l is LinkFailure => 'error' in l)
@@ -1069,7 +1282,12 @@ export class ExtPlatformTransactionService {
             const [stockError] = (await this.stockErrors(linked)).values()
             if (stockError) throw new BadRequestException(stockError)
         }
-        return this.computeLines(linked, companyId, transactionDate)
+        return this.computeLines(
+            linked,
+            companyId,
+            transactionDate,
+            salesSourceId,
+        )
     }
 
     // ─── Tax determination for lines ─────────────────────────────
@@ -1082,7 +1300,11 @@ export class ExtPlatformTransactionService {
         dtoLines: CatalogLine[],
         companyId: string,
         transactionDate: string,
+        salesSourceId?: string,
     ) {
+        const channelTax = salesSourceId
+            ? await this.saleTax.resolveExtPlatformPolicy(salesSourceId)
+            : { policy: 'FOLLOW_MATERIAL' as const, requireMaterialTax: true }
         const materialIds = dtoLines.map((l) => l.materialId)
         const materials = await this.prisma.mmMaterial.findMany({
             where: { id: { in: materialIds }, deletedAt: null },
@@ -1140,7 +1362,7 @@ export class ExtPlatformTransactionService {
             }
             const taxCode = mat.taxCode as FullTaxCode | null
 
-            const taxClassification = mat.taxClassification || null
+            let taxClassification = mat.taxClassification || null
             const taxCodeStr = taxCode?.code ?? null
             const taxCodeId = mat.taxCodeId ?? null
             let taxRate = new Decimal(0)
@@ -1152,7 +1374,12 @@ export class ExtPlatformTransactionService {
             let netAmount = lineSubtotal
             let grossAmount = lineSubtotal
 
-            if (taxCode && taxClassification) {
+            if (channelTax.policy === 'NON_VAT_OUTPUT') {
+                taxClassification = 'NON_VAT'
+                exemptAmount = lineSubtotal
+                netAmount = lineSubtotal
+                grossAmount = lineSubtotal
+            } else if (taxCode && taxClassification) {
                 const rate = resolveCurrentTaxRate(taxCode, rateDate)
                 const rateValue = rate ? new Decimal(String(rate.rate)) : new Decimal(0)
 

@@ -34,6 +34,10 @@ import {
 } from './pos-tender'
 import { POS_TENDER_SETTLEMENT_STATUS } from './pos.constants'
 import type { PosCheckoutDto, PosQuoteDto } from './dto/pos.dto'
+import {
+    SdSaleTaxResolutionService,
+    applyNonVatOutputToPosLine,
+} from '../sd-sale-tax-resolution.service'
 
 const round2 = (value: number) =>
     Math.round((value + Number.EPSILON) * 100) / 100
@@ -216,6 +220,7 @@ export class PosCheckoutService {
         private readonly customers: PosCustomerService,
         private readonly paymentMethods: PosPaymentMethodService,
         @Optional() private readonly arCreditCheck?: FicoArCreditCheckService,
+        @Optional() private readonly saleTax?: SdSaleTaxResolutionService,
     ) {}
 
     /** Ensure allocateTenders knows about admin-added payment methods. */
@@ -1097,6 +1102,17 @@ export class PosCheckoutService {
                 line.taxIncluded = round2(
                     line.lineTotal - line.lineTotal / (1 + rate / 100),
                 )
+            }
+        }
+
+        const posTax =
+            (await this.saleTax?.resolvePosPolicy(companyId)) ?? {
+                policy: 'FOLLOW_MATERIAL' as const,
+                requireMaterialTax: true,
+            }
+        if (posTax.policy === 'NON_VAT_OUTPUT') {
+            for (let i = 0; i < resolved.length; i += 1) {
+                resolved[i] = applyNonVatOutputToPosLine(resolved[i])
             }
         }
 

@@ -83,10 +83,16 @@ describe('FicoSdPostingService split POS tender', () => {
                     },
                 ),
         }
+        const salesRevenueResolution = {
+            resolveSalesRevenueGlAccountId: jest
+                .fn()
+                .mockResolvedValue('rev-perfume'),
+        }
         const service = new FicoSdPostingService(
             prisma as never,
             accountResolution as never,
             treasuryPayment as never,
+            salesRevenueResolution as never,
         )
         const lines = await service.resolveFlatLines({
             sourceModule: 'SD',

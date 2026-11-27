@@ -5,6 +5,8 @@ import { FicoAccountingEventProcessorService } from './fico-accounting-event-pro
 import { FicoAccountingEventRecoveryService } from './fico-accounting-event-recovery.service'
 import { FicoSdAccountingBridgeService } from './fico-sd-accounting-bridge.service'
 import { FicoSdPostingService } from './fico-sd-posting.service'
+import { FicoSdSalesRevenueResolutionService } from './fico-sd-sales-revenue-resolution'
+import { FicoMmMerchandisingAccountResolutionService } from './fico-mm-merchandising-account-resolution'
 import { FicoAccountDeterminationController } from './fico-account-determination.controller'
 import { FicoAccountDeterminationRulesService } from './fico-account-determination-rules.service'
 import { FicoAccountDeterminationValidationService } from './fico-account-determination-validation.service'
@@ -124,6 +126,8 @@ import { FicoTaxReconciliationService } from './fico-tax-reconciliation.service'
         FicoAccountingConsumerService,
         FicoAccountingEventProcessorService,
         FicoAccountingEventRecoveryService,
+        FicoSdSalesRevenueResolutionService,
+        FicoMmMerchandisingAccountResolutionService,
         FicoSdPostingService,
         FicoSdAccountingBridgeService,
         FicoReconciliationService,

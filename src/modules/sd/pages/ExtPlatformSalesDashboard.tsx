@@ -8,6 +8,7 @@ import {
     HiOutlineDocumentAdd,
     HiOutlineEye,
     HiOutlinePencil,
+    HiOutlineCog,
     HiOutlineRefresh,
     HiOutlineSearch,
     HiOutlineTrash,
@@ -42,6 +43,7 @@ import {
 } from '../components/extPlatformTableUi'
 import ExtPlatformTransactionDialog from '../components/ExtPlatformTransactionDialog'
 import ExtPlatformTransactionDetailDialog from '../components/ExtPlatformTransactionDetailDialog'
+import ExtPlatformSalesSourcesDialog from '../components/ExtPlatformSalesSourcesDialog'
 import { SourceBadge } from '../components/extPlatformUi'
 import POSVoidDialog from '../components/POSVoidDialog'
 import useResourceAccess from '@/utils/hooks/useResourceAccess'
@@ -108,6 +110,7 @@ export default function ExtPlatformSalesDashboard() {
     // Void (confirmed / approved sales; needs a reason)
     const [voidTx, setVoidTx] = useState<ExtPlatformTransaction | null>(null)
     const [voiding, setVoiding] = useState(false)
+    const [sourcesOpen, setSourcesOpen] = useState(false)
 
     // ── Load master data ──
 
@@ -323,6 +326,8 @@ export default function ExtPlatformSalesDashboard() {
                     <ExtPlatformTotalCell
                         total={Number(row.original.grandTotal)}
                         tax={Number(row.original.taxTotal)}
+                        saleTaxPolicy={row.original.salesSource?.saleTaxPolicy}
+                        lines={row.original.lines}
                     />
                 ),
             },
@@ -682,7 +687,17 @@ export default function ExtPlatformSalesDashboard() {
                         loadSummary()
                     }}
                 />
-                <div className="ml-auto">
+                <div className="ml-auto flex flex-wrap gap-2">
+                    {canUpdate ? (
+                        <Button
+                            size="sm"
+                            variant="default"
+                            icon={<HiOutlineCog />}
+                            onClick={() => setSourcesOpen(true)}
+                        >
+                            Channel tax
+                        </Button>
+                    ) : null}
                     <Button
                         size="sm"
                         variant="solid"
@@ -787,6 +802,12 @@ export default function ExtPlatformSalesDashboard() {
                 onVoid={handleVoid}
                 onClose={() => setVoidTx(null)}
                 formatPrice={formatMoney}
+            />
+
+            <ExtPlatformSalesSourcesDialog
+                isOpen={sourcesOpen}
+                onClose={() => setSourcesOpen(false)}
+                onSaved={setSources}
             />
 
             {/* ── Delete confirm ── */}

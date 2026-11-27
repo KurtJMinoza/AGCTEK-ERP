@@ -1,4 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+
+const Decimal = Prisma.Decimal
 import { FicoTaxCalculationService } from '../fico/fico-tax-calculation.service'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 import type { PrismaService } from '../prisma/prisma.service'
@@ -73,7 +76,10 @@ function makeService(findUnique: jest.Mock = jest.fn().mockResolvedValue(null)) 
         // Not batch-managed: line batch/lot tracking resolves to nothing in these tests.
         mmMaterial: { findMany: byIds(materials), findFirst: jest.fn().mockResolvedValue({ batchManaged: false }) },
         sdProduct: { findMany: byIds(products) },
-        sdProductVariant: { findMany: byIds(variants) },
+        sdProductVariant: {
+            findMany: byIds(variants),
+            findFirst: jest.fn().mockResolvedValue(null),
+        },
         sdExtPlatformTransaction: { findUnique },
     }
     const materialResolution = {
@@ -116,6 +122,14 @@ function makeService(findUnique: jest.Mock = jest.fn().mockResolvedValue(null)) 
         productService as unknown as ProductService,
         {} as CommercialAvailabilityService,
         {} as GoodsIssueService,
+        { recordAndDispatch: jest.fn(), reverseExtPlatformRevenueJournal: jest.fn() } as never,
+        {
+            resolveExtPlatformPolicy: jest.fn().mockResolvedValue({
+                policy: 'FOLLOW_MATERIAL',
+                requireMaterialTax: true,
+            }),
+            resolvePosPolicy: jest.fn(),
+        } as never,
     )
 }
 
@@ -153,7 +167,8 @@ describe('ExtPlatformTransactionService.preview', () => {
             vatAmount: 120,
             exemptSales: 200,
             zeroRatedSales: 0,
-            nonTaxableSales: 30,
+            taxUnconfiguredSales: 30,
+            nonTaxableSales: 0,
             netAmount: 1230,
             grandTotal: 1350,
             platformFees: 50,
@@ -333,28 +348,98 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
         claimCount?: number
         postedIssues?: Array<{ id: string; status: string }>
     } = {}) {
-        const tx = { ...baseTx, ...opts.tx }
+        const tx = {
+            ...baseTx,
+            ...opts.tx,
+            grandTotal: new Decimal(7300),
+            taxTotal: new Decimal(0),
+            platformFees: new Decimal(0),
+            currency: 'PHP',
+            salesSourceId: 'ss-1',
+            salesSource: { code: 'SHOPEE' },
+            transactionDate: new Date('2026-11-14'),
+        }
+        const persistedLine = {
+            lineNumber: 1,
+            materialId: 'm-1',
+            productId: 'p-1',
+            quantity: new Decimal(2),
+            unitPrice: new Decimal(100),
+            discount: new Decimal(0),
+            productName: 'Necklace',
+            materialCode: 'MAT-000028',
+            materialName: 'Necklace',
+            sku: 'SKU',
+            uomId: 'uom-pcs',
+            taxClassification: 'VATABLE',
+            taxCodeId: 'tc-vat',
+            barcode: null,
+            variantId: null,
+            variantName: null,
+            description: null,
+            batchNumber: null,
+            lotNumber: null,
+            expiryDate: null,
+        }
+        const sdAccounting = {
+            recordAndDispatch: jest.fn().mockResolvedValue(undefined),
+            reverseExtPlatformRevenueJournal: jest.fn().mockResolvedValue(undefined),
+        }
         const prisma = {
             sdExtPlatformTransaction: {
-                findUnique: jest.fn().mockResolvedValue(tx),
+                findUnique: jest.fn().mockImplementation((args: { include?: { lines?: unknown } }) => {
+                    if (args?.include?.lines) {
+                        return Promise.resolve({ ...tx, lines: [persistedLine] })
+                    }
+                    return Promise.resolve(tx)
+                }),
                 updateMany: jest.fn().mockResolvedValue({ count: opts.claimCount ?? 1 }),
                 update: jest.fn().mockResolvedValue(tx),
             },
             sdExtPlatformTransactionLine: {
                 findMany: jest.fn().mockResolvedValue([
-                    { materialId: 'm-1', quantity: 2, productName: 'Necklace', materialCode: 'MAT-000028' },
+                    {
+                        lineNumber: 1,
+                        materialId: 'm-1',
+                        quantity: 2,
+                        productName: 'Necklace',
+                        materialCode: 'MAT-000028',
+                        taxClassification: 'VATABLE',
+                        taxCodeId: 'tc-vat',
+                    },
                 ]),
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
             mmGoodsIssue: { findMany: jest.fn().mockResolvedValue(opts.postedIssues ?? []) },
             mmGoodsIssueLine: { deleteMany: jest.fn() },
             warehouse: { findMany: jest.fn().mockResolvedValue([]) },
-            mmMaterial: { findUnique: jest.fn().mockResolvedValue({ baseUomId: 'uom-pcs' }) },
+            mmMaterial: {
+                findMany: jest.fn().mockResolvedValue([
+                    {
+                        id: 'm-1',
+                        materialCode: 'MAT-000028',
+                        materialName: 'Necklace',
+                        sku: 'SKU',
+                        baseUomId: 'uom-pcs',
+                        salesUom: null,
+                        taxClassification: 'VATABLE',
+                        taxCodeId: 'tc-vat',
+                        priceTaxTreatment: 'VAT_INCLUSIVE',
+                        taxCode: vatCode,
+                    },
+                ]),
+                findFirst: jest
+                    .fn()
+                    .mockResolvedValue({ batchManaged: false, defaultExpiryDate: null }),
+                findUnique: jest.fn().mockResolvedValue({ baseUomId: 'uom-pcs' }),
+            },
+            sdProductVariant: { findFirst: jest.fn().mockResolvedValue(null) },
+            mmBatch: { findFirst: jest.fn().mockResolvedValue(null) },
             mmInventoryBalance: {
                 findMany: jest.fn().mockResolvedValue([
                     { warehouseId: 'wh-1', storageBinId: 'bin-1', quantity: (opts.available ?? 5) + 1, reservedQuantity: 1 },
                 ]),
             },
-            $transaction: jest.fn(),
         }
         const goodsIssue = {
             create: jest.fn().mockResolvedValue({ id: 'gi-1' }),
@@ -362,19 +447,35 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
             post: jest.fn().mockResolvedValue({ id: 'gi-1', status: 'POSTED' }),
             reverse: jest.fn().mockResolvedValue({}),
         }
+        const prismaWithTx = prisma as unknown as {
+            $transaction: jest.Mock
+        }
+        prismaWithTx.$transaction = jest
+            .fn()
+            .mockImplementation(async (fn: (db: typeof prisma) => unknown) => fn(prisma))
         const service = new ExtPlatformTransactionService(
             prisma as unknown as PrismaService,
             new FicoTaxCalculationService(),
             {} as MaterialResolutionService,
-            {} as ProductService,
+            {
+                primaryMaterialBarcodes: jest.fn().mockResolvedValue(new Map()),
+            } as unknown as ProductService,
             {} as CommercialAvailabilityService,
             goodsIssue as unknown as GoodsIssueService,
+            sdAccounting as never,
+            {
+                resolveExtPlatformPolicy: jest.fn().mockResolvedValue({
+                    policy: 'FOLLOW_MATERIAL',
+                    requireMaterialTax: true,
+                }),
+                resolvePosPolicy: jest.fn(),
+            } as never,
         )
-        return { service, prisma, goodsIssue }
+        return { service, prisma, goodsIssue, sdAccounting }
     }
 
     it('posts an MM goods issue from available stock when a company-owned sale is approved', async () => {
-        const { service, goodsIssue } = makeStatusService()
+        const { service, goodsIssue, sdAccounting } = makeStatusService()
         await service.updateStatus('tx-1', { status: 'APPROVED' }, 'user-1')
 
         expect(goodsIssue.create).toHaveBeenCalledWith(
@@ -389,6 +490,12 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
         )
         expect(goodsIssue.verifySupervisor).toHaveBeenCalledWith('gi-1', expect.objectContaining({ sourceDocumentReference: 'EPT-000001' }))
         expect(goodsIssue.post).toHaveBeenCalledWith('gi-1')
+        expect(sdAccounting.recordAndDispatch).toHaveBeenCalledWith(
+            expect.objectContaining({
+                eventType: 'ExtPlatformSaleApproved',
+                documentId: 'tx-1',
+            }),
+        )
     })
 
     it('refuses the approval and restores the status when available stock is short', async () => {
@@ -409,7 +516,7 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
     })
 
     it('voiding an approved sale reverses its goods issue and keeps the reason', async () => {
-        const { service, prisma, goodsIssue } = makeStatusService({
+        const { service, prisma, goodsIssue, sdAccounting } = makeStatusService({
             tx: { status: 'APPROVED' },
             postedIssues: [{ id: 'gi-9', status: 'POSTED' }],
         })
@@ -424,6 +531,7 @@ describe('ExtPlatformTransactionService stock movement on approval', () => {
             }),
         })
         expect(goodsIssue.reverse).toHaveBeenCalledWith('gi-9', 'user-1')
+        expect(sdAccounting.reverseExtPlatformRevenueJournal).toHaveBeenCalled()
     })
 
     it('voiding a confirmed sale moves no stock', async () => {

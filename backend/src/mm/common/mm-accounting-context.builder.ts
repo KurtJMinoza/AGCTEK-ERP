@@ -289,6 +289,7 @@ export class MmAccountingContextBuilder {
                 materialType: { select: { code: true } },
                 valuationClassId: true,
                 valuationClass: { select: { code: true } },
+                materialCategory: { select: { code: true, name: true } },
             },
         })
         const materialMap = new Map(materials.map((m) => [m.id, m]))
@@ -314,6 +315,8 @@ export class MmAccountingContextBuilder {
                 materialTypeCode: material?.materialType?.code ?? null,
                 valuationClassId: material?.valuationClassId ?? null,
                 valuationClassCode: material?.valuationClass?.code ?? null,
+                materialCategoryCode: material?.materialCategory?.code ?? null,
+                materialCategoryName: material?.materialCategory?.name ?? null,
                 movementType: line.movementType ?? defaultMovement,
                 quantity: line.quantity ?? 0,
                 unitCost: line.unitCost ?? 0,

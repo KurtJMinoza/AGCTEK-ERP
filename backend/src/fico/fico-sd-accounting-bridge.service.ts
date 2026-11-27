@@ -189,6 +189,73 @@ export class FicoSdAccountingBridgeService {
         }
     }
 
+    async reverseExtPlatformRevenueJournal(
+        companyId: string,
+        transactionId: string,
+        reason: string,
+        voidIdempotencyKey: string,
+    ): Promise<void> {
+        const journals = await this.prisma.ficoJournalEntry.findMany({
+            where: {
+                companyId,
+                status: 'POSTED',
+                OR: [
+                    {
+                        sourceDocumentId: transactionId,
+                        documentType: 'SD_REVENUE',
+                    },
+                    {
+                        idempotencyKey: {
+                            startsWith: `ext-platform-revenue:${transactionId}`,
+                        },
+                    },
+                ],
+            },
+            select: {
+                id: true,
+                documentNumber: true,
+                idempotencyKey: true,
+                companyId: true,
+            },
+            orderBy: { createdAt: 'asc' },
+        })
+        if (!journals.length) {
+            this.logger.debug(
+                `No posted EPT revenue journal to reverse for transaction ${transactionId}`,
+            )
+            return
+        }
+        for (const journal of journals) {
+            const eventKey = `${voidIdempotencyKey}:je:${journal.id}`
+            const existingEvent =
+                await this.prisma.mmAccountingEvent.findUnique({
+                    where: { idempotencyKey: eventKey },
+                    select: { status: true },
+                })
+            if (
+                existingEvent &&
+                ['CONSUMED', 'SKIPPED'].includes(existingEvent.status)
+            ) {
+                continue
+            }
+            await this.recordAndDispatch({
+                eventType: 'ExtPlatformSaleVoided',
+                documentType: 'EXT_PLATFORM_VOID',
+                documentId: transactionId,
+                companyId,
+                postingDate: new Date(),
+                currencyCode: 'PHP',
+                idempotencyKey: eventKey,
+                payload: {
+                    reversalOfJournalId: journal.id,
+                    reversalReason: reason,
+                    transactionId,
+                    reversedRevenueJournalNumber: journal.documentNumber,
+                },
+            })
+        }
+    }
+
     private async listPostedRevenueJournalsFallback(salesOrderId: string) {
         const prefix = `pos-revenue:${salesOrderId}`
         return this.prisma.ficoJournalEntry.findMany({

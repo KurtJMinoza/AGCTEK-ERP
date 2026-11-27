@@ -12,6 +12,8 @@ import { CurrentUser, type AuthRequestUser } from '../auth/auth.decorator'
 import { RequirePermission } from '../permissions/permission.guard'
 import { ExtPlatformTransactionService } from './ext-platform-transaction.service'
 import { SdExtPlatformFinanceService } from './sd-ext-platform-finance.service'
+import { SdExtPlatformSettlementService } from './sd-ext-platform-settlement.service'
+import { RecordExtPlatformSettlementDto } from './dto/ext-platform-settlement.dto'
 import {
     CreateExtPlatformTransactionDto,
     CreateSalesSourceDto,
@@ -29,6 +31,7 @@ export class ExtPlatformTransactionController {
     constructor(
         private readonly service: ExtPlatformTransactionService,
         private readonly finance: SdExtPlatformFinanceService,
+        private readonly settlement: SdExtPlatformSettlementService,
     ) {}
 
     // ── Sales Sources ────────────────────────────────────────────
@@ -96,6 +99,16 @@ export class ExtPlatformTransactionController {
         @Query('companyId') companyId?: string,
     ) {
         return this.finance.getAccountingForTransaction(id, companyId)
+    }
+
+    @Post('transactions/:id/settlement')
+    @RequirePermission(['sd.ext-platform-sales', 'fico.journal-entries'], 'update')
+    recordSettlement(
+        @Param('id') id: string,
+        @Body() dto: RecordExtPlatformSettlementDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.settlement.recordSettlement(id, dto, user)
     }
 
     @Post('transactions')

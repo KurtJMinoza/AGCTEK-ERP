@@ -403,17 +403,33 @@ export class FicoJournalService {
             }
         }
 
-        if (payload.eventType === 'PosSaleVoided' && payload.reversalOfJournalId) {
+        if (
+            (payload.eventType === 'PosSaleVoided' ||
+                payload.eventType === 'ExtPlatformSaleVoided') &&
+            payload.reversalOfJournalId
+        ) {
+            const defaultReason =
+                payload.eventType === 'ExtPlatformSaleVoided'
+                    ? 'External platform sale void reversal'
+                    : 'POS sale void reversal'
             const reversal = await this.reverseEntry(
                 payload.reversalOfJournalId,
                 {
                     companyId: payload.companyId,
                     reason:
-                        payload.reversalReason?.trim() ||
-                        'POS sale void reversal',
+                        payload.reversalReason?.trim() || defaultReason,
                     postingDate: payload.postingDate,
                 },
-                { id: 'SD_POS_VOID', name: 'POS void' },
+                {
+                    id:
+                        payload.eventType === 'ExtPlatformSaleVoided'
+                            ? 'SD_EXT_PLATFORM_VOID'
+                            : 'SD_POS_VOID',
+                    name:
+                        payload.eventType === 'ExtPlatformSaleVoided'
+                            ? 'EPT void'
+                            : 'POS void',
+                },
                 { operationalSourceReversal: true },
             )
             if (payload.mmAccountingEventId) {

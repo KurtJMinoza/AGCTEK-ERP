@@ -1,5 +1,7 @@
 // Types for External Platform Sales feature
 
+export type SdSaleTaxPolicy = 'FOLLOW_MATERIAL' | 'NON_VAT_OUTPUT'
+
 export type SalesSource = {
     id: string
     code: string
@@ -9,6 +11,7 @@ export type SalesSource = {
     origin: string
     isActive: boolean
     sortOrder: number
+    saleTaxPolicy: SdSaleTaxPolicy
 }
 
 export type ExtPlatformTransactionLine = {
@@ -79,6 +82,10 @@ export type ExtPlatformTransaction = {
     paymentMethod: string | null
     settlementReference: string | null
     platformFees: number
+    settlementStatus?: string
+    actualPlatformFees?: number | null
+    actualPayout?: number | null
+    settledAt?: string | null
     remarks: string | null
     isCompanyInventory: boolean
     createdBy: string | null
@@ -194,6 +201,7 @@ export type ExtPlatformTaxPreview = {
         exemptSales: number
         zeroRatedSales: number
         nonTaxableSales: number
+        taxUnconfiguredSales: number
         netAmount: number
         grandTotal: number
         platformFees: number

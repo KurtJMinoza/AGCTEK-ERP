@@ -22,7 +22,12 @@ describe('FicoSdPostingService partial POS sale', () => {
                             taxAmount: new Prisma.Decimal('739.29'),
                             lineTotal: new Prisma.Decimal('6900'),
                             materialId: null,
-                            material: { valuationClassId: null },
+                            material: {
+                                materialCode: null,
+                                valuationClassId: null,
+                                materialType: null,
+                                materialCategory: null,
+                            },
                         },
                     ],
                 }),
@@ -45,10 +50,16 @@ describe('FicoSdPostingService partial POS sale', () => {
                 .fn()
                 .mockResolvedValue({ glAccountId: 'cash-gl' }),
         }
+        const salesRevenueResolution = {
+            resolveSalesRevenueGlAccountId: jest
+                .fn()
+                .mockResolvedValue('rev-gl'),
+        }
         const service = new FicoSdPostingService(
             prisma as never,
             accountResolution as never,
             treasuryPayment as never,
+            salesRevenueResolution as never,
         )
         const lines = await service.resolveFlatLines({
             sourceModule: 'SD',

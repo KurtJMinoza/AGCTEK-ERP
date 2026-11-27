@@ -309,6 +309,26 @@ export class FicoAccountingEventProcessorService {
                 )
                 throw error
             }
+            return
+        }
+
+        if (payload.eventType === 'ExtPlatformSaleApproved') {
+            try {
+                await this.accountsReceivable.registerMarketplaceReceivableFromJournal({
+                    companyId: payload.companyId,
+                    transactionId: payload.documentId,
+                    journalEntryId,
+                    postingDate: payload.postingDate,
+                    currencyCode: payload.currencyCode,
+                })
+            } catch (error) {
+                this.logger.error(
+                    `Marketplace AR attach failed for EPT ${payload.documentId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                )
+                throw error
+            }
         }
     }
 
