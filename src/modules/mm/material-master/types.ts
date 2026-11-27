@@ -272,6 +272,10 @@ export interface Material {
     /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
     serialTrackingPolicy: string
     expiryManaged: boolean
+    /** Material-level default calendar expiry (YYYY-MM-DD). */
+    defaultExpiryDate?: string | null
+    /** Latest batch expiry from list reads. */
+    latestBatchExpiryDate?: string | Date | null
     qualityInspectionRequired: boolean
 
     onHandQty: number
@@ -415,6 +419,7 @@ export interface CreateMaterialPayload {
     /** NOT_SERIALIZED | SERIALIZED_AT_RECEIPT | SERIALIZED_AT_ISSUE | SERIALIZED_AT_BOTH */
     serialTrackingPolicy?: string
     expiryManaged?: boolean
+    defaultExpiryDate?: string | null
     qualityInspectionRequired?: boolean
     onHandQty?: number
     reservedQty?: number

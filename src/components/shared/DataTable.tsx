@@ -80,6 +80,8 @@ type DataTableProps<T> = {
     renderSubRow?: (row: T) => ReactNode
     /** Optional per-row class (e.g. warning tints, staggered entrance animations). */
     rowClassName?: (row: T, index: number) => string | undefined
+    /** Navigate or open detail when the row is clicked (controls are ignored). */
+    onRowClick?: (row: T) => void
     ref?: Ref<DataTableResetHandle | HTMLTableElement>
 } & TableProps
 
@@ -163,6 +165,7 @@ function DataTable<T>(props: DataTableProps<T>) {
         getRowId,
         renderSubRow,
         rowClassName,
+        onRowClick,
         ref,
         ...rest
     } = props
@@ -309,20 +312,26 @@ function DataTable<T>(props: DataTableProps<T>) {
         }
     }
 
-    const handleRowExpansion = (
+    const isInteractiveRowTarget = (event: MouseEvent<HTMLTableRowElement>) =>
+        Boolean(
+            (event.target as HTMLElement).closest(
+                'button, a, input, select, textarea, label, [data-stop-row-nav]',
+            ),
+        )
+
+    const handleRowPointer = (
         event: MouseEvent<HTMLTableRowElement>,
+        row: T,
         rowId: string,
     ) => {
-        if (loading) return
-        // Controls living inside a cell own their click; do not toggle on them.
-        if (
-            (event.target as HTMLElement).closest(
-                'button, a, input, select, textarea, label',
-            )
-        ) {
+        if (loading || isInteractiveRowTarget(event)) return
+        if (onRowClick) {
+            onRowClick(row)
             return
         }
-        setExpandedRowId((current) => (current === rowId ? null : rowId))
+        if (renderSubRow) {
+            setExpandedRowId((current) => (current === rowId ? null : rowId))
+        }
     }
 
     const totalSize = table.getTotalSize() || 1
@@ -441,7 +450,7 @@ function DataTable<T>(props: DataTableProps<T>) {
                                             <Tr
                                                 className={
                                                     classNames(
-                                                        renderSubRow &&
+                                                        (onRowClick || renderSubRow) &&
                                                             'cursor-pointer',
                                                         rowClassName?.(
                                                             row.original as T,
@@ -450,10 +459,11 @@ function DataTable<T>(props: DataTableProps<T>) {
                                                     ) || undefined
                                                 }
                                                 onClick={
-                                                    renderSubRow
+                                                    onRowClick || renderSubRow
                                                         ? (event) =>
-                                                              handleRowExpansion(
+                                                              handleRowPointer(
                                                                   event,
+                                                                  row.original as T,
                                                                   row.id,
                                                               )
                                                         : undefined

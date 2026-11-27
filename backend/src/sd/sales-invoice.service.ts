@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
+import { FICO_AR_EVENTS } from '../fico/fico-ar.constants'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoSdAccountingBridgeService } from '../fico/fico-sd-accounting-bridge.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
@@ -95,6 +97,7 @@ export class SalesInvoiceService {
         private prisma: PrismaService,
         @Optional() private readonly sdEvents?: SdEventEmitterService,
         @Optional() private readonly accounting?: FicoSdAccountingBridgeService,
+        @Optional() private readonly events?: EventEmitter2,
     ) {}
 
     async createForSalesOrder(salesOrderId: string) {
@@ -163,23 +166,25 @@ export class SalesInvoiceService {
                 include: { lines: true },
             })) ?? (await this.createForSalesOrder(salesOrderId))
 
-        let becameIssued = false
+        let newlyIssued = false
         if (invoice.status === 'DRAFT') {
+            const issuedAt = new Date()
             const updated = await this.prisma.sdSalesInvoice.updateMany({
                 where: { id: invoice.id, status: 'DRAFT' },
-                data: { status: 'ISSUED', issuedAt: new Date() },
+                data: { status: 'ISSUED', issuedAt },
             })
-            becameIssued = updated.count > 0
+            newlyIssued = updated.count > 0
         }
 
-        // Emit AR recognition before any immediate PAID clear so open item exists first.
-        if (becameIssued || invoice.status === 'ISSUED' || invoice.status === 'PAID') {
+        // Durable AR recognition via FICO bridge before any immediate PAID clear.
+        if (newlyIssued || invoice.status === 'ISSUED' || invoice.status === 'PAID') {
             await this.announceIssued(salesOrderId)
         }
 
         const order = await this.prisma.sdSalesOrder.findUnique({
             where: { id: salesOrderId },
             select: {
+                customerId: true,
                 paymentStatus: true,
                 payments: {
                     where: { status: 'Paid' },
@@ -194,6 +199,49 @@ export class SalesInvoiceService {
                 salesOrderId,
                 order.payments[0]?.paidAt ?? new Date(),
             )
+        } else if (
+            newlyIssued &&
+            order?.customerId &&
+            this.events &&
+            !this.accounting
+        ) {
+            const channelRow = await this.prisma.sdSalesOrder.findUnique({
+                where: { id: salesOrderId },
+                select: { channel: true, paymentStatus: true },
+            })
+            if (
+                channelRow?.channel === 'POS' ||
+                channelRow?.paymentStatus === 'Paid'
+            ) {
+                return this.prisma.sdSalesInvoice.findUnique({
+                    where: { id: invoice.id },
+                    include: invoiceInclude,
+                })
+            }
+            const row = await this.prisma.sdSalesInvoice.findUnique({
+                where: { id: invoice.id },
+                select: {
+                    id: true,
+                    invoiceNumber: true,
+                    companyId: true,
+                    currency: true,
+                    totalAmount: true,
+                    issuedAt: true,
+                },
+            })
+            if (row?.issuedAt) {
+                this.events.emit(FICO_AR_EVENTS.SALES_INVOICE_ISSUED, {
+                    salesInvoiceId: row.id,
+                    invoiceNumber: row.invoiceNumber,
+                    salesOrderId,
+                    customerId: order.customerId,
+                    companyId: row.companyId,
+                    currency: row.currency,
+                    totalAmount: row.totalAmount.toString(),
+                    issuedAt: row.issuedAt.toISOString(),
+                    idempotencyKey: `sd-sales-invoice:${row.id}`,
+                })
+            }
         }
 
         return this.prisma.sdSalesInvoice.findUnique({

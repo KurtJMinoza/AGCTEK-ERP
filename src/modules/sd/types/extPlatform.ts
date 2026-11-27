@@ -47,6 +47,8 @@ export type ExtPlatformTransactionLine = {
     lotNumber: string | null
     /** Barcode at sale time: the variant's, else the material's primary MM barcode. */
     barcode: string | null
+    /** Product / batch expiry at sale time (ISO date). */
+    expiryDate: string | null
 }
 
 export type ExtPlatformTransaction = {
@@ -138,6 +140,8 @@ export type CreateExtPlatformTransactionLineInput = {
     description?: string
     batchNumber?: string
     lotNumber?: string
+    /** Product expiry YYYY-MM-DD; overrides batch when set. */
+    expiryDate?: string
 }
 
 /** Live MM availability of one catalog item (same ATP the POS uses). */
@@ -150,6 +154,8 @@ export type ExtPlatformStock = {
     /** Latest MM batch on the resolved material (catalog ATP path). */
     primaryBatchNumber?: string | null
     primaryLotNumber?: string | null
+    /** FEFO batch expiry for auto-fill (YYYY-MM-DD). */
+    primaryProductExpiry?: string | null
     /** Variant barcode, else the material's primary MM barcode. */
     barcode?: string | null
 }

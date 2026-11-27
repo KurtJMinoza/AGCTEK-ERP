@@ -362,6 +362,28 @@ const MaterialsPage = () => {
                 },
             },
             {
+                header: 'Expiry',
+                id: 'materialExpiry',
+                enableSorting: false,
+                size: 120,
+                cell: ({ row }) => {
+                    const m = row.original
+                    const raw =
+                        m.defaultExpiryDate ??
+                        m.latestBatchExpiryDate ??
+                        null
+                    if (!raw) {
+                        return <span className="text-xs text-gray-400">—</span>
+                    }
+                    const iso = String(raw).slice(0, 10)
+                    return (
+                        <span className="font-mono text-xs text-gray-800 dark:text-gray-200">
+                            {iso}
+                        </span>
+                    )
+                },
+            },
+            {
                 header: 'Batch / Serial',
                 id: 'batchSerial',
                 enableSorting: false,

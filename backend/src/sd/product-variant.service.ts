@@ -17,6 +17,7 @@ import {
     type LinkableMaterial,
 } from './product-material-link.service'
 import { AddVariantDto, UpdateVariantDto } from './dto/product-variant.dto'
+import { parseCalendarDateString } from '../mm/common/calendar-date.util'
 import {
     humanCombination,
     materialCombinationKey,
@@ -363,6 +364,13 @@ export class ProductVariantService {
                 if (dto.sortOrder !== undefined) {
                     data.sortOrder = dto.sortOrder
                 }
+                if (dto.catalogExpiryDate !== undefined) {
+                    data.catalogExpiryDate =
+                        dto.catalogExpiryDate === null ||
+                        dto.catalogExpiryDate === ''
+                            ? null
+                            : parseCalendarDateString(dto.catalogExpiryDate)
+                }
                 if (dto.isDefault) {
                     await tx.sdProductVariant.updateMany({
                         where: { productId, isDefault: true },
@@ -575,6 +583,9 @@ export class ProductVariantService {
                         id: true,
                         materialId: true,
                         companyId: true,
+                        catalogExpiryDate: true,
+                        isDefault: true,
+                        material: { select: { defaultExpiryDate: true } },
                     },
                 },
             },
@@ -636,6 +647,18 @@ export class ProductVariantService {
                         : 0),
                 0,
             )
+            const primary =
+                product.variants.find((v) => v.isDefault) ??
+                product.variants[0]
+            const displayExpiryDate = primary
+                ? primary.catalogExpiryDate
+                    ? primary.catalogExpiryDate.toISOString().slice(0, 10)
+                    : primary.material?.defaultExpiryDate
+                      ? primary.material.defaultExpiryDate
+                            .toISOString()
+                            .slice(0, 10)
+                      : null
+                : null
             return {
                 productId: product.id,
                 sku: product.sku,
@@ -645,6 +668,7 @@ export class ProductVariantService {
                 onHandQty: onHand,
                 reservedQty: reserved,
                 availableQty: available,
+                displayExpiryDate,
             }
         })
     }

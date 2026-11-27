@@ -93,6 +93,11 @@ export class FicoDeterminationRuleCreateDto {
     @IsOptional()
     @IsString()
     @MaxLength(40)
+    materialGroupCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
     movementType?: string | null
 
     @IsOptional()
@@ -109,6 +114,15 @@ export class FicoDeterminationRuleCreateDto {
     @IsString()
     @MaxLength(40)
     distributionChannel?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    salesChannelCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string | null
 
     @IsOptional()
     @IsString()
@@ -218,6 +232,11 @@ export class FicoDeterminationRuleUpdateDto {
     @IsOptional()
     @IsString()
     @MaxLength(40)
+    materialGroupCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
     movementType?: string | null
 
     @IsOptional()
@@ -234,6 +253,15 @@ export class FicoDeterminationRuleUpdateDto {
     @IsString()
     @MaxLength(40)
     distributionChannel?: string | null
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    salesChannelCode?: string | null
+
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string | null
 
     @IsOptional()
     @IsString()

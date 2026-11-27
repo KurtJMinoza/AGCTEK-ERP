@@ -39,6 +39,22 @@ export function JournalPostingStatus({ status }: { status: string }) {
     )
 }
 
+const ORIGIN_TONE: Record<string, FicoBadgeTone> = {
+    MANUAL: 'default',
+    AUTOMATIC: 'info',
+    REVERSAL: 'warning',
+    SYSTEM_ADJUSTMENT: 'default',
+}
+
+export function JournalPostingOriginBadge({ origin }: { origin?: string }) {
+    if (!origin) return <span className="text-sm text-gray-400">—</span>
+    return (
+        <StatusBadge tone={ORIGIN_TONE[origin] ?? 'default'}>
+            {origin.replace(/_/g, ' ')}
+        </StatusBadge>
+    )
+}
+
 export function JournalApprovalStatus({ status }: { status: string }) {
     return (
         <StatusBadge tone={APPROVAL_STATUS_TONE[status] ?? 'default'}>

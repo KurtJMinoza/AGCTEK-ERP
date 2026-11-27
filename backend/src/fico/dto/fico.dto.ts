@@ -75,6 +75,18 @@ export class FicoReconciliationQueryDto {
     @IsString()
     currencyCode?: string
 
+    @IsOptional()
+    @IsString()
+    documentType?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentType?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentId?: string
+
     /** Optional MM supplier partner; omit to leave unchanged, empty string to clear. */
     @IsOptional()
     @IsString()
@@ -116,6 +128,18 @@ export class CreateJournalEntryDto {
     @IsString()
     currencyCode?: string
 
+    @IsOptional()
+    @IsString()
+    documentType?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentType?: string
+
+    @IsOptional()
+    @IsString()
+    sourceDocumentId?: string
+
     /** Optional MM supplier partner reference (same company). */
     @IsOptional()
     @IsString()
@@ -154,6 +178,18 @@ export class CreateJournalLineDto {
     @IsOptional()
     @IsString()
     description?: string
+
+    @IsOptional()
+    @IsString()
+    branchId?: string
+
+    @IsOptional()
+    @IsString()
+    costCenterId?: string
+
+    @IsOptional()
+    @IsString()
+    profitCenterId?: string
 }
 
 export class FicoTrialBalanceQueryDto {
@@ -232,11 +268,31 @@ export class JournalEntryListQueryDto {
 
     @IsOptional()
     @IsString()
+    sourceDocumentType?: string
+
+    @IsOptional()
+    @IsString()
     sourceDocumentId?: string
 
     @IsOptional()
     @IsString()
+    sourceDocumentNumber?: string
+
+    @IsOptional()
+    @IsString()
+    postingOrigin?: string
+
+    @IsOptional()
+    @IsString()
     supplierId?: string
+
+    @IsOptional()
+    @IsString()
+    customerId?: string
+
+    @IsOptional()
+    @IsString()
+    branchId?: string
 
     @IsOptional()
     @IsString()

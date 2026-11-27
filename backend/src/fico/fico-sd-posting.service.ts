@@ -3,6 +3,11 @@ import { Prisma } from '@prisma/client'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoAccountResolutionService } from './fico-account-resolution.service'
+import { FicoTreasuryPaymentResolutionService } from './fico-treasury-payment-resolution.service'
+import {
+    companyDefaultForSdRole,
+    loadCompanyGlDefaults,
+} from './fico-company-gl-defaults'
 
 const Decimal = Prisma.Decimal
 
@@ -28,6 +33,7 @@ export class FicoSdPostingService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly accountResolution: FicoAccountResolutionService,
+        private readonly treasuryPayment: FicoTreasuryPaymentResolutionService,
     ) {}
 
     isSdAccountingPayload(payload: MmAccountingDispatchPayload): boolean {
@@ -35,7 +41,8 @@ export class FicoSdPostingService {
             payload.sourceModule === 'SD' ||
             payload.eventType.startsWith('Pos') ||
             payload.eventType === 'SdCustomerCollection' ||
-            payload.eventType === 'SdSalesReturnRefundPaid'
+            payload.eventType === 'SdSalesReturnRefundPaid' ||
+            payload.eventType === 'SdSalesReturnCreditMemo'
         )
     }
 
@@ -50,6 +57,18 @@ export class FicoSdPostingService {
         }
         if (payload.eventType === 'SdSalesReturnRefundPaid') {
             return this.salesReturnRefundLines(payload)
+        }
+        if (payload.eventType === 'SdCustomerCollection') {
+            return this.sdInvoiceCollectionLines(payload)
+        }
+        if (payload.eventType === 'PosSaleRefunded') {
+            return this.posSaleRefundLines(payload)
+        }
+        if (payload.eventType === 'PosCustomerDepositCompleted') {
+            return this.posCustomerDepositLines(payload)
+        }
+        if (payload.eventType === 'SdSalesReturnCreditMemo') {
+            return this.sdSalesReturnCreditMemoLines(payload)
         }
         throw new BadRequestException(
             `SD automatic posting is not implemented for ${payload.eventType}.`,
@@ -82,8 +101,74 @@ export class FicoSdPostingService {
             ACCOUNTS_RECEIVABLE: 'CUSTOMER_RECON',
             PAYMENT_CLEARING: 'PAYMENT_CLEARING',
             CUSTOMER_PAYMENT: 'PAYMENT_CLEARING',
+            CUSTOMER_ADVANCE: 'CUSTOMER_ADVANCE',
+            BANK_CHARGES: 'BANK_CHARGES',
+            SALES_RETURN: 'SALES_RETURN',
         }
         return map[transactionType] ?? transactionType
+    }
+
+    private async merchantFeeParts(methodCode: string, gross: Prisma.Decimal) {
+        const method = await this.prisma.sdPaymentMethod.findUnique({
+            where: { code: methodCode },
+            select: { merchantFeeRate: true, merchantFeeFlat: true },
+        })
+        let fee = new Decimal(0)
+        if (method?.merchantFeeFlat) {
+            fee = fee.plus(method.merchantFeeFlat)
+        }
+        if (method?.merchantFeeRate) {
+            fee = fee.plus(gross.mul(method.merchantFeeRate).div(100))
+        }
+        fee = fee.toDecimalPlaces(4)
+        return { gross, net: gross.minus(fee), fee }
+    }
+
+    private async pushTenderSettlementDebits(
+        lines: FlatLine[],
+        input: {
+            companyId: string
+            chartId: string
+            postingDate: Date
+            currency: string
+            cashFallbackId: string | null
+            label: string
+        },
+        tender: { method: string; amount: string },
+    ) {
+        const gross = new Decimal(tender.amount)
+        if (gross.lte(0)) return
+        const { net, fee } = await this.merchantFeeParts(tender.method, gross)
+        const glAccountId = await this.resolvePaymentClearingAccount(
+            input.companyId,
+            input.chartId,
+            tender.method,
+            input.postingDate,
+            input.currency,
+            input.cashFallbackId,
+        )
+        lines.push({
+            glAccountId,
+            debit: net,
+            credit: new Decimal(0),
+            description: `${input.label} · ${tender.method}`,
+        })
+        if (fee.gt(0)) {
+            const feeAccountId = await this.resolveRuleAccount(
+                input.companyId,
+                input.postingDate,
+                input.currency,
+                'BANK_CHARGES',
+                'DEBIT',
+                null,
+            )
+            lines.push({
+                glAccountId: feeAccountId,
+                debit: fee,
+                credit: new Decimal(0),
+                description: `Merchant fee · ${tender.method}`,
+            })
+        }
     }
 
     private async resolveRuleAccount(
@@ -109,9 +194,29 @@ export class FicoSdPostingService {
                     ? resolved.resolution.debitLines
                     : resolved.resolution.creditLines
             if (lines[0]?.glAccountId) return lines[0].glAccountId
-            return resolved.glAccountId
+            if (resolved.glAccountId) return resolved.glAccountId
+            if (fallbackAccountId) return fallbackAccountId
+            const defaults = await loadCompanyGlDefaults(this.prisma, companyId)
+            const companyFallback = companyDefaultForSdRole(
+                defaults,
+                transactionType as 'ACCOUNTS_RECEIVABLE',
+            )
+            if (companyFallback) return companyFallback
+            throw new BadRequestException(
+                `No G/L account could be resolved for SD ${transactionType} (${side}).`,
+            )
         } catch (error) {
             if (fallbackAccountId) return fallbackAccountId
+            const defaults = await loadCompanyGlDefaults(this.prisma, companyId)
+            const companyFallback = companyDefaultForSdRole(
+                defaults,
+                transactionType as
+                    | 'ACCOUNTS_RECEIVABLE'
+                    | 'SALES_REVENUE'
+                    | 'OUTPUT_TAX'
+                    | 'PAYMENT_CLEARING',
+            )
+            if (companyFallback) return companyFallback
             const message =
                 error instanceof Error
                     ? error.message
@@ -128,30 +233,25 @@ export class FicoSdPostingService {
         currency: string,
         cashFallbackId: string | null,
     ): Promise<string> {
-        const method = await this.prisma.sdPaymentMethod.findUnique({
-            where: { code: methodCode },
-            select: { glAccountCode: true },
-        })
-        if (method?.glAccountCode) {
-            const account = await this.prisma.ficoGlAccount.findFirst({
-                where: {
-                    chartOfAccountsId: chartId,
-                    accountCode: method.glAccountCode,
-                    status: 'ACTIVE',
-                    isPostingAccount: true,
-                },
-                select: { id: true },
+        try {
+            const resolved = await this.treasuryPayment.resolvePaymentAccount({
+                companyId,
+                paymentMethodCode: methodCode,
+                currencyCode: currency,
+                postingDate,
+                side: 'DEBIT',
             })
-            if (account) return account.id
+            return resolved.glAccountId
+        } catch {
+            return this.resolveRuleAccount(
+                companyId,
+                postingDate,
+                currency,
+                'PAYMENT_CLEARING',
+                'DEBIT',
+                cashFallbackId,
+            )
         }
-        return this.resolveRuleAccount(
-            companyId,
-            postingDate,
-            currency,
-            'PAYMENT_CLEARING',
-            'DEBIT',
-            cashFallbackId,
-        )
     }
 
     private async posSaleLines(
@@ -179,23 +279,16 @@ export class FicoSdPostingService {
         const netRevenue = totalAmount.minus(totalVat)
 
         const lines: FlatLine[] = []
+        const tenderCtx = {
+            companyId: payload.companyId,
+            chartId: settings.chartOfAccountsId!,
+            postingDate,
+            currency,
+            cashFallbackId: settings.defaultCashAccountId,
+            label: `${sale.orderNumber} tender`,
+        }
         for (const tender of sale.tenders ?? []) {
-            const amount = new Decimal(tender.amount)
-            if (amount.lte(0)) continue
-            const glAccountId = await this.resolvePaymentClearingAccount(
-                payload.companyId,
-                settings.chartOfAccountsId!,
-                tender.method,
-                postingDate,
-                currency,
-                settings.defaultCashAccountId,
-            )
-            lines.push({
-                glAccountId,
-                debit: amount,
-                credit: new Decimal(0),
-                description: `${tender.method} tender · ${sale.orderNumber}`,
-            })
+            await this.pushTenderSettlementDebits(lines, tenderCtx, tender)
         }
 
         const outstanding = new Decimal(sale.outstandingBalance ?? '0')
@@ -405,23 +498,16 @@ export class FicoSdPostingService {
         const currency = payload.currencyCode
         const lines: FlatLine[] = []
 
+        const tenderCtx = {
+            companyId: payload.companyId,
+            chartId: settings.chartOfAccountsId!,
+            postingDate,
+            currency,
+            cashFallbackId: settings.defaultCashAccountId,
+            label: `Collection ${data.collectionNumber}`,
+        }
         for (const tender of data.tenders ?? []) {
-            const amount = new Decimal(tender.amount)
-            if (amount.lte(0)) continue
-            const glAccountId = await this.resolvePaymentClearingAccount(
-                payload.companyId,
-                settings.chartOfAccountsId!,
-                tender.method,
-                postingDate,
-                currency,
-                settings.defaultCashAccountId,
-            )
-            lines.push({
-                glAccountId,
-                debit: amount,
-                credit: new Decimal(0),
-                description: `${tender.method} collection · ${data.collectionNumber}`,
-            })
+            await this.pushTenderSettlementDebits(lines, tenderCtx, tender)
         }
 
         const collected = new Decimal(data.collectedAmount)
@@ -443,6 +529,228 @@ export class FicoSdPostingService {
         }
 
         this.assertBalanced(lines, data.collectionNumber)
+        return lines
+    }
+
+    private async sdInvoiceCollectionLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & {
+            collectedAmount: string
+            invoiceNumber: string
+            salesOrderId: string
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const collected = new Decimal(data.collectedAmount)
+        const lines: FlatLine[] = []
+
+        const bankAccountId = await this.resolvePaymentClearingAccount(
+            payload.companyId,
+            settings.chartOfAccountsId!,
+            'BANK_TRANSFER',
+            postingDate,
+            currency,
+            settings.defaultCashAccountId,
+        )
+        lines.push({
+            glAccountId: bankAccountId,
+            debit: collected,
+            credit: new Decimal(0),
+            description: `Invoice settlement · ${data.invoiceNumber}`,
+        })
+
+        const arAccountId = await this.resolveRuleAccount(
+            payload.companyId,
+            postingDate,
+            currency,
+            'ACCOUNTS_RECEIVABLE',
+            'CREDIT',
+            settings.defaultReceivableAccountId,
+        )
+        lines.push({
+            glAccountId: arAccountId,
+            debit: new Decimal(0),
+            credit: collected,
+            description: `AR cleared · ${data.invoiceNumber}`,
+        })
+
+        this.assertBalanced(lines, data.invoiceNumber)
+        return lines
+    }
+
+    private async posSaleRefundLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & SdSalePayload & {
+            refundNumber?: string
+            tenders?: Array<{ method: string; amount: string }>
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const refundTotal = new Decimal(data.totalAmount)
+        const order = await this.prisma.sdSalesOrder.findUnique({
+            where: { id: data.salesOrderId },
+            select: {
+                totalAmount: true,
+                lines: { select: { taxAmount: true } },
+            },
+        })
+        const orderVat =
+            order?.lines.reduce(
+                (sum, line) => sum.plus(line.taxAmount ?? 0),
+                new Decimal(0),
+            ) ?? new Decimal(data.taxAmount ?? 0)
+        const orderTotal = new Decimal(order?.totalAmount ?? refundTotal)
+        const ratio = orderTotal.gt(0) ? refundTotal.div(orderTotal) : new Decimal(1)
+        const refundVat = orderVat.mul(ratio).toDecimalPlaces(4)
+        const netRefund = refundTotal.minus(refundVat)
+        const lines: FlatLine[] = []
+
+        for (const tender of data.tenders ?? []) {
+            const amount = new Decimal(tender.amount)
+            if (amount.lte(0)) continue
+            const glAccountId = await this.resolvePaymentClearingAccount(
+                payload.companyId,
+                settings.chartOfAccountsId!,
+                tender.method,
+                postingDate,
+                currency,
+                settings.defaultCashAccountId,
+            )
+            lines.push({
+                glAccountId,
+                debit: new Decimal(0),
+                credit: amount,
+                description: `Refund ${tender.method} · ${data.orderNumber}`,
+            })
+        }
+
+        if (netRefund.gt(0)) {
+            const revenueAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'SALES_REVENUE',
+                'DEBIT',
+                settings.defaultSalesRevenueAccountId,
+            )
+            lines.push({
+                glAccountId: revenueAccountId,
+                debit: netRefund,
+                credit: new Decimal(0),
+                description: `Sales return · ${data.orderNumber}`,
+            })
+        }
+
+        if (refundVat.gt(0)) {
+            const taxAccountId = await this.resolveRuleAccount(
+                payload.companyId,
+                postingDate,
+                currency,
+                'OUTPUT_TAX',
+                'DEBIT',
+                settings.defaultTaxOutputAccountId,
+            )
+            lines.push({
+                glAccountId: taxAccountId,
+                debit: refundVat,
+                credit: new Decimal(0),
+                description: `Output tax reversal · ${data.orderNumber}`,
+            })
+        }
+
+        this.assertBalanced(lines, data.refundNumber ?? data.orderNumber)
+        return lines
+    }
+
+    private async posCustomerDepositLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & {
+            depositAmount: string
+            reference: string
+            customerId: string
+            tenders?: Array<{ method: string; amount: string }>
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const deposit = new Decimal(data.depositAmount)
+        const lines: FlatLine[] = []
+        const tenderCtx = {
+            companyId: payload.companyId,
+            chartId: settings.chartOfAccountsId!,
+            postingDate,
+            currency,
+            cashFallbackId: settings.defaultCashAccountId,
+            label: `Deposit ${data.reference}`,
+        }
+        for (const tender of data.tenders ?? []) {
+            await this.pushTenderSettlementDebits(lines, tenderCtx, tender)
+        }
+        const advanceAccountId = await this.resolveRuleAccount(
+            payload.companyId,
+            postingDate,
+            currency,
+            'CUSTOMER_ADVANCE',
+            'CREDIT',
+            null,
+        )
+        lines.push({
+            glAccountId: advanceAccountId,
+            debit: new Decimal(0),
+            credit: deposit,
+            description: `Customer advance · ${data.reference}`,
+        })
+        this.assertBalanced(lines, data.reference)
+        return lines
+    }
+
+    private async sdSalesReturnCreditMemoLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<FlatLine[]> {
+        const data = payload as MmAccountingDispatchPayload & {
+            creditAmount: string
+            returnNumber: string
+        }
+        const settings = await this.loadCompanyAccounts(payload.companyId)
+        const postingDate = new Date(payload.postingDate)
+        const currency = payload.currencyCode
+        const amount = new Decimal(data.creditAmount)
+        const salesReturnAccountId = await this.resolveRuleAccount(
+            payload.companyId,
+            postingDate,
+            currency,
+            'SALES_RETURN',
+            'DEBIT',
+            null,
+        )
+        const arAccountId = await this.resolveRuleAccount(
+            payload.companyId,
+            postingDate,
+            currency,
+            'ACCOUNTS_RECEIVABLE',
+            'CREDIT',
+            settings.defaultReceivableAccountId,
+        )
+        const lines: FlatLine[] = [
+            {
+                glAccountId: salesReturnAccountId,
+                debit: amount,
+                credit: new Decimal(0),
+                description: `Sales return · ${data.returnNumber}`,
+            },
+            {
+                glAccountId: arAccountId,
+                debit: new Decimal(0),
+                credit: amount,
+                description: `Customer credit · ${data.returnNumber}`,
+            },
+        ]
+        this.assertBalanced(lines, data.returnNumber)
         return lines
     }
 

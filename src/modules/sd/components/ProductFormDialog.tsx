@@ -101,6 +101,8 @@ const productSchema = z
             dimensions: z.string().trim().max(120),
             volume: z.string().trim().max(120),
         }),
+        /** Catalog expiry override (YYYY-MM-DD); overrides MM reference when set. */
+        catalogExpiryDate: z.string().optional().or(z.literal('')),
     })
     .refine(
         (values) =>
@@ -224,6 +226,7 @@ const toFormValues = (
               materialLinkMode: 'single',
               materialIds: [],
               materialId: '',
+              catalogExpiryDate: '',
               measurements: productMeasurements(product),
           }
         : {
@@ -247,6 +250,7 @@ const toFormValues = (
               materialLinkMode: 'single',
               materialIds: [],
               materialId: '',
+              catalogExpiryDate: '',
               measurements: { ...EMPTY_MEASUREMENTS },
           }
 
@@ -432,6 +436,27 @@ const ProductFormDialog = ({
         setOptionsInitial(null)
         setOptionsDraft(null)
     }, [isOpen, product, defaultDivisionId, reset])
+
+    useEffect(() => {
+        if (!isOpen || !editing || !product?.id) return
+        let cancelled = false
+        void productOptionVariantsService
+            .getForProduct(product.id)
+            .then((payload) => {
+                if (cancelled) return
+                const variant =
+                    payload.variants.find((v) => v.isDefault) ??
+                    payload.variants[0]
+                const raw = (variant as { catalogExpiryDate?: string | null })
+                    ?.catalogExpiryDate
+                if (raw) {
+                    setValue('catalogExpiryDate', String(raw).slice(0, 10))
+                }
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [isOpen, editing, product?.id, setValue])
 
     const divisionId = useWatch({ control, name: 'divisionId' })
     const autoGenerateSku = useWatch({ control, name: 'autoGenerateSku' })
@@ -824,6 +849,7 @@ const ProductFormDialog = ({
             imageGallery,
             attributes,
             ...(mmCategory ? { category: mmCategory } : {}),
+            catalogExpiryDate: values.catalogExpiryDate?.trim() || null,
         }
         if (optionsDraft) {
             payload.optionsVariants = optionsDraft

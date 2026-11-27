@@ -107,6 +107,7 @@ export class FicoFinancialPostingEngine {
                 sourceDocumentType: request.sourceDocumentType ?? null,
                 sourceDocumentId: request.sourceDocumentId ?? null,
                 supplierId: request.supplierId ?? null,
+                customerId: request.customerId ?? null,
                 sourcePostingKey: request.sourcePostingKey ?? null,
                 metadata: request.metadata
                     ? (request.metadata as Prisma.InputJsonValue)

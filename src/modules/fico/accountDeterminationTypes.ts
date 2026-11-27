@@ -118,6 +118,7 @@ export type TransactionKeyCatalogRow = {
     owningModule: string
     integrationStatus: string
     accountingCategory: string
+    supportedSourceModules?: string[]
 }
 
 export type FicoDeterminationExceptionCategory =

@@ -239,15 +239,21 @@ export class PosRefundService {
             `Refund ${refundNumber} created for ${order.orderNumber}: ₱${totalRefundFromLines} across ${refundTenders.length} tender(s)`,
         )
 
-        // Emit event for downstream consumers (accounting reversal, etc.)
-        await this.sdEvents.emit(SD_EVENTS.POS_SALE_VOIDED, {
+        await this.sdEvents.emit(SD_EVENTS.POS_SALE_REFUNDED, {
             salesOrderId: order.id,
             orderNumber: order.orderNumber,
             receiptNumber: order.receiptNumber,
-            companyId: order.companyId,
+            companyId: order.companyId!,
+            customerId: order.customerId,
             refundNumber,
             totalAmount: totalRefundFromLines.toFixed(2),
+            taxAmount: '0',
+            tenders: refundTenders.map((t) => ({
+                method: t.paymentMethod,
+                amount: t.amount.toFixed(2),
+            })),
             reason: input.reason ?? 'Partial refund',
+            idempotencyKey: `pos-refund:${refundNumber}`,
         })
 
         return {

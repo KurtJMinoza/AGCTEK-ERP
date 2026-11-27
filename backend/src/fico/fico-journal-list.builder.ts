@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import type { JournalEntryListQueryDto } from './dto/fico.dto'
+import type { FicoJournalPostingOrigin } from './fico-journal-origin.policy'
 
 function parseFilterDate(value: string | undefined, endOfDay: boolean): Date | null {
     if (!value?.trim()) return null
@@ -37,8 +38,74 @@ export function buildJournalListWhere(
             where.sourceModule = module
         }
     }
+    if (query.sourceDocumentType) where.sourceDocumentType = query.sourceDocumentType
     if (query.sourceDocumentId) where.sourceDocumentId = query.sourceDocumentId
     if (query.supplierId) where.supplierId = query.supplierId
+    if (query.customerId) where.customerId = query.customerId
+    if (query.branchId) {
+        where.OR = [
+            ...(where.OR ?? []),
+            { mmAccountingEvent: { branchId: query.branchId } },
+            { lines: { some: { branchId: query.branchId } } },
+        ]
+    }
+
+    if (query.sourceDocumentNumber?.trim()) {
+        const term = query.sourceDocumentNumber.trim()
+        const sourceNumberOr: Prisma.FicoJournalEntryWhereInput[] = [
+            { mmAccountingEvent: { sourceDocumentNumber: { contains: term, mode: 'insensitive' } } },
+            { documentNumber: { contains: term, mode: 'insensitive' } },
+            { description: { contains: term, mode: 'insensitive' } },
+        ]
+        where.AND = [
+            ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+            { OR: sourceNumberOr },
+        ]
+    }
+
+    if (query.postingOrigin) {
+        const origin = query.postingOrigin as FicoJournalPostingOrigin
+        const manualOnlyScope: Prisma.FicoJournalEntryWhereInput = {
+            OR: [{ sourceModule: null }, { sourceModule: '' }],
+        }
+        const automaticScope: Prisma.FicoJournalEntryWhereInput = {
+            AND: [
+                { sourceModule: { not: null } },
+                { NOT: { sourceModule: '' } },
+                { reversalOfId: null },
+                {
+                    NOT: { documentType: { contains: 'REVERSAL', mode: 'insensitive' } },
+                },
+            ],
+        }
+        const reversalScope: Prisma.FicoJournalEntryWhereInput = {
+            OR: [
+                { reversalOfId: { not: null } },
+                { documentType: { contains: 'REVERSAL', mode: 'insensitive' } },
+            ],
+        }
+        const systemScope: Prisma.FicoJournalEntryWhereInput = {
+            OR: [
+                { documentType: { in: ['OPENING_BALANCE', 'YEAR_END_CLOSE', 'PERIOD_CLOSE', 'FICO_OPENING'] } },
+            ],
+        }
+        const scope =
+            origin === 'MANUAL'
+                ? manualOnlyScope
+                : origin === 'AUTOMATIC'
+                  ? automaticScope
+                  : origin === 'REVERSAL'
+                    ? reversalScope
+                    : origin === 'SYSTEM_ADJUSTMENT'
+                      ? systemScope
+                      : null
+        if (scope) {
+            where.AND = [
+                ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+                scope,
+            ]
+        }
+    }
     if (query.currencyCode) where.currencyCode = query.currencyCode
     if (query.createdBy) where.createdBy = query.createdBy
     if (query.postedBy) where.postedBy = query.postedBy
@@ -135,6 +202,12 @@ export function journalListOrderBy(
             return [{ status: dir }]
         case 'totalAmount':
             return [{ totalAmount: dir }]
+        case 'documentDate':
+            return [{ documentDate: dir }]
+        case 'documentType':
+            return [{ documentType: dir }]
+        case 'sourceModule':
+            return [{ sourceModule: dir }]
         default:
             return [{ postingDate: dir }, { createdAt: dir }]
     }

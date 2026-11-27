@@ -484,6 +484,7 @@ export class FicoPostingPeriodService {
         companyId: string,
         postingDate: Date,
         source: 'MANUAL' | 'AUTOMATIC' = 'MANUAL',
+        options: { allowRestrictedManual?: boolean } = {},
     ) {
         const [company, period] = await Promise.all([
             this.prisma.company.findUnique({
@@ -508,7 +509,11 @@ export class FicoPostingPeriodService {
                 `Accounting posting is not allowed. Fiscal period ${periodKey} is not open yet for ${company?.name ?? companyId}.`,
             )
         }
-        if (period.status === 'RESTRICTED' && source === 'MANUAL') {
+        if (
+            period.status === 'RESTRICTED' &&
+            source === 'MANUAL' &&
+            !options.allowRestrictedManual
+        ) {
             throw new BadRequestException(
                 `Accounting posting is not allowed. Fiscal period ${periodKey} is restricted to automatic postings for ${company?.name ?? companyId}.`,
             )
@@ -525,7 +530,8 @@ export class FicoPostingPeriodService {
         }
         if (
             all?.status === 'RESTRICTED' &&
-            source === 'MANUAL'
+            source === 'MANUAL' &&
+            !options.allowRestrictedManual
         ) {
             throw new BadRequestException(
                 `Accounting posting is not allowed. Fiscal period ${periodKey} is restricted to automatic postings for ${company?.name ?? companyId}.`,

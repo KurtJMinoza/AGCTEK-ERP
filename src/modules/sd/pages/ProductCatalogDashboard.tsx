@@ -27,6 +27,7 @@ import {
     listProducts,
     setProductStatus,
     updateProduct,
+    updateProductVariant,
     type CreateProductFamilyInput,
     type ProductInput,
     type ProductLifecycleStatus,
@@ -73,6 +74,9 @@ function buildFamilyInput(values: ProductInput): CreateProductFamilyInput | null
         sku: values.sku || undefined,
         materialDefaults: { companyId: values.companyId },
         ...(existingMaterialId ? { existingMaterialId } : {}),
+        ...(values.catalogExpiryDate?.trim()
+            ? { catalogExpiryDate: values.catalogExpiryDate.trim() }
+            : {}),
         options: (ov?.options ?? []).map((opt, i) => ({
             name: opt.name,
             displayStyle: opt.displayStyle ?? 'BUTTON',
@@ -283,6 +287,24 @@ const ProductCatalogDashboard = () => {
                     // instead of being dropped as "unchanged".
                     originalPrice: values.originalPrice ?? null,
                 })
+                if (
+                    values.productConfig === 'SIMPLE' &&
+                    values.catalogExpiryDate !== undefined
+                ) {
+                    const ovs = await productOptionVariantsService.getForProduct(
+                        dialog.product.id,
+                    )
+                    const primary =
+                        ovs.variants.find((v) => v.isDefault) ??
+                        ovs.variants[0]
+                    if (primary?.id) {
+                        await updateProductVariant(dialog.product.id, primary.id, {
+                            catalogExpiryDate: values.catalogExpiryDate?.trim()
+                                ? values.catalogExpiryDate.trim()
+                                : null,
+                        })
+                    }
+                }
                 if (values.optionsVariants) {
                     try {
                         await productOptionVariantsService.saveForProduct(

@@ -82,6 +82,8 @@ const GeneralLedgerPage = () => {
     const [dateTo, setDateTo] = useState('')
     const [draftFrom, setDraftFrom] = useState('')
     const [draftTo, setDraftTo] = useState('')
+    const [sourceModule, setSourceModule] = useState('')
+    const [ledgerSortAsc, setLedgerSortAsc] = useState(false)
 
     useEffect(() => {
         if (presetAccountId) setAccountId(presetAccountId)
@@ -111,8 +113,15 @@ const GeneralLedgerPage = () => {
                 pageSize: PAGE_SIZE,
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
+                sortDir: ledgerSortAsc ? 'asc' : 'desc',
+                sourceModule: sourceModule || undefined,
+                includeRunningBalance: ledgerSortAsc,
             }),
-            ficoGeneralLedgerService.accountBalances(accountId, { companyId }),
+            ficoGeneralLedgerService.accountBalances(accountId, {
+                companyId,
+                dateFrom: dateFrom || undefined,
+                dateTo: dateTo || undefined,
+            }),
         ])
             .then(([lines, balances]) => {
                 setItems(lines.items)
@@ -123,7 +132,7 @@ const GeneralLedgerPage = () => {
                 notifyError(error, 'Unable to load ledger lines.'),
             )
             .finally(() => setBusy(false))
-    }, [accountId, companyId, page, dateFrom, dateTo])
+    }, [accountId, companyId, page, dateFrom, dateTo, ledgerSortAsc, sourceModule])
 
     useEffect(() => {
         load()
@@ -254,6 +263,21 @@ const GeneralLedgerPage = () => {
                     />
                 ),
             },
+            ...(ledgerSortAsc
+                ? ([
+                      {
+                          header: 'Running bal.',
+                          id: 'running',
+                          meta: FICO_TABLE_COL_RIGHT,
+                          size: 120,
+                          cell: ({ row }: { row: { original: FicoGlLedgerLine } }) => (
+                              <span className="tabular-nums text-sm font-medium">
+                                  {row.original.runningBalance ?? '—'}
+                              </span>
+                          ),
+                      },
+                  ] as ColumnDef<FicoGlLedgerLine>[])
+                : []),
             {
                 header: 'Flags',
                 id: 'flags',
@@ -284,7 +308,7 @@ const GeneralLedgerPage = () => {
                 ),
             },
         ],
-        [],
+        [ledgerSortAsc],
     )
 
     const mobile = useMemo(
@@ -454,6 +478,37 @@ const GeneralLedgerPage = () => {
                         inputType: 'date',
                         value: draftTo,
                         onChange: setDraftTo,
+                    },
+                    {
+                        key: 'source',
+                        label: 'Source module',
+                        kind: 'select',
+                        value: sourceModule,
+                        options: [
+                            { value: '', label: 'All modules' },
+                            { value: 'MM', label: 'MM' },
+                            { value: 'SD', label: 'SD' },
+                            { value: 'AP', label: 'AP' },
+                            { value: 'AR', label: 'AR' },
+                        ],
+                        onChange: (value) => {
+                            setSourceModule(value)
+                            setPage(1)
+                        },
+                    },
+                    {
+                        key: 'sort',
+                        label: 'Line order',
+                        kind: 'select',
+                        value: ledgerSortAsc ? 'asc' : 'desc',
+                        options: [
+                            { value: 'desc', label: 'Newest first' },
+                            { value: 'asc', label: 'Oldest first (running balance)' },
+                        ],
+                        onChange: (value) => {
+                            setLedgerSortAsc(value === 'asc')
+                            setPage(1)
+                        },
                     },
                 ]}
                 chips={filterChips}

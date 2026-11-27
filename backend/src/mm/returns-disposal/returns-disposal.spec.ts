@@ -110,6 +110,8 @@ describe('MM-11 Returns & Disposal', () => {
     let events: EventEmitter2
     let mockDomainEvents: {
         supplierReturnPosted: jest.Mock
+        customerReturnPosted: jest.Mock
+        customerReturnReversed: jest.Mock
         scrapPosted: jest.Mock
         disposalPosted: jest.Mock
         disposalReversed: jest.Mock
@@ -126,6 +128,8 @@ describe('MM-11 Returns & Disposal', () => {
         events = new EventEmitter2()
         mockDomainEvents = {
             supplierReturnPosted: jest.fn(),
+            customerReturnPosted: jest.fn(),
+            customerReturnReversed: jest.fn(),
             scrapPosted: jest.fn(),
             disposalPosted: jest.fn(),
             disposalReversed: jest.fn(),
@@ -178,7 +182,8 @@ describe('MM-11 Returns & Disposal', () => {
             postingService,
             configService,
             disposalService,
-            events,
+            mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
+            mockPeriodGuard as any,
             { assertPermission: jest.fn() } as any,
             accountingEvents as any,
         )

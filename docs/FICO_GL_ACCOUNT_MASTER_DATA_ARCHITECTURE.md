@@ -106,7 +106,7 @@ npx jest src/fico/fico-gl-accounts.service.spec.ts --runInBand --forceExit --no-
 ## Known limitations
 
 - No maker-checker approval on G/L accounts.
-- No per-company currency/recon/open-item columns (master + assignment flags only).
+- No per-company currency/recon/open-item columns (master + assignment flags only). Phase 01 adds financial-statement mapping, tax category, and required-dimension flags on the shared master; see `FICO_PHASE01_FOUNDATION_ENHANCEMENT.md`.
 - No dedicated GL line-items / trial balance **pages** (API + dialogs only).
 - MM journal path still uses legacy mappings.
 - React Query not adopted in FICO; list state is local `useState` + `load()` callback.

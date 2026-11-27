@@ -107,6 +107,8 @@ export type ProductInput = {
      * sale-ready tax configuration. Without it the API rejects the product.
      */
     allowIncompleteTaxSetup?: boolean
+    /** SD catalog override (YYYY-MM-DD) for the default / simple variant. */
+    catalogExpiryDate?: string | null
 }
 
 /** Stock ownership for the product (variants link existing materials). */
@@ -417,6 +419,7 @@ export type CreateProductFamilyInput = {
     }
     /** SIMPLE products: the existing material the hidden default links to. */
     existingMaterialId?: string
+    catalogExpiryDate?: string
     options?: Array<{
         name: string
         displayStyle?: string
@@ -440,6 +443,7 @@ export type CreateProductFamilyInput = {
         optionValues: string[]
         materialOverrides?: Record<string, unknown>
         existingMaterialId?: string
+        catalogExpiryDate?: string
     }>
 }
 
@@ -453,6 +457,7 @@ export type CatalogVariantsSummary = {
     onHandQty: number
     reservedQty: number
     availableQty: number
+    displayExpiryDate: string | null
 }
 
 /**
@@ -575,6 +580,7 @@ export async function updateProductVariant(
         isActive?: boolean
         isPublished?: boolean
         isDefault?: boolean
+        catalogExpiryDate?: string | null
     },
 ): Promise<SdProductRecord> {
     try {

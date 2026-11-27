@@ -15,6 +15,7 @@ import {
 import {
     JournalAccountingLinesTotals,
     JournalLineAmountCell,
+    JournalPostingOriginBadge,
     JournalPostingStatus,
     formatJournalDate,
     formatJournalMoney,
@@ -26,6 +27,7 @@ import {
     JournalSourceLink,
     journalSourceSecondaryLabel,
 } from './journalSource'
+import JournalDocumentFlow from './JournalDocumentFlow'
 import type { FicoAuditEntry, FicoJournalEntryDetail, FicoJournalLine } from '../../types'
 import {
     HiOutlineCalendar,
@@ -148,6 +150,26 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                         {row.original.description ?? '—'}
                     </span>
                 ),
+            },
+            {
+                header: 'Dimensions',
+                id: 'dimensions',
+                cell: ({ row }) => {
+                    const parts = [
+                        row.original.branchId ? `Br ${row.original.branchId.slice(-6)}` : null,
+                        row.original.costCenterId
+                            ? `CC ${row.original.costCenterId.slice(-6)}`
+                            : null,
+                        row.original.profitCenterId
+                            ? `PC ${row.original.profitCenterId.slice(-6)}`
+                            : null,
+                    ].filter(Boolean)
+                    return (
+                        <span className="text-xs text-gray-500">
+                            {parts.length ? parts.join(' · ') : '—'}
+                        </span>
+                    )
+                },
             },
             {
                 header: journalAmountColumnHeader.debit,
@@ -284,9 +306,17 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                             }
                         />
                         <MetaItem label="Currency" value={entry.currencyCode} />
+                        <MetaItem
+                            label="Exchange rate"
+                            value={entry.exchangeRate ?? '1.000000 (document currency)'}
+                        />
                     </MetaBlock>
                     <MetaBlock title="Company & origin" icon={<HiOutlineLibrary className="text-lg" />}>
                         <MetaItem label="Company" value={companyLabel ?? entry.companyId} />
+                        <MetaItem
+                            label="Posting origin"
+                            value={<JournalPostingOriginBadge origin={entry.postingOrigin} />}
+                        />
                         <MetaItem
                             label="Source"
                             value={
@@ -296,9 +326,17 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                                         <JournalSourceLink source={sourceFields}>
                                             {sourceSecondary}
                                         </JournalSourceLink>
+                                    ) : entry.sourceDocumentNumber ||
+                                      entry.accountingEvent?.sourceDocumentNumber ? (
+                                        <span className="font-mono text-sm text-gray-600 dark:text-gray-300">
+                                            {entry.sourceDocumentNumber ??
+                                                entry.accountingEvent?.sourceDocumentNumber}
+                                        </span>
                                     ) : (
                                         <span className="text-sm text-gray-500">
-                                            {entry.sourceModule ? 'No linked document id' : 'Entered in Finance'}
+                                            {entry.sourceModule
+                                                ? 'No linked document id'
+                                                : 'Entered in Finance'}
                                         </span>
                                     )}
                                     {metadataReturnRequestId ? (
@@ -314,6 +352,23 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                                         </JournalSourceLink>
                                     ) : null}
                                 </div>
+                            }
+                        />
+                        <MetaItem
+                            label="Account determination"
+                            value={entry.determinationVersion ?? '—'}
+                        />
+                        <MetaItem
+                            label="Accounting event"
+                            value={
+                                entry.accountingEvent ? (
+                                    <FicoTwoLineCell
+                                        primary={entry.accountingEvent.eventType}
+                                        secondary={entry.accountingEvent.status}
+                                    />
+                                ) : (
+                                    '—'
+                                )
                             }
                         />
                         <MetaItem
@@ -411,6 +466,38 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                     />
                 </section>
             </AdaptiveCard>
+
+            {entry.documentFlow?.length ? (
+                <AdaptiveCard className="mb-4">
+                    <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">
+                        Financial document flow
+                    </h3>
+                    <JournalDocumentFlow nodes={entry.documentFlow} />
+                </AdaptiveCard>
+            ) : null}
+
+            {entry.taxLines?.length ? (
+                <AdaptiveCard className="mb-4">
+                    <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">
+                        Tax lines
+                    </h3>
+                    <ul className="divide-y text-sm dark:divide-gray-800">
+                        {entry.taxLines.map((line) => (
+                            <li
+                                key={line.id}
+                                className="flex flex-wrap justify-between gap-2 py-2"
+                            >
+                                <span>
+                                    {line.taxCode} · {line.taxType}
+                                </span>
+                                <span className="tabular-nums">
+                                    Net {line.netAmount} · Tax {line.taxAmount}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </AdaptiveCard>
+            ) : null}
 
             <AdaptiveCard>
                 <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-gray-100">

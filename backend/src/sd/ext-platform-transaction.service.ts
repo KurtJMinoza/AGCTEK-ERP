@@ -35,6 +35,8 @@ import {
     ensureMaterialBatch,
     resolveMaterialLineTracking,
 } from '../mm/batches/line-tracking.util'
+import { parseCalendarDateString } from '../mm/common/calendar-date.util'
+import { resolveSellableProductExpiry } from './sd-product-expiry.util'
 
 const Decimal = Prisma.Decimal
 
@@ -58,6 +60,7 @@ type StockRow = {
     state: string
     primaryBatchNumber: string | null
     primaryLotNumber: string | null
+    primaryProductExpiry: string | null
     /** Variant barcode, else the material's primary MM barcode. */
     barcode: string | null
 }
@@ -881,6 +884,7 @@ export class ExtPlatformTransactionService {
             state: 'OUT_OF_STOCK',
             primaryBatchNumber: null,
             primaryLotNumber: null,
+            primaryProductExpiry: null,
             barcode: null,
         }))
 
@@ -908,6 +912,8 @@ export class ExtPlatformTransactionService {
                     result[chunk[k]].state = row.state
                     result[chunk[k]].primaryBatchNumber = row.primaryBatchNumber ?? null
                     result[chunk[k]].primaryLotNumber = row.primaryLotNumber ?? null
+                    result[chunk[k]].primaryProductExpiry =
+                        row.primaryProductExpiry ?? null
                     result[chunk[k]].barcode = row.barcode ?? null
                 })
             }
@@ -1219,6 +1225,13 @@ export class ExtPlatformTransactionService {
                     companyId,
                 ))
 
+            const expiryDate = await resolveSellableProductExpiry(this.prisma, {
+                materialId: mat.id,
+                companyId,
+                variantId: line.variantId ?? null,
+                lineOverride: line.expiryDate?.trim() || null,
+            })
+
             return {
                 lineNumber: line.lineNumber,
                 productId: line.productId,
@@ -1251,6 +1264,7 @@ export class ExtPlatformTransactionService {
                 batchId: tracking.batchId,
                 batchNumber: tracking.batchNumber,
                 lotNumber: tracking.lotNumber,
+                expiryDate,
                 barcode: line.variantBarcode ?? mmBarcodes.get(mat.id) ?? null,
             }
             }),

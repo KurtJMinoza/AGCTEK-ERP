@@ -20,6 +20,12 @@ export const SD_EVENTS = {
      * Triggers the commercial FICO journal only — never inventory.
      */
     RETURN_REFUND_PAID: 'ReturnRefundPaid',
+    /** Partial POS refund: revenue and settlement reversal without voiding the sale. */
+    POS_SALE_REFUNDED: 'PosSaleRefunded',
+    /** Customer deposit at POS — advance liability only (no revenue). */
+    POS_CUSTOMER_DEPOSIT: 'PosCustomerDepositCompleted',
+    /** SD return authorized as credit without physical MM intake. */
+    SALES_RETURN_CREDIT_AUTHORIZED: 'SalesReturnCreditAuthorized',
 } as const
 
 export type SdReturnRefundPaidPayload = {

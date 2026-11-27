@@ -4,7 +4,9 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
 } from '@nestjs/common'
+import { FicoArCreditCheckService } from '../../fico/fico-ar-credit-check.service'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -213,6 +215,7 @@ export class PosCheckoutService {
         private readonly sdEvents: SdEventEmitterService,
         private readonly customers: PosCustomerService,
         private readonly paymentMethods: PosPaymentMethodService,
+        @Optional() private readonly arCreditCheck?: FicoArCreditCheckService,
     ) {}
 
     /** Ensure allocateTenders knows about admin-added payment methods. */
@@ -494,6 +497,11 @@ export class PosCheckoutService {
         )
 
         // Determine payment mode
+        if (dto.paymentMode === 'DEPOSIT') {
+            throw new BadRequestException(
+                'Use POST /sd/pos/deposits for customer deposits — no sale revenue is posted.',
+            )
+        }
         const isCharge = dto.paymentMode === 'CHARGE'
         const isDownPayment = dto.paymentMode === 'DOWN_PAYMENT'
         const wantsSplit =
@@ -601,6 +609,19 @@ export class PosCheckoutService {
                 total,
                 openExposure: Number(exposure?._sum.balance ?? 0),
             })
+            if (
+                chargeCustomer?.customerAccountType === 'CREDIT' &&
+                chargeCustomer.id &&
+                companyId &&
+                this.arCreditCheck
+            ) {
+                await this.arCreditCheck.assertWithinCreditLimit({
+                    companyId,
+                    customerId: chargeCustomer.id,
+                    additionalExposure: total,
+                    context: `POS charge sale`,
+                })
+            }
         }
 
         // A partial payment must have an identifiable customer
@@ -609,6 +630,22 @@ export class PosCheckoutService {
                 throw new BadRequestException(
                     'A partial payment requires an identified customer. Select or create a customer before completing the sale.',
                 )
+            }
+            const downPaymentCustomer = await this.prisma.sdCustomer.findUnique({
+                where: { id: customerId },
+                select: { customerAccountType: true },
+            })
+            if (
+                companyId &&
+                this.arCreditCheck &&
+                downPaymentCustomer?.customerAccountType === 'CREDIT'
+            ) {
+                await this.arCreditCheck.assertWithinCreditLimit({
+                    companyId,
+                    customerId,
+                    additionalExposure: outstandingBalance,
+                    context: 'POS down payment balance',
+                })
             }
         }
 

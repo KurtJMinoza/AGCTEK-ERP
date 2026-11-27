@@ -39,7 +39,17 @@ export type AutomaticAccountingEvent = {
     eventType: string
     status: string
     lastError?: string | null
+    lastErrorCode?: string | null
     journalEntryId?: string | null
+}
+
+export type ArDocumentSummary = {
+    id: string
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    journalEntryId: string | null
+    receivableAmount: string
 }
 
 export type AutomaticJournalSectionProps = {
@@ -47,6 +57,9 @@ export type AutomaticJournalSectionProps = {
     error: string | null
     companyId: string | null
     journals: AutomaticJournalSummary[]
+    inventoryJournals?: AutomaticJournalSummary[]
+    arDocuments?: ArDocumentSummary[]
+    salesInvoiceId?: string | null
     accountingEvents: AutomaticAccountingEvent[]
     performerLabel: string
     performerName: string | null
@@ -57,6 +70,9 @@ export type AutomaticJournalSectionProps = {
         employeeCode: string | null
     }
     emptyHint?: string
+    onRetryPosting?: () => void
+    retrying?: boolean
+    showPostingErrors?: boolean
 }
 
 const statusTone = (status: string) => {
@@ -88,12 +104,18 @@ export default function AutomaticJournalSection({
     error,
     companyId,
     journals,
+    inventoryJournals = [],
+    arDocuments = [],
+    salesInvoiceId = null,
     accountingEvents,
     performerLabel,
     performerName,
     performerEmployeeCode,
     secondaryPerformer,
     emptyHint,
+    onRetryPosting,
+    retrying = false,
+    showPostingErrors = false,
 }: AutomaticJournalSectionProps) {
     // Never treat LEGACY header-only stubs as successful automatic accounting.
     const visibleJournals = journals.filter((row) => row.status !== 'LEGACY')
@@ -292,7 +314,7 @@ export default function AutomaticJournalSection({
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                             Accounting events
                         </p>
-                        <ul className="mt-2 space-y-2 text-xs">
+                        <ul className="mt-2 space-y-1.5 text-xs">
                             {accountingEvents.slice(0, 6).map((ev) => (
                                 <li key={ev.id} className="space-y-1">
                                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -303,10 +325,9 @@ export default function AutomaticJournalSection({
                                             {ev.status}
                                         </StatusBadge>
                                     </div>
-                                    {ev.lastError &&
-                                    (ev.status === 'FAILED' || ev.status === 'PENDING') ? (
+                                    {showPostingErrors && ev.lastError ? (
                                         <p
-                                            className="line-clamp-2 text-[11px] text-red-600 dark:text-red-400"
+                                            className="line-clamp-2 text-[11px] text-red-600 dark:text-red-300"
                                             title={ev.lastError}
                                         >
                                             {ev.lastError}
@@ -315,16 +336,109 @@ export default function AutomaticJournalSection({
                                 </li>
                             ))}
                         </ul>
-                        {failedEvents.length > 0 ? (
-                            <Link
-                                href="/modules/fico/accounting-events"
-                                className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
-                            >
-                                Open posting monitor
-                                <HiOutlineExternalLink />
-                            </Link>
-                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                            {onRetryPosting &&
+                            accountingEvents.some((ev) =>
+                                ['FAILED', 'RETRY_SCHEDULED', 'DEAD_LETTER'].includes(
+                                    ev.status,
+                                ),
+                            ) ? (
+                                <Button
+                                    size="xs"
+                                    variant="solid"
+                                    loading={retrying}
+                                    onClick={onRetryPosting}
+                                >
+                                    Retry posting
+                                </Button>
+                            ) : null}
+                            {failedEvents.length > 0 ? (
+                                <Link
+                                    href="/modules/fico/accounting-events"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                                >
+                                    Open posting monitor
+                                    <HiOutlineExternalLink />
+                                </Link>
+                            ) : null}
+                        </div>
                     </div>
+                ) : null}
+
+                {journals.length > 1 ? (
+                    <p className="text-[11px] text-gray-500">
+                        {journals.length} related journals (inventory, collections, reversals, …).
+                    </p>
+                ) : null}
+
+                {inventoryJournals.length > 0 ? (
+                    <div className="border-t border-dashed border-gray-200 pt-3 dark:border-gray-700">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            COGS / inventory (MM)
+                        </p>
+                        <ul className="mt-2 space-y-2 text-xs">
+                            {inventoryJournals.map((row) => (
+                                <li
+                                    key={row.id}
+                                    className="flex flex-wrap items-center justify-between gap-2"
+                                >
+                                    <span className="font-mono font-semibold">
+                                        {row.documentNumber ?? row.id.slice(0, 8)}
+                                    </span>
+                                    <Link
+                                        href={`/modules/fico/journal-entries/${row.id}`}
+                                        className="text-primary hover:underline"
+                                    >
+                                        View journal
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
+
+                {arDocuments.length > 0 ? (
+                    <div className="border-t border-dashed border-gray-200 pt-3 dark:border-gray-700">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            Accounts receivable
+                        </p>
+                        <ul className="mt-2 space-y-2 text-xs">
+                            {arDocuments.map((doc) => (
+                                <li
+                                    key={doc.id}
+                                    className="flex flex-wrap items-center justify-between gap-2"
+                                >
+                                    <span>
+                                        {doc.documentType.replace(/_/g, ' ')} ·{' '}
+                                        {doc.referenceNumber ?? doc.id.slice(0, 8)}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        {doc.journalEntryId ? (
+                                            <Link
+                                                href={`/modules/fico/journal-entries/${doc.journalEntryId}`}
+                                                className="text-primary hover:underline"
+                                            >
+                                                Journal
+                                            </Link>
+                                        ) : null}
+                                        <Link
+                                            href="/modules/fico/accounts-receivable"
+                                            className="text-primary hover:underline"
+                                        >
+                                            AR workbench
+                                        </Link>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
+
+                {salesInvoiceId ? (
+                    <p className="text-[11px] text-gray-500">
+                        SD billing document linked. Invoice-driven revenue posts at delivery (POD)
+                        unless the sale was settled at the register.
+                    </p>
                 ) : null}
             </div>
         </section>

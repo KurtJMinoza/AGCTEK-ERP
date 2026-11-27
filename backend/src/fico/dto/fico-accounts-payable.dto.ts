@@ -142,6 +142,85 @@ export class FicoApStatementQueryDto extends FicoApCompanyQueryDto {
     toDate?: string
 }
 
+export class FicoApDashboardQueryDto extends FicoApCompanyQueryDto {
+    @IsOptional()
+    @IsDateString()
+    asOfDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    fromDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    toDate?: string
+}
+
+/** Non-PO and expense supplier invoices posted directly in FICO (no MM procurement document). */
+export class CreateFicoApDirectInvoiceDto extends FicoApCompanyQueryDto {
+    @IsString()
+    @IsNotEmpty()
+    supplierId!: string
+
+    @IsIn(['EXPENSE_INVOICE', 'NON_PO_INVOICE'])
+    invoiceKind!: 'EXPENSE_INVOICE' | 'NON_PO_INVOICE'
+
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(160)
+    supplierInvoiceNumber!: string
+
+    @IsDateString()
+    documentDate!: string
+
+    @IsDateString()
+    postingDate!: string
+
+    @IsOptional()
+    @IsDateString()
+    baselineDate?: string
+
+    @IsOptional()
+    @IsDateString()
+    dueDate?: string
+
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(3)
+    currencyCode!: string
+
+    @IsNumber()
+    @Min(0.0001)
+    grossAmount!: number
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    taxAmount?: number
+
+    @IsOptional()
+    @IsString()
+    taxCodeId?: string
+
+    @IsOptional()
+    @IsString()
+    withholdingTaxCodeId?: string
+
+    @IsOptional()
+    @IsBoolean()
+    paymentBlocked?: boolean
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    reason?: string
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(240)
+    idempotencyKey?: string
+}
+
 export class FicoApPaymentAllocationDto {
     @IsString()
     @IsNotEmpty()

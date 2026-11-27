@@ -10,11 +10,15 @@ import { FicoPostingValidationService } from './fico-posting-validation.service'
 import { FicoAccountResolutionService } from './fico-account-resolution.service'
 import type { FicoMmResolutionMode } from './fico-mm-resolution-mode.constants'
 import {
-    ficoLegacyTransactionKeyCodes,
     ficoMmEventReversesPostingDirection,
     ficoMmTransactionTypeForKey,
     ficoResolveMmTransactionKey,
 } from './fico-mm-inventory-determination.policy'
+import { ficoTransactionKeyLookupCodes } from './fico-phase02-enterprise-keys.policy'
+import {
+    companyDefaultForMmPair,
+    loadCompanyGlDefaults,
+} from './fico-company-gl-defaults'
 
 /**
  * Transaction keys `transactionKey()` below can return. Other keys (e.g. supplier
@@ -31,6 +35,7 @@ export const FICO_RESOLVED_TRANSACTION_KEYS = [
     'INVENTORY_GAIN',
     'INVENTORY_INCREASE_ADJ',
     'INVENTORY_WRITEOFF',
+    'INVENTORY_REVALUATION',
     'LANDED_COST',
     'FREIGHT_CLEARING',
     'PURCHASE_VARIANCE',
@@ -232,9 +237,20 @@ export class FicoAccountDeterminationService {
         }
 
         if (!chosen?.length) {
-            throw new BadRequestException(
-                `No account determination configuration matches MM ${transactionKey}.`,
+            const companyFallback = await this.resolveCompanyDefaultMmLines(
+                payload,
+                transactionKey,
             )
+            if (companyFallback?.length) {
+                this.logger.warn(
+                    `MM company GL defaults used for ${transactionKey} (company ${payload.companyId}).`,
+                )
+                chosen = companyFallback
+            } else {
+                throw new BadRequestException(
+                    `No account determination configuration matches MM ${transactionKey}.`,
+                )
+            }
         }
 
         if (ficoMmEventReversesPostingDirection(payload)) {
@@ -317,7 +333,7 @@ export class FicoAccountDeterminationService {
             where: {
                 companyId: payload.companyId,
                 profileId: context.accountDeterminationProfileId,
-                transactionKeyCode: { in: ficoLegacyTransactionKeyCodes(transactionKey) },
+                transactionKeyCode: { in: ficoTransactionKeyLookupCodes(transactionKey) },
                 status: 'ACTIVE',
                 AND: [
                     {
@@ -479,5 +495,43 @@ export class FicoAccountDeterminationService {
                 `No automatic account-determination transaction key is defined for ${payload.eventType}.`,
             )
         }
+    }
+
+    private async resolveCompanyDefaultMmLines(
+        payload: MmAccountingDispatchPayload,
+        transactionKey: string,
+    ): Promise<ResolvedMmPostingLine[] | null> {
+        const defaults = await loadCompanyGlDefaults(this.prisma, payload.companyId)
+        const pair = companyDefaultForMmPair(defaults, transactionKey)
+        if (!pair) return null
+
+        const resolved: ResolvedMmPostingLine[] = []
+        for (const line of payload.lines) {
+            const amount = new Decimal(line.totalCost ?? 0).abs()
+            if (amount.isZero()) continue
+            resolved.push(
+                {
+                    glAccountId: pair.debitAccountId,
+                    debitAmount: amount,
+                    creditAmount: new Decimal(0),
+                    description: `${transactionKey} · COGS`,
+                    materialId: line.materialId,
+                    warehouseId: line.warehouseId,
+                    transactionKey,
+                    resolutionSource: 'LEGACY_MAPPING',
+                },
+                {
+                    glAccountId: pair.creditAccountId,
+                    debitAmount: new Decimal(0),
+                    creditAmount: amount,
+                    description: `${transactionKey} · inventory`,
+                    materialId: line.materialId,
+                    warehouseId: line.warehouseId,
+                    transactionKey,
+                    resolutionSource: 'LEGACY_MAPPING',
+                },
+            )
+        }
+        return resolved.length ? resolved : null
     }
 }

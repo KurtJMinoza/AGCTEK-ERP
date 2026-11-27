@@ -84,6 +84,11 @@ type AccountForm = {
     reconciliationType: string
     openItemManagement: boolean
     currencyRestriction: string
+    financialStatementMapping: string
+    taxCategory: string
+    requiresBranch: boolean
+    requiresCostCenter: boolean
+    requiresProfitCenter: boolean
 }
 
 const emptyAccount: AccountForm = {
@@ -101,6 +106,11 @@ const emptyAccount: AccountForm = {
     reconciliationType: '',
     openItemManagement: false,
     currencyRestriction: '',
+    financialStatementMapping: '',
+    taxCategory: '',
+    requiresBranch: false,
+    requiresCostCenter: false,
+    requiresProfitCenter: false,
 }
 
 function normalBalanceFor(accountType: string) {
@@ -286,6 +296,11 @@ const GlAccountsPage = () => {
             reconciliationType: source.reconciliationType ?? '',
             openItemManagement: source.openItemManagement,
             currencyRestriction: source.currencyRestriction ?? '',
+            financialStatementMapping: source.financialStatementMapping ?? '',
+            taxCategory: source.taxCategory ?? '',
+            requiresBranch: source.requiresBranch ?? false,
+            requiresCostCenter: source.requiresCostCenter ?? false,
+            requiresProfitCenter: source.requiresProfitCenter ?? false,
         })
         setDialog('edit')
     }
@@ -913,6 +928,32 @@ const GlAccountsPage = () => {
                             }
                         />
                     </FormItem>
+                    <FormItem label="Financial statement mapping">
+                        <Input
+                            maxLength={128}
+                            placeholder="e.g. Current liabilities"
+                            value={form.financialStatementMapping}
+                            onChange={(event) =>
+                                setForm((current) => ({
+                                    ...current,
+                                    financialStatementMapping: event.target.value,
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Tax category">
+                        <Input
+                            maxLength={64}
+                            placeholder="e.g. VAT"
+                            value={form.taxCategory}
+                            onChange={(event) =>
+                                setForm((current) => ({
+                                    ...current,
+                                    taxCategory: event.target.value,
+                                }))
+                            }
+                        />
+                    </FormItem>
                     <FormItem label="Reconciliation type">
                         <Select
                             isClearable
@@ -1002,6 +1043,39 @@ const GlAccountsPage = () => {
                         }
                     >
                         Open-item management
+                    </Checkbox>
+                    <Checkbox
+                        checked={form.requiresBranch}
+                        onChange={(checked) =>
+                            setForm((current) => ({
+                                ...current,
+                                requiresBranch: checked,
+                            }))
+                        }
+                    >
+                        Require branch
+                    </Checkbox>
+                    <Checkbox
+                        checked={form.requiresCostCenter}
+                        onChange={(checked) =>
+                            setForm((current) => ({
+                                ...current,
+                                requiresCostCenter: checked,
+                            }))
+                        }
+                    >
+                        Require cost center
+                    </Checkbox>
+                    <Checkbox
+                        checked={form.requiresProfitCenter}
+                        onChange={(checked) =>
+                            setForm((current) => ({
+                                ...current,
+                                requiresProfitCenter: checked,
+                            }))
+                        }
+                    >
+                        Require profit center
                     </Checkbox>
                 </div>
             </FormDialog>

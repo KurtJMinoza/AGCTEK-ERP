@@ -74,6 +74,8 @@ import { PosVoidService } from './pos/pos-void.service'
 import { PosPaymentMethodService } from './pos/pos-payment-method.service'
 import { PosRefundService } from './pos/pos-refund.service'
 import { PosCollectionService } from './pos/pos-collection.service'
+import { PosDepositService } from './pos/pos-deposit.service'
+import { PosAccountingService } from './pos/pos-accounting.service'
 import { PosRevenuePostingListener } from './pos/pos-revenue-posting.listener'
 import { ReturnRefundPostingListener } from './return-refund-posting.listener'
 import { PosEmployeeService } from './pos/pos-employee.service'
@@ -161,6 +163,8 @@ import { ExtPlatformTransactionService } from './ext-platform-transaction.servic
         PosRefundService,
         PosEmployeeService,
         PosCollectionService,
+        PosDepositService,
+        PosAccountingService,
         PosRevenuePostingListener,
         ReturnRefundPostingListener,
         ExtPlatformTransactionService,

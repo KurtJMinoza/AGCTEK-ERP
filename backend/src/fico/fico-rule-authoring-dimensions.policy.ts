@@ -19,11 +19,14 @@ export type RuleAuthoringDimensionHint = {
 const DIMENSION_LABELS: Record<FicoDeterminationDimension, string> = {
     valuationClassId: 'Valuation class',
     materialTypeCode: 'Material type',
+    materialGroupCode: 'Material group',
     movementType: 'Movement type',
     customerAccountGroup: 'Customer account group',
     supplierAccountGroup: 'Supplier account group',
     salesOrganization: 'Sales organization',
     distributionChannel: 'Distribution channel',
+    salesChannelCode: 'Sales channel',
+    taxCodeId: 'Tax code',
     paymentMethodCode: 'Payment method',
     bankAccountId: 'Bank account',
     paymentProviderCode: 'Payment provider',
@@ -40,13 +43,16 @@ const DIMENSION_LABELS: Record<FicoDeterminationDimension, string> = {
 const MM_DIMENSIONS: FicoDeterminationDimension[] = [
     'valuationClassId',
     'materialTypeCode',
+    'materialGroupCode',
     'movementType',
 ]
 
 const SD_DIMENSIONS: FicoDeterminationDimension[] = [
     'salesOrganization',
     'distributionChannel',
+    'salesChannelCode',
     'customerAccountGroup',
+    'taxCodeId',
 ]
 
 const TREASURY_DIMENSIONS: FicoDeterminationDimension[] = [

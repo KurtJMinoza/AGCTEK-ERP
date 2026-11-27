@@ -12,10 +12,12 @@ import { PrismaService } from '../prisma/prisma.service'
 import {
     CreateFicoApAdjustmentDto,
     CreateFicoApClearingDto,
+    CreateFicoApDirectInvoiceDto,
     CreateFicoApHistoricalBalanceDto,
     CreateFicoApHistoricalMigrationRunDto,
     CreateFicoApPaymentDto,
     FicoApClearingQueryDto,
+    FicoApDashboardQueryDto,
     FicoApDocumentQueryDto,
     FicoApOpenItemQueryDto,
     FicoApPaymentQueryDto,
@@ -30,6 +32,7 @@ import { FicoCompanyAccessService } from './fico-company-access.service'
 import { FicoJournalService } from './fico-journal.service'
 import { FicoPostingValidationService } from './fico-posting-validation.service'
 import { FicoTaxCalculationService } from './fico-tax-calculation.service'
+import { FicoGrIrOpenItemService } from './fico-grir-open-item.service'
 
 type Actor = AuthRequestUser | undefined
 
@@ -77,6 +80,7 @@ export class FicoAccountsPayableService {
         private readonly postingValidation: FicoPostingValidationService,
         private readonly journal: FicoJournalService,
         private readonly taxCalculation: FicoTaxCalculationService,
+        private readonly grirOpenItems: FicoGrIrOpenItemService,
     ) {}
 
     supportsAccountingPayload(payload: MmAccountingDispatchPayload) {
@@ -147,6 +151,13 @@ export class FicoAccountsPayableService {
                 `Supplier invoice status ${invoice.status} cannot be posted to Accounts Payable.`,
             )
         }
+
+        await this.assertUniqueSupplierInvoiceReference(
+            invoice.companyId,
+            invoice.supplierId,
+            invoice.invoiceNumber,
+            invoice.id,
+        )
 
         const existing = await this.prisma.ficoApDocument.findUnique({
             where: { sourceSupplierInvoiceId: invoice.id },
@@ -431,6 +442,10 @@ export class FicoAccountsPayableService {
                             allocatedQuantity: allocation.allocatedQuantity,
                             allocatedAmount: allocation.allocatedAmount,
                         })),
+                    })
+                    await this.grirOpenItems.applyInvoiceAllocations(tx, {
+                        allocations: grirAllocations,
+                        journalEntryId: journal.id,
                     })
                 }
                 await tx.ficoAccountingAuditLog.create({
@@ -929,6 +944,291 @@ export class FicoAccountsPayableService {
      * Posts a supplier credit memo, debit adjustment, or advance through the
      * central engine and immediately creates its FICO-owned open item.
      */
+    /**
+     * Posts a non-PO or expense supplier invoice in FICO with automatic journal
+     * and supplier open-item creation (no MM source document).
+     */
+    async postDirectSupplierInvoice(dto: CreateFicoApDirectInvoiceDto, user: Actor) {
+        await this.access.assertAccess(user, dto.companyId)
+        const supplierInvoiceNumber = dto.supplierInvoiceNumber.trim()
+        if (!supplierInvoiceNumber) {
+            throw new BadRequestException('Supplier invoice number is required.')
+        }
+        await this.assertUniqueSupplierInvoiceReference(
+            dto.companyId,
+            dto.supplierId,
+            supplierInvoiceNumber,
+        )
+
+        const postingDate = day(dto.postingDate)
+        const documentDate = day(dto.documentDate)
+        const baselineDate = day(dto.baselineDate ?? dto.documentDate)
+        const currencyCode = dto.currencyCode.trim().toUpperCase()
+        const idempotencyKey = dto.idempotencyKey?.trim()
+            ? `AP_${dto.invoiceKind}:${dto.companyId}:${dto.idempotencyKey.trim()}`
+            : `AP_${dto.invoiceKind}:${dto.companyId}:${dto.supplierId}:${supplierInvoiceNumber.toUpperCase()}`
+
+        const supplier = await this.prisma.mmSupplier.findFirst({
+            where: { id: dto.supplierId, deletedAt: null },
+            include: { paymentTerms: true },
+        })
+        if (!supplier) throw new NotFoundException('Supplier not found.')
+
+        const companyAccount = await this.prisma.ficoSupplierCompanyAccount.findUnique({
+            where: {
+                supplierId_companyId: {
+                    supplierId: dto.supplierId,
+                    companyId: dto.companyId,
+                },
+            },
+            include: { paymentTerms: true },
+        })
+        if (companyAccount?.status !== undefined && companyAccount.status !== 'ACTIVE') {
+            throw new BadRequestException(
+                'Supplier accounting master is inactive for this company.',
+            )
+        }
+        if (companyAccount?.postingBlocked) {
+            throw new BadRequestException(
+                'Supplier accounting master has a posting block for this company.',
+            )
+        }
+        this.assertSupplierTransactionCurrency(companyAccount, currencyCode)
+
+        const supplierAccountGroup =
+            companyAccount?.supplierAccountGroup?.trim() || 'STANDARD'
+        const reconciliation = await this.resolveReconciliationAccount({
+            companyId: dto.companyId,
+            currencyCode,
+            postingDate,
+            supplierAccountGroup,
+            configuredAccountId: companyAccount?.reconciliationAccountId ?? null,
+        })
+
+        const grossAmount = money(dto.grossAmount)
+        const taxCodeId = dto.taxCodeId ?? companyAccount?.defaultPurchaseTaxCodeId ?? null
+        const tax = await this.resolvePurchaseTax({
+            taxCodeId,
+            companyId: dto.companyId,
+            postingDate,
+            currencyCode,
+            grossAmount,
+            sourceTaxAmount: money(dto.taxAmount ?? 0),
+        })
+        const withholdingTaxCodeId =
+            dto.withholdingTaxCodeId ?? companyAccount?.withholdingTaxCodeId ?? null
+        const withholding = await this.resolveWithholdingTax({
+            taxCodeId: withholdingTaxCodeId,
+            companyId: dto.companyId,
+            postingDate,
+            currencyCode,
+            taxableAmount: grossAmount,
+        })
+        const netAmount = tax.netAmount
+        const taxAmount = tax.taxAmount
+        const withholdingAmount = withholding.taxAmount
+        const liabilityAmount = grossAmount.minus(withholdingAmount)
+        if (!liabilityAmount.gt(0)) {
+            throw new BadRequestException(
+                'Withholding tax cannot fully consume a supplier invoice liability.',
+            )
+        }
+
+        const expenseAccount = await this.resolveSingleRuleLine({
+            companyId: dto.companyId,
+            postingDate,
+            currencyCode,
+            transactionKeyCode: 'AP_ADJUSTMENT',
+            transactionType: dto.invoiceKind,
+            side: 'DEBIT',
+            supplierAccountGroup,
+            purpose:
+                dto.invoiceKind === 'EXPENSE_INVOICE'
+                    ? 'expense supplier invoice offset'
+                    : 'non-PO supplier invoice offset',
+        })
+
+        const lines: Array<{
+            glAccountId: string
+            debit: Decimal
+            credit: Decimal
+            description: string
+        }> = [
+            {
+                glAccountId: expenseAccount.glAccountId,
+                debit: netAmount,
+                credit: new Decimal(0),
+                description:
+                    dto.invoiceKind === 'EXPENSE_INVOICE'
+                        ? 'Expense supplier invoice'
+                        : 'Non-PO supplier invoice',
+            },
+        ]
+        if (taxAmount.gt(0)) {
+            if (!tax.glAccountId) {
+                throw new BadRequestException(
+                    'The configured purchase tax code has no posting G/L account.',
+                )
+            }
+            lines.push({
+                glAccountId: tax.glAccountId,
+                debit: taxAmount,
+                credit: new Decimal(0),
+                description: tax.isRecoverable
+                    ? 'Recoverable input tax'
+                    : 'Non-recoverable purchase tax',
+            })
+        }
+        lines.push({
+            glAccountId: reconciliation.glAccountId,
+            debit: new Decimal(0),
+            credit: liabilityAmount,
+            description: 'Supplier reconciliation liability',
+        })
+        if (withholdingAmount.gt(0)) {
+            if (!withholding.glAccountId) {
+                throw new BadRequestException(
+                    'The configured withholding tax code has no payable G/L account.',
+                )
+            }
+            lines.push({
+                glAccountId: withholding.glAccountId,
+                debit: new Decimal(0),
+                credit: withholdingAmount,
+                description: 'Withholding tax payable',
+            })
+        }
+
+        const dueDate = dto.dueDate
+            ? day(dto.dueDate)
+            : this.addDays(
+                  baselineDate,
+                  companyAccount?.paymentTerms?.dueDays ??
+                      supplier.paymentTerms?.dueDays ??
+                      0,
+              )
+        const paymentBlocked = dto.paymentBlocked === true
+
+        let documentId: string | null = null
+        const journalDocumentType =
+            dto.invoiceKind === 'EXPENSE_INVOICE'
+                ? 'AP_EXPENSE_INVOICE'
+                : 'AP_NON_PO_INVOICE'
+
+        const result = await this.journal.postAutomaticJournal({
+            companyId: dto.companyId,
+            documentType: journalDocumentType,
+            documentDate,
+            postingDate,
+            currencyCode,
+            sourceModule: 'AP',
+            sourceDocumentType: dto.invoiceKind,
+            sourceDocumentId: idempotencyKey,
+            supplierId: dto.supplierId,
+            idempotencyKey,
+            sourcePostingKey: idempotencyKey,
+            description: `Supplier invoice ${supplierInvoiceNumber}`,
+            reference: supplierInvoiceNumber,
+            lines,
+            metadata: {
+                apDocumentType: dto.invoiceKind,
+                supplierInvoiceNumber,
+                reconciliationAccountId: reconciliation.glAccountId,
+                reconciliationAccountCode: reconciliation.accountCode,
+                taxCodeId: tax.taxCodeId,
+                withholdingTaxCodeId: withholding.taxCodeId,
+                reason: cleanOptional(dto.reason) ?? null,
+            },
+            postImmediately: true,
+            postingSource: 'AUTOMATIC',
+            actorUserId: user?.id ?? null,
+            subledgerPosting: 'AP',
+            afterPersist: async (tx, journal) => {
+                const document = await tx.ficoApDocument.create({
+                    data: {
+                        companyId: dto.companyId,
+                        supplierId: dto.supplierId,
+                        supplierCompanyAccountId: companyAccount?.id ?? null,
+                        journalEntryId: journal.id,
+                        documentType: dto.invoiceKind,
+                        status: 'POSTED',
+                        referenceNumber: supplierInvoiceNumber,
+                        documentDate,
+                        postingDate,
+                        baselineDate,
+                        dueDate,
+                        currencyCode,
+                        netAmount,
+                        taxAmount,
+                        withholdingAmount,
+                        grossAmount,
+                        liabilityAmount,
+                        reconciliationAccountId: reconciliation.glAccountId,
+                        reconciliationAccountCode: reconciliation.accountCode,
+                        taxCodeId: tax.taxCodeId,
+                        withholdingTaxCodeId: withholding.taxCodeId,
+                        paymentBlocked,
+                        createdBy: user?.id ?? null,
+                    },
+                })
+                documentId = document.id
+                await tx.ficoApOpenItem.create({
+                    data: {
+                        companyId: dto.companyId,
+                        supplierId: dto.supplierId,
+                        documentId: document.id,
+                        reconciliationAccountId: reconciliation.glAccountId,
+                        itemType: dto.invoiceKind,
+                        direction: 'CREDIT',
+                        originalAmount: liabilityAmount,
+                        openAmount: liabilityAmount,
+                        currencyCode,
+                        baselineDate,
+                        dueDate,
+                        paymentBlocked,
+                        status: 'OPEN',
+                    },
+                })
+                await tx.ficoAccountingAuditLog.create({
+                    data: {
+                        companyId: dto.companyId,
+                        actorId: user?.id ?? null,
+                        action: `AP_${dto.invoiceKind}_POST`,
+                        entityType: 'FicoApDocument',
+                        entityId: document.id,
+                        newValues: {
+                            journalEntryId: journal.id,
+                            supplierInvoiceNumber,
+                            liabilityAmount: liabilityAmount.toString(),
+                        },
+                    },
+                })
+            },
+        })
+
+        if (result.duplicate) {
+            const duplicate = await this.prisma.ficoApDocument.findFirst({
+                where: {
+                    companyId: dto.companyId,
+                    supplierId: dto.supplierId,
+                    referenceNumber: supplierInvoiceNumber,
+                    documentType: dto.invoiceKind,
+                    status: 'POSTED',
+                },
+            })
+            if (duplicate) {
+                return { ...duplicate, duplicate: true, created: false }
+            }
+        }
+        return {
+            id: documentId,
+            journalEntryId: result.journalEntryId,
+            documentNumber: result.documentNumber,
+            duplicate: result.duplicate,
+            created: !result.duplicate,
+        }
+    }
+
     async postAdjustment(dto: CreateFicoApAdjustmentDto, user: Actor) {
         await this.access.assertAccess(user, dto.companyId)
         return this.postStandaloneApDocument({
@@ -1931,6 +2231,273 @@ export class FicoAccountsPayableService {
             accounts: rows,
             difference: rows.reduce((total, row) => total.plus(row.difference), new Decimal(0)),
             reconciled: rows.every((row) => row.difference.abs().lte(MONEY_TOLERANCE)),
+        }
+    }
+
+    /** Company AP dashboard — all totals derived from live subledger and journal data. */
+    async getDashboard(query: FicoApDashboardQueryDto, user: Actor) {
+        await this.access.assertAccess(user, query.companyId)
+        const asOfDate = day(query.asOfDate ?? new Date())
+        const fromDate = query.fromDate ? day(query.fromDate) : null
+        const toDate = query.toDate ? day(query.toDate) : null
+
+        const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique({
+            where: { companyId: query.companyId },
+            select: { baseCurrency: true },
+        })
+        const baseCurrency = settings?.baseCurrency ?? 'PHP'
+
+        const [openItems, blockedDocumentCount, paymentAggregate, postingExceptions, aging] =
+            await Promise.all([
+                this.prisma.ficoApOpenItem.findMany({
+                    where: {
+                        companyId: query.companyId,
+                        status: { in: ['OPEN', 'PARTIALLY_CLEARED'] },
+                    },
+                    select: {
+                        openAmount: true,
+                        direction: true,
+                        dueDate: true,
+                        baselineDate: true,
+                        paymentBlocked: true,
+                        itemType: true,
+                        currencyCode: true,
+                    },
+                }),
+                this.prisma.ficoApDocument.count({
+                    where: {
+                        companyId: query.companyId,
+                        status: 'POSTED',
+                        paymentBlocked: true,
+                        documentType: {
+                            in: [
+                                'INVOICE',
+                                'EXPENSE_INVOICE',
+                                'NON_PO_INVOICE',
+                                'DEBIT_ADJUSTMENT',
+                            ],
+                        },
+                    },
+                }),
+                fromDate && toDate
+                    ? this.prisma.ficoApPayment.aggregate({
+                          where: {
+                              companyId: query.companyId,
+                              status: 'POSTED',
+                              paymentDate: { gte: fromDate, lte: toDate },
+                          },
+                          _sum: { totalAmount: true },
+                          _count: true,
+                      })
+                    : Promise.resolve({ _sum: { totalAmount: null }, _count: 0 }),
+                this.prisma.mmAccountingEvent.count({
+                    where: {
+                        companyId: query.companyId,
+                        eventType: 'SupplierInvoiceMatched',
+                        status: { in: ['FAILED', 'DEAD_LETTER', 'PENDING'] },
+                    },
+                }),
+                this.getAging(query.companyId, asOfDate.toISOString().slice(0, 10), user),
+            ])
+
+        let totalOutstanding = new Decimal(0)
+        let totalOverdue = new Decimal(0)
+        let supplierAdvanceBalance = new Decimal(0)
+        let dueWithin7Days = new Decimal(0)
+        let dueWithin30Days = new Decimal(0)
+        let blockedOpenItemCount = 0
+
+        for (const item of openItems) {
+            const amount = money(item.openAmount)
+            if (item.paymentBlocked) blockedOpenItemCount += 1
+
+            if (item.direction === 'DEBIT') {
+                if (item.itemType === 'ADVANCE' || item.itemType === 'CREDIT_MEMO') {
+                    supplierAdvanceBalance = supplierAdvanceBalance.plus(amount)
+                }
+                continue
+            }
+
+            totalOutstanding = totalOutstanding.plus(amount)
+            const anchor = item.dueDate ?? item.baselineDate
+            const daysUntilDue = Math.floor(
+                (anchor.getTime() - asOfDate.getTime()) / 86_400_000,
+            )
+            const overdueDays = Math.max(
+                0,
+                Math.floor((asOfDate.getTime() - anchor.getTime()) / 86_400_000),
+            )
+            if (overdueDays > 0) {
+                totalOverdue = totalOverdue.plus(amount)
+            }
+            if (daysUntilDue >= 0 && daysUntilDue <= 7) {
+                dueWithin7Days = dueWithin7Days.plus(amount)
+            }
+            if (daysUntilDue >= 0 && daysUntilDue <= 30) {
+                dueWithin30Days = dueWithin30Days.plus(amount)
+            }
+        }
+
+        return {
+            companyId: query.companyId,
+            baseCurrency,
+            asOfDate,
+            fromDate,
+            toDate,
+            totalOutstanding: totalOutstanding.toString(),
+            totalOverdue: totalOverdue.toString(),
+            dueWithin7Days: dueWithin7Days.toString(),
+            dueWithin30Days: dueWithin30Days.toString(),
+            paymentsInPeriodAmount: money(paymentAggregate._sum.totalAmount).toString(),
+            paymentsInPeriodCount: paymentAggregate._count,
+            blockedInvoices: blockedDocumentCount,
+            blockedOpenItems: blockedOpenItemCount,
+            supplierAdvanceBalance: supplierAdvanceBalance.toString(),
+            postingExceptions,
+            agingBuckets: {
+                current: aging.buckets.current.toString(),
+                days1To30: aging.buckets.days1To30.toString(),
+                days31To60: aging.buckets.days31To60.toString(),
+                days61To90: aging.buckets.days61To90.toString(),
+                over90: aging.buckets.over90.toString(),
+                supplierCredits: aging.buckets.supplierCredits.toString(),
+            },
+            totalPayable: aging.totalPayable.toString(),
+        }
+    }
+
+    /** Open supplier liabilities grouped for payment proposal selection (no financial posting). */
+    async getPaymentProposals(companyId: string, asOfDate: string | undefined, user: Actor) {
+        await this.access.assertAccess(user, companyId)
+        const asOf = day(asOfDate ?? new Date())
+        const items = await this.prisma.ficoApOpenItem.findMany({
+            where: {
+                companyId,
+                status: { in: ['OPEN', 'PARTIALLY_CLEARED'] },
+                direction: 'CREDIT',
+                paymentBlocked: false,
+            },
+            include: {
+                supplier: { select: { id: true, supplierCode: true, supplierName: true } },
+                document: {
+                    select: {
+                        id: true,
+                        referenceNumber: true,
+                        documentType: true,
+                        journalEntryId: true,
+                    },
+                },
+            },
+            orderBy: [{ supplierId: 'asc' }, { dueDate: 'asc' }],
+        })
+
+        type ProposalRow = {
+            supplierId: string
+            supplier: { id: string; supplierCode: string; supplierName: string }
+            currencyCode: string
+            totalOpenAmount: Decimal
+            overdueAmount: Decimal
+            itemCount: number
+            earliestDueDate: Date | null
+            items: typeof items
+        }
+
+        const map = new Map<string, ProposalRow>()
+        for (const item of items) {
+            const key = `${item.supplierId}:${item.currencyCode}`
+            const amount = money(item.openAmount)
+            const anchor = item.dueDate ?? item.baselineDate
+            const overdueDays = Math.max(
+                0,
+                Math.floor((asOf.getTime() - anchor.getTime()) / 86_400_000),
+            )
+            const overdueAmount = overdueDays > 0 ? amount : new Decimal(0)
+            const existing = map.get(key)
+            if (existing) {
+                existing.totalOpenAmount = existing.totalOpenAmount.plus(amount)
+                existing.overdueAmount = existing.overdueAmount.plus(overdueAmount)
+                existing.itemCount += 1
+                existing.items.push(item)
+                if (
+                    item.dueDate &&
+                    (!existing.earliestDueDate || item.dueDate < existing.earliestDueDate)
+                ) {
+                    existing.earliestDueDate = item.dueDate
+                }
+            } else {
+                map.set(key, {
+                    supplierId: item.supplierId,
+                    supplier: item.supplier,
+                    currencyCode: item.currencyCode,
+                    totalOpenAmount: amount,
+                    overdueAmount,
+                    itemCount: 1,
+                    earliestDueDate: item.dueDate,
+                    items: [item],
+                })
+            }
+        }
+
+        return [...map.values()]
+            .sort((a, b) => b.totalOpenAmount.minus(a.totalOpenAmount).toNumber())
+            .map((row) => ({
+                supplierId: row.supplierId,
+                supplier: row.supplier,
+                currencyCode: row.currencyCode,
+                totalOpenAmount: row.totalOpenAmount.toString(),
+                overdueAmount: row.overdueAmount.toString(),
+                itemCount: row.itemCount,
+                earliestDueDate: row.earliestDueDate,
+                items: row.items.map((item) => ({
+                    id: item.id,
+                    openAmount: money(item.openAmount).toString(),
+                    dueDate: item.dueDate,
+                    itemType: item.itemType,
+                    document: item.document,
+                })),
+            }))
+    }
+
+    private async assertUniqueSupplierInvoiceReference(
+        companyId: string,
+        supplierId: string,
+        supplierInvoiceNumber: string,
+        excludeMmSupplierInvoiceId?: string,
+    ) {
+        const reference = supplierInvoiceNumber.trim()
+        if (!reference) {
+            throw new BadRequestException('Supplier invoice number is required.')
+        }
+        const [apDuplicate, mmDuplicate] = await Promise.all([
+            this.prisma.ficoApDocument.findFirst({
+                where: {
+                    companyId,
+                    supplierId,
+                    referenceNumber: { equals: reference, mode: 'insensitive' },
+                    status: 'POSTED',
+                    documentType: {
+                        in: ['INVOICE', 'EXPENSE_INVOICE', 'NON_PO_INVOICE'],
+                    },
+                },
+                select: { id: true, referenceNumber: true },
+            }),
+            this.prisma.mmSupplierInvoice.findFirst({
+                where: {
+                    companyId,
+                    supplierId,
+                    invoiceNumber: { equals: reference, mode: 'insensitive' },
+                    status: { notIn: ['CANCELLED', 'REJECTED', 'DRAFT'] },
+                    ...(excludeMmSupplierInvoiceId
+                        ? { id: { not: excludeMmSupplierInvoiceId } }
+                        : {}),
+                },
+                select: { id: true, invoiceNumber: true },
+            }),
+        ])
+        if (apDuplicate || mmDuplicate) {
+            throw new ConflictException(
+                `Supplier invoice number ${reference} already exists for this supplier and company.`,
+            )
         }
     }
 

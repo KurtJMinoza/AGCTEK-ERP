@@ -4,6 +4,7 @@ import {
     type FicoTransactionKeyCatalogEntry,
 } from './fico-transaction-key.catalog'
 import { FICO_DETERMINATION_TRANSACTION_TYPE_CODES } from './fico-account-determination.constants'
+import { ficoCatalogEntryForLogicalKey } from './fico-phase02-enterprise-keys.policy'
 
 /**
  * Deterministic precedence (highest wins first):
@@ -65,6 +66,34 @@ const KEY_DEFAULT_TRANSACTION_TYPE: Record<string, string> = {
     PRODUCTION_ISSUE: 'PRODUCTION_ISSUE',
     PRODUCTION_RECEIPT: 'PRODUCTION_RECEIPT',
     PRODUCTION_SCRAP: 'PRODUCTION_SCRAP',
+    INVENTORY_REVALUATION: 'INVENTORY_REVALUATION',
+    INVENTORY: 'GOODS_RECEIPT',
+    INVENTORY_WRITEOFF: 'INVENTORY_WRITE_OFF',
+    CONSUMPTION_EXPENSE: 'INVENTORY_DECREASE',
+    MATERIAL_CONSUMPTION: 'INVENTORY_DECREASE',
+    PURCHASE_DISCOUNT: 'SUPPLIER_INVOICE',
+    SUPPLIER_REFUND: 'SUPPLIER_RETURN',
+    AP_ADJUSTMENT: 'SUPPLIER_INVOICE',
+    CUSTOMER_ADVANCE: 'CUSTOMER_PAYMENT',
+    SALES_DISCOUNT: 'SALES_DISCOUNT',
+    CUSTOMER_REFUND: 'SALES_RETURN',
+    BAD_DEBT_EXPENSE: 'CUSTOMER_BILLING',
+    DOUBTFUL_ACCOUNT_ALLOWANCE: 'CUSTOMER_BILLING',
+    SALES_RETURN: 'SALES_RETURN',
+    CASH_SALES: 'CUSTOMER_PAYMENT',
+    CARD_SETTLEMENT: 'PAYMENT_CLEARING',
+    EWALLET_SETTLEMENT: 'PAYMENT_CLEARING',
+    WITHHOLDING_PAYABLE: 'SUPPLIER_INVOICE',
+    WITHHOLDING_RECEIVABLE: 'CUSTOMER_BILLING',
+    ROUNDING_DIFFERENCE: 'CUSTOMER_BILLING',
+    FX_GAIN_LOSS: 'FX_REVALUATION',
+    INPUT_VAT: 'SUPPLIER_INVOICE',
+    OUTPUT_VAT: 'OUTPUT_TAX',
+    AP_RECON: 'SUPPLIER_INVOICE',
+    AR_RECON: 'ACCOUNTS_RECEIVABLE',
+    GRIR: 'GR_IR_CLEARING',
+    CASH: 'CUSTOMER_PAYMENT',
+    BANK: 'CUSTOMER_PAYMENT',
 }
 
 /** Expected G/L account types per catalogue accounting category (not code patterns). */
@@ -78,6 +107,7 @@ export const FICO_ACCOUNTING_CATEGORY_GL_TYPES: Record<string, readonly string[]
     CASH: ['ASSET'],
     RECEIVABLE: ['ASSET'],
     PAYABLE: ['LIABILITY'],
+    LIABILITY: ['LIABILITY'],
     TREASURY: ['ASSET', 'LIABILITY'],
     EQUITY: ['EQUITY'],
     ASSET: ['ASSET'],
@@ -86,8 +116,7 @@ export const FICO_ACCOUNTING_CATEGORY_GL_TYPES: Record<string, readonly string[]
 export function ficoCatalogEntryForKey(
     transactionKey: string,
 ): FicoTransactionKeyCatalogEntry | undefined {
-    const code = transactionKey.trim().toUpperCase()
-    return FICO_TRANSACTION_KEY_CATALOG.find((entry) => entry.code === code)
+    return ficoCatalogEntryForLogicalKey(transactionKey)
 }
 
 export function ficoResolveTransactionTypeForKey(

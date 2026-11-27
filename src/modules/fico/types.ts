@@ -6,6 +6,11 @@ export type FicoJournalLine = {
     creditAmount: string
     currency: string
     description?: string | null
+    branchId?: string | null
+    costCenterId?: string | null
+    profitCenterId?: string | null
+    materialId?: string | null
+    warehouseId?: string | null
     glAccount?: {
         id: string
         accountCode: string
@@ -20,6 +25,36 @@ export type FicoJournalSupplierSummary = {
     supplierName: string
 }
 
+export type FicoJournalCustomerSummary = {
+    id: string
+    customerNumber: string
+    companyName: string
+}
+
+export type FicoJournalPostingOrigin =
+    | 'MANUAL'
+    | 'AUTOMATIC'
+    | 'REVERSAL'
+    | 'SYSTEM_ADJUSTMENT'
+
+export type FicoJournalReversalStatus =
+    | 'NONE'
+    | 'IS_REVERSAL'
+    | 'ORIGINAL_REVERSED'
+    | 'CANCELLED'
+
+export type FicoJournalFlowNode = {
+    key: string
+    documentType: string
+    label: string
+    documentId: string
+    documentNumber?: string | null
+    status?: string | null
+    href?: string | null
+    occurredAt?: string | null
+    highlight?: boolean
+}
+
 export type FicoJournalEntryListItem = {
     id: string
     documentNumber: string | null
@@ -30,13 +65,22 @@ export type FicoJournalEntryListItem = {
     status: string
     approvalStatus?: string
     totalAmount: string
+    totalDebit?: string
+    totalCredit?: string
     currencyCode: string
     description: string | null
     sourceModule?: string | null
     sourceDocumentType?: string | null
     sourceDocumentId?: string | null
+    sourceDocumentNumber?: string | null
+    postingOrigin?: FicoJournalPostingOrigin
+    reversalStatus?: FicoJournalReversalStatus
     supplierId?: string | null
+    customerId?: string | null
     supplier?: FicoJournalSupplierSummary | null
+    customer?: FicoJournalCustomerSummary | null
+    company?: { id: string; code: string; name: string } | null
+    branch?: { id: string; code: string; name: string } | null
     createdBy?: string | null
     postedBy?: string | null
     postedByName?: string | null
@@ -52,18 +96,54 @@ export type FicoJournalEntryListItem = {
     } | null
 }
 
+export type FicoJournalTaxLine = {
+    id: string
+    taxCode: string
+    taxType: string
+    netAmount: string
+    taxAmount: string
+    grossAmount: string
+}
+
+export type FicoJournalEntryCapabilities = {
+    canEdit: boolean
+    canCancel: boolean
+    canPost: boolean
+    canReverse: boolean
+    readOnlyPosted: boolean
+}
+
 export type FicoJournalEntryDetail = FicoJournalEntryListItem & {
     companyId: string
     documentType: string
     fiscalPeriodId?: string | null
     approvalStatus: string
-    sourceModule?: string | null
-    sourceDocumentType?: string | null
-    sourceDocumentId?: string | null
-    supplierId?: string | null
-    supplier?: FicoJournalSupplierSummary | null
+    exchangeRate?: string | null
+    sourceEventId?: string | null
+    mmAccountingEventId?: string | null
+    determinationVersion?: string | null
     reversalOfId?: string | null
+    /** Sales-return and other automatic-posting stamps (e.g. returnRequestId). */
     metadata?: Record<string, unknown> | null
+    reversalOf?: { id: string; documentNumber: string | null; status: string } | null
+    reversedBy?: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postedAt?: string | null
+    } | null
+    accountingEvent?: {
+        id: string
+        eventType: string
+        status: string
+        sourceDocumentNumber: string | null
+        processedAt: string | null
+    } | null
+    taxLines?: FicoJournalTaxLine[]
+    documentFlow?: FicoJournalFlowNode[]
+    capabilities?: FicoJournalEntryCapabilities
+    relatedApDocument?: { id: string; referenceNumber: string | null; status: string } | null
+    relatedArDocument?: { id: string; referenceNumber: string | null; status: string } | null
     lines: FicoJournalLine[]
 }
 
@@ -74,8 +154,13 @@ export type FicoJournalListQuery = {
     documentType?: string
     documentNumber?: string
     sourceModule?: string
+    sourceDocumentType?: string
     sourceDocumentId?: string
+    sourceDocumentNumber?: string
+    postingOrigin?: FicoJournalPostingOrigin
     supplierId?: string
+    customerId?: string
+    branchId?: string
     glAccountId?: string
     currencyCode?: string
     createdBy?: string
@@ -184,9 +269,11 @@ export type FicoGlLedgerLine = {
         documentDate: string | null
         status: string
         sourceModule: string | null
+        sourceDocumentType: string | null
         sourceDocumentId: string | null
         reversalOfId: string | null
     }
+    runningBalance?: string
 }
 
 export type FicoGlLedgerLineItemsResponse = {
@@ -286,6 +373,9 @@ export type FicoCompanySettings = {
     defaultTaxOutputAccount?: FicoGlAccountRef | null
     documentNumberPrefix: string
     documentNumberPadding: number
+    postingPrecision?: number
+    defaultFinancialDimensions?: Record<string, unknown> | null
+    reconciliationPolicy?: string
     allowNegativePostings: boolean
     backdatedPostingAllowed: boolean
     maxBackdatedPostingDays: number | null
@@ -356,6 +446,11 @@ export type FicoGlAccount = {
     reconciliationType: string | null
     openItemManagement: boolean
     currencyRestriction: string | null
+    financialStatementMapping?: string | null
+    taxCategory?: string | null
+    requiresBranch?: boolean
+    requiresCostCenter?: boolean
+    requiresProfitCenter?: boolean
     status: string
     updatedAt?: string
     companyAssignments?: FicoCompanyGlAccount[]

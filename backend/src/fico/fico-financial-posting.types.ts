@@ -35,6 +35,8 @@ export type FinancialPostingRequest = {
     sourceDocumentId?: string | null
     /** Optional MM supplier partner when the operational source has one. */
     supplierId?: string | null
+    /** Optional SD customer partner for AR subledger postings. */
+    customerId?: string | null
     sourceEventId?: string | null
     sourceTransactionId?: string | null
     mmAccountingEventId?: string | null

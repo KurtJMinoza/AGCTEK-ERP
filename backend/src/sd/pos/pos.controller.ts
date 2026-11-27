@@ -18,6 +18,8 @@ import { PosPaymentMethodService } from './pos-payment-method.service'
 import { PosRefundService, type CreatePosRefundInput } from './pos-refund.service'
 import { PosEmployeeService } from './pos-employee.service'
 import { PosCollectionService, type CollectPaymentInput } from './pos-collection.service'
+import { PosDepositService } from './pos-deposit.service'
+import { PosAccountingService } from './pos-accounting.service'
 import {
     ClosePosSessionDto,
     HoldPosSaleDto,
@@ -29,6 +31,7 @@ import {
     PosCompleteDto,
     PosQuoteDto,
     PosVoidDto,
+    PosDepositDto,
 } from './dto/pos.dto'
 
 /**
@@ -49,7 +52,33 @@ export class PosController {
         private readonly refunds: PosRefundService,
         private readonly employees: PosEmployeeService,
         private readonly collections: PosCollectionService,
+        private readonly deposits: PosDepositService,
+        private readonly posAccounting: PosAccountingService,
     ) {}
+
+    @Get('orders/:id/accounting')
+    @RequirePermission('sd.pos', 'read')
+    getOrderAccounting(@Param('id') id: string) {
+        return this.posAccounting.getSaleAccounting(id)
+    }
+
+  @Post('orders/:id/accounting/reconcile')
+  @RequirePermission('sd.pos', 'update')
+  reconcileOrderAccounting(
+    @Param('id') id: string,
+    @Query('dryRun') dryRun?: string,
+  ) {
+        return this.posAccounting.reconcileSaleAccountingById(
+            id,
+            dryRun !== 'false',
+        )
+    }
+
+    @Post('deposits')
+    @RequirePermission('sd.pos', 'update')
+    recordCustomerDeposit(@Body() dto: PosDepositDto) {
+        return this.deposits.recordDeposit(dto)
+    }
 
     /** Search HR employees by name for salary-deduction checkout. */
     @Get('employees')

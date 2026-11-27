@@ -64,6 +64,7 @@ type CatalogOption = Option & {
     stockState: string | null
     primaryBatchNumber: string | null
     primaryLotNumber: string | null
+    primaryProductExpiry: string | null
     /** Variant barcode, else the material's primary MM barcode. */
     barcode: string | null
 }
@@ -90,6 +91,8 @@ type DraftLine = {
     lotNumber: string
     /** Read-only: filled from the chosen product (saved lines show what was recorded). */
     barcode: string
+    /** YYYY-MM-DD; auto-filled from batch or entered manually. */
+    productExpiry: string
 }
 
 const catalogKey = (productId: string, variantId: string) => `${productId}:${variantId}`
@@ -111,6 +114,7 @@ const blankLine = (): DraftLine => ({
     batchNumber: '',
     lotNumber: '',
     barcode: '',
+    productExpiry: '',
 })
 
 const num = (value: string) => (value.trim() === '' ? 0 : Number(value))
@@ -312,6 +316,9 @@ export default function ExtPlatformTransactionDialog({
                     batchNumber: l.batchNumber ?? '',
                     lotNumber: l.lotNumber ?? '',
                     barcode: l.barcode ?? '',
+                    productExpiry: l.expiryDate
+                        ? dayjs(l.expiryDate).format('YYYY-MM-DD')
+                        : '',
                 })),
             )
         } else {
@@ -352,6 +359,7 @@ export default function ExtPlatformTransactionDialog({
                         stockState: null,
                         primaryBatchNumber: null,
                         primaryLotNumber: null,
+                        primaryProductExpiry: null,
                         barcode: null,
                     })
                     return p.productConfig === 'VARIABLE' && p.variants?.length
@@ -380,6 +388,7 @@ export default function ExtPlatformTransactionDialog({
                                   stockState: row.state,
                                   primaryBatchNumber: row.primaryBatchNumber ?? null,
                                   primaryLotNumber: row.primaryLotNumber ?? null,
+                                  primaryProductExpiry: row.primaryProductExpiry ?? null,
                                   barcode: row.barcode ?? null,
                               }
                             : o
@@ -536,6 +545,7 @@ export default function ExtPlatformTransactionDialog({
             discount: num(l.discount),
             ...(l.batchNumber.trim() ? { batchNumber: l.batchNumber.trim() } : {}),
             ...(l.lotNumber.trim() ? { lotNumber: l.lotNumber.trim() } : {}),
+            ...(l.productExpiry.trim() ? { expiryDate: l.productExpiry.trim() } : {}),
         }))
         const common = {
             salesSourceId,
@@ -871,6 +881,7 @@ export default function ExtPlatformTransactionDialog({
                                                             batchNumber: o?.primaryBatchNumber ?? '',
                                                             lotNumber: o?.primaryLotNumber ?? '',
                                                             barcode: o?.barcode ?? '',
+                                                            productExpiry: o?.primaryProductExpiry ?? '',
                                                         })
                                                     }
                                                 />
@@ -950,7 +961,7 @@ export default function ExtPlatformTransactionDialog({
                                                 />
                                             </div>
                                         </div>
-                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                                             <FormItem label="Barcode (from product)">
                                                 <Input
                                                     size="sm"
@@ -958,6 +969,29 @@ export default function ExtPlatformTransactionDialog({
                                                     className="font-mono"
                                                     value={line.barcode}
                                                     placeholder={line.productId ? 'No barcode on file' : 'Choose a product'}
+                                                />
+                                            </FormItem>
+                                            <FormItem label="Product expiry">
+                                                <DatePicker
+                                                    size="sm"
+                                                    inputtable
+                                                    placeholder={
+                                                        line.productId
+                                                            ? 'Optional — batch or manual'
+                                                            : 'Choose a product'
+                                                    }
+                                                    value={
+                                                        line.productExpiry
+                                                            ? dayjs(line.productExpiry, 'YYYY-MM-DD', true).toDate()
+                                                            : null
+                                                    }
+                                                    onChange={(d) =>
+                                                        updateLine(line.key, {
+                                                            productExpiry: d
+                                                                ? dayjs(d).format('YYYY-MM-DD')
+                                                                : '',
+                                                        })
+                                                    }
                                                 />
                                             </FormItem>
                                             <FormItem label="Batch # (optional)">

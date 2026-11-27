@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
+import { FicoSdRevenueGuardService } from './fico-sd-revenue-guard.service'
 
 type RecordAndDispatchInput = {
     eventType: string
@@ -31,7 +32,30 @@ export class FicoSdAccountingBridgeService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly events: EventEmitter2,
+        @Optional()
+        private readonly revenueGuard?: FicoSdRevenueGuardService,
     ) {}
+
+    /**
+     * Billing milestone — dispatch only when revenue has not already posted
+     * at the register (POS) or through a prior SD event.
+     */
+    async dispatchSalesInvoicePosted(input: RecordAndDispatchInput) {
+        const salesOrderId =
+            (input.payload.salesOrderId as string | undefined) ?? undefined
+        if (salesOrderId && this.revenueGuard) {
+            const guard = await this.revenueGuard.shouldSkipInvoiceFinancialPosting(
+                salesOrderId,
+            )
+            if (guard.skip) {
+                this.logger.debug(
+                    `Skipping duplicate invoice revenue for order ${salesOrderId}: ${guard.reason}`,
+                )
+                return
+            }
+        }
+        await this.recordAndDispatch(input)
+    }
 
     async recordAndDispatch(input: RecordAndDispatchInput): Promise<void> {
         let cashierUserId: string | null = null

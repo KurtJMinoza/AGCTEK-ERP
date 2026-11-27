@@ -62,6 +62,7 @@ export const MM_DOMAIN_EVENTS = {
     SUPPLIER_RETURN_REVERSED: 'SupplierReturnReversed',
     CUSTOMER_RETURN_POSTED: 'CustomerReturnPosted',
     CUSTOMER_RETURN_RESTOCKED: 'CustomerReturnRestocked',
+    CUSTOMER_RETURN_REVERSED: 'CustomerReturnReversed',
     DISPOSAL_POSTED: 'DisposalPosted',
     SCRAP_POSTED: 'ScrapPosted',
     DISPOSAL_REVERSED: 'DisposalReversed',

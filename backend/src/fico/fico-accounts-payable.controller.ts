@@ -5,9 +5,11 @@ import { RequirePermission } from '../permissions/permission.guard'
 import {
     CreateFicoApAdjustmentDto,
     CreateFicoApClearingDto,
+    CreateFicoApDirectInvoiceDto,
     CreateFicoApHistoricalBalanceDto,
     CreateFicoApHistoricalMigrationRunDto,
     CreateFicoApPaymentDto,
+    FicoApDashboardQueryDto,
     FicoApClearingQueryDto,
     FicoApCompanyQueryDto,
     FicoApDocumentQueryDto,
@@ -42,6 +44,25 @@ export class FicoAccountsPayableController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accountsPayable.listOpenItems(query, user)
+    }
+
+    @Get('dashboard')
+    @RequirePermission('fico.accounts-payable', 'read')
+    getDashboard(
+        @Query() query: FicoApDashboardQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsPayable.getDashboard(query, user)
+    }
+
+    @Get('payment-proposals')
+    @RequirePermission('fico.accounts-payable', 'read')
+    getPaymentProposals(
+        @Query('companyId') companyId: string,
+        @Query('asOfDate') asOfDate: string | undefined,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsPayable.getPaymentProposals(companyId, asOfDate, user)
     }
 
     @Get('aging')
@@ -193,6 +214,15 @@ export class FicoAccountsPayableController {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accountsPayable.postAdjustment(dto, user)
+    }
+
+    @Post('supplier-invoices')
+    @RequirePermission('fico.accounts-payable', 'create')
+    postDirectSupplierInvoice(
+        @Body() dto: CreateFicoApDirectInvoiceDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsPayable.postDirectSupplierInvoice(dto, user)
     }
 
     @Post('clearings')

@@ -73,6 +73,7 @@ export type SalesLineReportRow = {
     remarks: string
     batchNumber: string
     lotNumber: string
+    productExpiry: string
 }
 
 export type SalesLinePayment = {

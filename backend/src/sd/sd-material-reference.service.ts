@@ -344,7 +344,7 @@ export class SdMaterialReferenceService {
         let earliestExpiryDate: string | null = null
         let nearestBatchNumber: string | null = null
         let nearestLotNumber: string | null = null
-        if (material.expiryManaged) {
+        if (material.expiryManaged || material.defaultExpiryDate) {
             const stockedBatches = await this.prisma.mmInventoryBalance.findMany({
                 where: {
                     materialId: material.id,
@@ -454,7 +454,14 @@ export class SdMaterialReferenceService {
             },
             expiry: {
                 defaultShelfLifeDays: material.defaultShelfLifeDays,
-                earliestExpiryDate,
+                defaultExpiryDate:
+                    material.defaultExpiryDate?.toISOString().slice(0, 10) ??
+                    null,
+                earliestExpiryDate:
+                    earliestExpiryDate ??
+                    (material.defaultExpiryDate
+                        ? material.defaultExpiryDate.toISOString()
+                        : null),
                 nearestBatchNumber,
                 nearestLotNumber,
             },

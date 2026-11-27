@@ -26,6 +26,16 @@ import {
     journalListOrderBy,
 } from './fico-journal-list.builder'
 import type { JournalEntryListQueryDto } from './dto/fico.dto'
+import { FicoJournalDocumentFlowService } from './fico-journal-document-flow.service'
+import {
+    presentJournalCapabilities,
+    presentJournalListItem,
+    type PresentedJournalListItem,
+} from './fico-journal-presenter'
+import {
+    resolveJournalPostingOrigin,
+    resolveJournalReversalStatus,
+} from './fico-journal-origin.policy'
 import { FicoAccountDeterminationService } from './fico-account-determination.service'
 import { FicoFinancialPeriodService } from './financial-period.service'
 import { FicoFinancialPostingEngine } from './fico-financial-posting.engine'
@@ -112,6 +122,108 @@ export type JournalEntryListItem = {
     } | null
 }
 
+export type JournalEntryDetailResponse = {
+    id: string
+    companyId: string
+    documentNumber: string | null
+    postingDate: string
+    documentDate: string | null
+    fiscalYear: number | null
+    fiscalPeriodId: string | null
+    totalAmount: string
+    totalDebit: string
+    totalCredit: string
+    currencyCode: string
+    exchangeRate: string | null
+    status: string
+    approvalStatus: string
+    description: string | null
+    documentType: string
+    sourceModule: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    sourceDocumentNumber: string | null
+    sourceEventId: string | null
+    mmAccountingEventId: string | null
+    postingOrigin: import('./fico-journal-origin.policy').FicoJournalPostingOrigin
+    reversalStatus: import('./fico-journal-origin.policy').FicoJournalReversalStatus
+    supplierId: string | null
+    customerId: string | null
+    supplier: JournalSupplierSummary | null
+    customer: {
+        id: string
+        customerNumber: string
+        companyName: string
+    } | null
+    company: { id: string; code: string; name: string }
+    branch: { id: string; code: string; name: string } | null
+    reversalOfId: string | null
+    reversalOf: { id: string; documentNumber: string | null; status: string } | null
+    reversedBy: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postedAt: string | null
+    } | null
+    determinationVersion: string | null
+    accountingEvent: {
+        id: string
+        eventType: string
+        status: string
+        sourceDocumentNumber: string | null
+        processedAt: string | null
+    } | null
+    taxLines: Array<{
+        id: string
+        taxCode: string
+        taxType: string
+        netAmount: string
+        taxAmount: string
+        grossAmount: string
+    }>
+    postedAt: string | null
+    postedBy: string | null
+    postedByName?: string | null
+    postedByEmployeeCode?: string | null
+    preparedBy: string | null
+    preparedByName?: string | null
+    approvedBy: string | null
+    approvedByName?: string | null
+    createdAt: string
+    capabilities: ReturnType<typeof presentJournalCapabilities>
+    documentFlow: import('./fico-journal-document-flow.service').FicoJournalFlowNode[]
+    relatedApDocument: { id: string; referenceNumber: string | null; status: string } | null
+    relatedArDocument: { id: string; referenceNumber: string | null; status: string } | null
+    fiscalPeriod: {
+        id: string
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+    lines: Array<{
+        id: string
+        lineNumber: number
+        glAccountId: string
+        debitAmount: string
+        creditAmount: string
+        currency: string
+        description: string | null
+        branchId: string | null
+        costCenterId: string | null
+        profitCenterId: string | null
+        materialId: string | null
+        warehouseId: string | null
+        glAccount: {
+            id: string
+            accountCode: string
+            accountName: string
+            accountType: string
+        }
+    }>
+}
+
+/** @deprecated use JournalEntryDetailResponse */
 export type JournalEntryDetail = {
     id: string
     companyId: string
@@ -164,6 +276,12 @@ const JOURNAL_SUPPLIER_SELECT = {
     supplierName: true,
 } as const
 
+const JOURNAL_CUSTOMER_SELECT = {
+    id: true,
+    customerNumber: true,
+    companyName: true,
+} as const
+
 export type JournalReversalResult = {
     originalId: string
     originalStatus: string
@@ -202,6 +320,8 @@ export class FicoJournalService {
         private readonly sdPosting?: FicoSdPostingService,
         @Optional()
         private readonly apReconciliationGuard?: FicoApReconciliationGuardService,
+        @Optional()
+        private readonly documentFlow?: FicoJournalDocumentFlowService,
     ) {}
 
     /**
@@ -350,6 +470,7 @@ export class FicoJournalService {
 
         await this.apReconciliationGuard?.assertPostingAllowed({
             glAccountIds: request.lines.map((line) => line.glAccountId),
+            source: 'AUTOMATIC',
             subledgerPosting: request.subledgerPosting,
         })
 
@@ -560,11 +681,17 @@ export class FicoJournalService {
         const { payload, idempotencyKey, postingDate, flatLines } = input
         const currency = payload.currencyCode.trim().toUpperCase()
         const docType =
-            payload.eventType === 'PosCollectionCompleted'
+            payload.eventType === 'PosCollectionCompleted' ||
+            payload.eventType === 'SdCustomerCollection'
                 ? 'SD_COLLECTION'
-                : payload.eventType === 'SdSalesReturnRefundPaid'
+                : payload.eventType === 'SdSalesReturnRefundPaid' ||
+                    payload.eventType === 'PosSaleRefunded'
                   ? 'SD_REVERSAL'
-                  : 'SD_REVENUE'
+                  : payload.eventType === 'PosCustomerDepositCompleted'
+                    ? 'AR_ADVANCE'
+                    : payload.eventType === 'SdSalesReturnCreditMemo'
+                      ? 'AR_CREDIT_MEMO'
+                      : 'SD_REVENUE'
         const result = await this.postAutomaticJournal({
             companyId: payload.companyId,
             documentType: docType,
@@ -691,15 +818,15 @@ export class FicoJournalService {
         const currencyCode =
             (dto.currencyCode ?? 'PHP').toUpperCase().trim()
 
-        await this.apReconciliationGuard?.assertPostingAllowed({
-            glAccountIds: dto.lines.map((line) => line.glAccountId),
-        })
-
-        // Validate every account is active, postable, and assigned to the company.
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique(
             {
                 where: { companyId: dto.companyId },
-                select: { id: true, status: true, chartOfAccountsId: true },
+                select: {
+                    id: true,
+                    status: true,
+                    chartOfAccountsId: true,
+                    reconciliationPolicy: true,
+                },
             },
         )
         if (!settings) {
@@ -712,16 +839,28 @@ export class FicoJournalService {
                 `Accounting postings are blocked because the company accounting configuration is ${settings.status}. Activate it before posting.`,
             )
         }
-        for (const line of dto.lines) {
-            await this.validation.assertAccountPostable(
-                dto.companyId,
-                line.glAccountId,
-                'MANUAL',
-                currencyCode,
-                settings.chartOfAccountsId ?? undefined,
-                postingDate,
-            )
-        }
+        await this.apReconciliationGuard?.assertPostingAllowed({
+            glAccountIds: dto.lines.map((line) => line.glAccountId),
+            source: 'MANUAL',
+            reconciliationPolicy: settings.reconciliationPolicy,
+        })
+
+        // Single validation path: company, period, precision, document type,
+        // postability and required dimensions.
+        await this.validation.validate({
+            companyId: dto.companyId,
+            postingDate,
+            source: 'MANUAL',
+            currencyCode,
+            actor: user,
+            documentType: dto.documentType,
+            sourceDocumentId: dto.sourceDocumentId,
+            description: dto.description,
+            lines: dto.lines.map((line) => ({
+                ...line,
+                currency: currencyCode,
+            })),
+        })
 
         // Find the current fiscal period for this posting date.
         const fiscalPeriod = await this.prisma.ficoFinancialPeriod.findFirst({
@@ -803,9 +942,11 @@ export class FicoJournalService {
                         ? FICO_JOURNAL_AUTOMATIC_APPROVAL_STATUS
                         : FICO_JOURNAL_AUTOMATIC_APPROVAL_STATUS,
                     requiresApproval: false,
-                    documentType: 'JOURNAL',
+                    documentType: dto.documentType?.trim() || 'JOURNAL',
                     documentNumber,
                     description: dto.description ?? null,
+                    sourceDocumentType: dto.sourceDocumentType?.trim() || null,
+                    sourceDocumentId: dto.sourceDocumentId?.trim() || null,
                     supplierId,
                     postedAt: canPostImmediately ? now : null,
                     postedBy: canPostImmediately ? user.id ?? null : null,
@@ -825,6 +966,9 @@ export class FicoJournalService {
                             ),
                             currency: currencyCode,
                             description: line.description ?? null,
+                            branchId: line.branchId?.trim() || null,
+                            costCenterId: line.costCenterId?.trim() || null,
+                            profitCenterId: line.profitCenterId?.trim() || null,
                         })),
                     },
                 },
@@ -913,14 +1057,13 @@ export class FicoJournalService {
         const lines = dto.lines ?? []
         validateJournalLinesForSubmission(lines)
 
-        await this.apReconciliationGuard?.assertPostingAllowed({
-            glAccountIds: lines.map((line) => line.glAccountId),
-        })
-
+        const currencyCode = (
+            dto.currencyCode ?? journal.currencyCode
+        ).toUpperCase()
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique(
             {
                 where: { companyId: dto.companyId },
-                select: { id: true, status: true, chartOfAccountsId: true },
+                select: { id: true, status: true, reconciliationPolicy: true },
             },
         )
         if (!settings || settings.status !== 'ACTIVE') {
@@ -928,19 +1071,22 @@ export class FicoJournalService {
                 'Accounting is not active for this company.',
             )
         }
-        const currencyCode = (
-            dto.currencyCode ?? journal.currencyCode
-        ).toUpperCase()
-        for (const line of lines) {
-            await this.validation.assertAccountPostable(
-                dto.companyId,
-                line.glAccountId,
-                'MANUAL',
-                currencyCode,
-                settings.chartOfAccountsId ?? undefined,
-                postingDate,
-            )
-        }
+        await this.apReconciliationGuard?.assertPostingAllowed({
+            glAccountIds: lines.map((line) => line.glAccountId),
+            source: 'MANUAL',
+            reconciliationPolicy: settings.reconciliationPolicy,
+        })
+        await this.validation.validate({
+            companyId: dto.companyId,
+            postingDate,
+            source: 'MANUAL',
+            currencyCode,
+            actor: user,
+            documentType: dto.documentType ?? journal.documentType,
+            sourceDocumentId: dto.sourceDocumentId ?? journal.sourceDocumentId,
+            description: dto.description ?? journal.description,
+            lines: lines.map((line) => ({ ...line, currency: currencyCode })),
+        })
 
         const invalidatesApproval =
             journal.approvalStatus === 'APPROVED' ||
@@ -968,6 +1114,14 @@ export class FicoJournalService {
                     documentDate: postingDate,
                     description: dto.description ?? journal.description,
                     currencyCode,
+                    documentType:
+                        dto.documentType?.trim() || journal.documentType,
+                    sourceDocumentType:
+                        dto.sourceDocumentType?.trim() ||
+                        journal.sourceDocumentType,
+                    sourceDocumentId:
+                        dto.sourceDocumentId?.trim() ||
+                        journal.sourceDocumentId,
                     supplierId,
                     totalAmount: new Decimal(totalDebit),
                     approvalStatus: invalidatesApproval
@@ -995,6 +1149,9 @@ export class FicoJournalService {
                             ),
                             currency: currencyCode,
                             description: line.description ?? null,
+                            branchId: line.branchId?.trim() || null,
+                            costCenterId: line.costCenterId?.trim() || null,
+                            profitCenterId: line.profitCenterId?.trim() || null,
                         })),
                     },
                 },
@@ -1390,11 +1547,19 @@ export class FicoJournalService {
             postingDate: journal.postingDate,
             source: journal.sourceModule ? 'AUTOMATIC' : 'MANUAL',
             currencyCode: journal.currencyCode,
+            actor: user,
+            documentType: journal.documentType,
+            sourceDocumentId: journal.sourceDocumentId,
+            description: journal.description,
             lines: journal.lines.map((line) => ({
                 glAccountId: line.glAccountId,
                 debitAmount: Number(line.debitAmount) || 0,
                 creditAmount: Number(line.creditAmount) || 0,
                 currency: line.currency,
+                branchId: line.branchId,
+                costCenterId: line.costCenterId,
+                profitCenterId: line.profitCenterId,
+                description: line.description,
             })),
         })
 
@@ -1472,11 +1637,50 @@ export class FicoJournalService {
     }
 
 
-    async getEntry(id: string): Promise<JournalEntryDetail> {
+    async getEntry(id: string): Promise<JournalEntryDetailResponse> {
         const journal = await this.prisma.ficoJournalEntry.findUnique({
             where: { id },
             include: {
+                company: { select: { id: true, code: true, name: true } },
                 supplier: { select: JOURNAL_SUPPLIER_SELECT },
+                customer: { select: JOURNAL_CUSTOMER_SELECT },
+                reversalOf: {
+                    select: { id: true, documentNumber: true, status: true },
+                },
+                reversedBy: {
+                    select: { id: true, documentNumber: true, status: true, postedAt: true },
+                },
+                mmAccountingEvent: {
+                    select: {
+                        id: true,
+                        eventType: true,
+                        status: true,
+                        sourceDocumentNumber: true,
+                        documentType: true,
+                        documentId: true,
+                        attemptCount: true,
+                        processedAt: true,
+                        branchId: true,
+                        taxSnapshot: true,
+                        accountingDimensions: true,
+                    },
+                },
+                taxPostingSnapshots: {
+                    select: {
+                        id: true,
+                        taxCodeCode: true,
+                        taxType: true,
+                        netAmount: true,
+                        taxAmount: true,
+                        grossAmount: true,
+                    },
+                },
+                apDocument: {
+                    select: { id: true, referenceNumber: true, status: true },
+                },
+                arDocument: {
+                    select: { id: true, referenceNumber: true, status: true },
+                },
                 lines: {
                     orderBy: { lineNumber: 'asc' },
                     include: {
@@ -1509,18 +1713,142 @@ export class FicoJournalService {
         const userLabels = await this.resolveUserDisplayMap([
             journal.postedBy,
             journal.createdBy,
+            journal.preparedBy,
+            journal.approvedBy,
         ])
+
+        const lineTotals = journal.lines.reduce(
+            (acc, line) => ({
+                debit: acc.debit.plus(line.debitAmount),
+                credit: acc.credit.plus(line.creditAmount),
+            }),
+            { debit: new Decimal(0), credit: new Decimal(0) },
+        )
+
+        const meta = journal.metadata as Record<string, unknown> | null
+        const sourceDocumentNumber =
+            journal.mmAccountingEvent?.sourceDocumentNumber ??
+            (typeof meta?.sourceDocumentNumber === 'string'
+                ? meta.sourceDocumentNumber
+                : null)
+
+        const branchId = journal.mmAccountingEvent?.branchId ?? journal.lines.find((l) => l.branchId)?.branchId ?? null
+        const branch = branchId
+            ? await this.prisma.branch.findUnique({
+                  where: { id: branchId },
+                  select: { id: true, code: true, name: true },
+              })
+            : null
+
+        const documentFlow = this.documentFlow
+            ? await this.documentFlow.buildForJournal(id)
+            : []
+
+        const capabilities = presentJournalCapabilities({
+            status: journal.status,
+            sourceModule: journal.sourceModule,
+            reversalOfId: journal.reversalOfId,
+            reversedBy: journal.reversedBy ?? null,
+            approvalStatus: journal.approvalStatus,
+        })
+
         return {
-            ...journal,
+            id: journal.id,
+            companyId: journal.companyId,
+            documentNumber: journal.documentNumber,
+            documentType: journal.documentType,
+            documentDate: journal.documentDate?.toISOString().slice(0, 10) ?? null,
+            postingDate: journal.postingDate.toISOString().slice(0, 10),
+            fiscalYear: journal.fiscalYear,
+            fiscalPeriodId: journal.fiscalPeriodId,
+            totalAmount: journal.totalAmount.toString(),
+            totalDebit: lineTotals.debit.toString(),
+            totalCredit: lineTotals.credit.toString(),
+            currencyCode: journal.currencyCode,
+            exchangeRate: journal.exchangeRate?.toString() ?? null,
+            status: journal.status,
             approvalStatus: this.normalizeApprovalStatusForApi(
                 journal.status,
                 journal.approvalStatus,
             ),
+            description: journal.description,
+            sourceModule: journal.sourceModule,
+            sourceDocumentType: journal.sourceDocumentType,
+            sourceDocumentId: journal.sourceDocumentId,
+            sourceDocumentNumber,
+            sourceEventId: journal.sourceEventId,
+            mmAccountingEventId: journal.mmAccountingEventId,
+            postingOrigin: resolveJournalPostingOrigin(journal),
+            reversalStatus: resolveJournalReversalStatus({
+                status: journal.status,
+                reversalOfId: journal.reversalOfId,
+                hasReversalChild: Boolean(journal.reversedBy),
+            }),
+            supplierId: journal.supplierId,
+            customerId: journal.customerId,
+            supplier: journal.supplier,
+            customer: journal.customer,
+            company: journal.company,
+            branch,
+            reversalOfId: journal.reversalOfId,
+            reversalOf: journal.reversalOf ?? null,
+            reversedBy: journal.reversedBy
+                ? {
+                      ...journal.reversedBy,
+                      postedAt: journal.reversedBy.postedAt?.toISOString() ?? null,
+                  }
+                : null,
+            determinationVersion:
+                (typeof meta?.determinationVersion === 'string'
+                    ? meta.determinationVersion
+                    : null) ??
+                (typeof meta?.rulesetVersion === 'string' ? meta.rulesetVersion : null),
+            accountingEvent: journal.mmAccountingEvent
+                ? {
+                      id: journal.mmAccountingEvent.id,
+                      eventType: journal.mmAccountingEvent.eventType,
+                      status: journal.mmAccountingEvent.status,
+                      sourceDocumentNumber: journal.mmAccountingEvent.sourceDocumentNumber,
+                      processedAt: journal.mmAccountingEvent.processedAt?.toISOString() ?? null,
+                  }
+                : null,
+            taxLines: journal.taxPostingSnapshots.map((row) => ({
+                id: row.id,
+                taxCode: row.taxCodeCode,
+                taxType: row.taxType,
+                netAmount: row.netAmount.toString(),
+                taxAmount: row.taxAmount.toString(),
+                grossAmount: row.grossAmount.toString(),
+            })),
+            postedAt: journal.postedAt?.toISOString() ?? null,
+            postedBy: journal.postedBy,
             postedByName: this.userDisplayName(journal.postedBy, userLabels),
-            postedByEmployeeCode: this.userEmployeeCode(
-                journal.postedBy,
-                userLabels,
-            ),
+            postedByEmployeeCode: this.userEmployeeCode(journal.postedBy, userLabels),
+            preparedBy: journal.preparedBy,
+            preparedByName: this.userDisplayName(journal.preparedBy, userLabels),
+            approvedBy: journal.approvedBy,
+            approvedByName: this.userDisplayName(journal.approvedBy, userLabels),
+            createdAt: journal.createdAt.toISOString(),
+            capabilities,
+            documentFlow,
+            relatedApDocument: journal.apDocument,
+            relatedArDocument: journal.arDocument,
+            fiscalPeriod: journal.fiscalPeriod,
+            lines: journal.lines.map((line) => ({
+                id: line.id,
+                lineNumber: line.lineNumber,
+                glAccountId: line.glAccountId,
+                debitAmount: line.debitAmount.toString(),
+                creditAmount: line.creditAmount.toString(),
+                currency: line.currency,
+                description: line.description,
+                branchId: line.branchId,
+                costCenterId: line.costCenterId,
+                profitCenterId: line.profitCenterId,
+                materialId: line.materialId,
+                warehouseId: line.warehouseId,
+                glAccount: line.glAccount,
+            })),
         }
     }
 
@@ -1653,7 +1981,7 @@ export class FicoJournalService {
         query: JournalEntryListQueryDto,
         currentUserId?: string | null,
     ): Promise<{
-        items: JournalEntryListItem[]
+        items: PresentedJournalListItem[]
         total: number
         page: number
         pageSize: number
@@ -1684,8 +2012,13 @@ export class FicoJournalService {
                     sourceModule: true,
                     sourceDocumentType: true,
                     sourceDocumentId: true,
+                    metadata: true,
+                    reversalOfId: true,
                     supplierId: true,
+                    customerId: true,
                     supplier: { select: JOURNAL_SUPPLIER_SELECT },
+                    customer: { select: JOURNAL_CUSTOMER_SELECT },
+                    company: { select: { id: true, code: true, name: true } },
                     createdBy: true,
                     postedBy: true,
                     postedAt: true,
@@ -1704,23 +2037,78 @@ export class FicoJournalService {
                             status: true,
                         },
                     },
+                    mmAccountingEvent: {
+                        select: {
+                            sourceDocumentNumber: true,
+                            branchId: true,
+                        },
+                    },
+                    reversedBy: { select: { id: true } },
                 },
             }),
             this.prisma.ficoJournalEntry.count({ where }),
         ])
 
+        const journalIds = items.map((row) => row.id)
+        const lineTotals =
+            journalIds.length > 0
+                ? await this.prisma.ficoJournalEntryLine.groupBy({
+                      by: ['journalEntryId'],
+                      where: { journalEntryId: { in: journalIds } },
+                      _sum: { debitAmount: true, creditAmount: true },
+                  })
+                : []
+        const totalsByJournal = new Map(
+            lineTotals.map((row) => [
+                row.journalEntryId,
+                {
+                    debit: row._sum.debitAmount ?? new Decimal(0),
+                    credit: row._sum.creditAmount ?? new Decimal(0),
+                },
+            ]),
+        )
+
         const userLabels = await this.resolveUserDisplayMap(
             items.flatMap((row) => [row.postedBy, row.createdBy]),
         )
-        const enriched = items.map((row) => ({
-            ...row,
-            approvalStatus: this.normalizeApprovalStatusForApi(
-                row.status,
-                row.approvalStatus,
-            ),
-            postedByName: this.userDisplayName(row.postedBy, userLabels),
-            postedByEmployeeCode: this.userEmployeeCode(row.postedBy, userLabels),
-        }))
+        const enriched = items.map((row) => {
+            const totals = totalsByJournal.get(row.id) ?? {
+                debit: new Decimal(0),
+                credit: new Decimal(0),
+            }
+            return presentJournalListItem(
+                {
+                    ...row,
+                    approvalStatus: this.normalizeApprovalStatusForApi(
+                        row.status,
+                        row.approvalStatus,
+                    ),
+                    reversedBy: row.reversedBy,
+                },
+                totals,
+                {
+                    postedByName: this.userDisplayName(row.postedBy, userLabels),
+                    postedByEmployeeCode: this.userEmployeeCode(row.postedBy, userLabels),
+                },
+            )
+        })
+
+        const branchIds = enriched
+            .map((row) => row.branch?.id)
+            .filter((id): id is string => Boolean(id))
+        if (branchIds.length) {
+            const branches = await this.prisma.branch.findMany({
+                where: { id: { in: branchIds } },
+                select: { id: true, code: true, name: true },
+            })
+            const branchMap = new Map(branches.map((b) => [b.id, b]))
+            for (const row of enriched) {
+                if (row.branch?.id) {
+                    const found = branchMap.get(row.branch.id)
+                    if (found) row.branch = found
+                }
+            }
+        }
 
         return {
             items: enriched,
@@ -1828,6 +2216,16 @@ export class FicoJournalService {
                 'No open financial period covers the reversal posting date.',
             )
         }
+
+        // Reversal keeps the original lines, so only company/period/currency
+        // controls are re-checked; account master changes cannot block a correction.
+        await this.validation.validate({
+            companyId: original.companyId,
+            postingDate: reversalPostingDate,
+            source: original.sourceModule ? 'AUTOMATIC' : 'MANUAL',
+            currencyCode: original.currencyCode,
+            actor: user,
+        })
 
         const reversed = await this.prisma.$transaction(async (tx) => {
             // Lock the original to prevent concurrent reversal.
@@ -2032,6 +2430,7 @@ export class FicoJournalService {
                 'GoodsIssueReversed',
                 'SupplierReturnPosted',
                 'SupplierReturnReversed',
+                'CustomerReturnReversed',
                 'DisposalReversed',
             ].includes(eventType)
         ) {

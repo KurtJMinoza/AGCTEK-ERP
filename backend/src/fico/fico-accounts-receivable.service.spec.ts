@@ -121,11 +121,20 @@ describe('FicoAccountsReceivableService', () => {
             resolveDetermination: jest.fn().mockRejectedValue(new Error('no rule')),
         }
         const access = overrides?.access ?? { assertAccess: jest.fn() }
+        const postingValidation = { validatePosting: jest.fn() }
+        const sdPosting = {
+            isSdAccountingPayload: jest.fn().mockReturnValue(false),
+            resolveFlatLines: jest.fn().mockResolvedValue([]),
+        }
+        const treasuryPayment = { resolvePaymentAccount: jest.fn() }
         const service = new FicoAccountsReceivableService(
             prisma,
             access as any,
             resolution as any,
+            postingValidation as any,
             journal as any,
+            sdPosting as any,
+            treasuryPayment as any,
         )
         return { service, prisma, journal, tx, access }
     }
@@ -595,4 +604,58 @@ describe('FicoAccountsReceivableService', () => {
         expect(tx.ficoArDocument.update).not.toHaveBeenCalled()
         expect(prisma.$transaction).toHaveBeenCalled()
     })
+
+    // --- main branch coverage (accounting event routing) ---
+    it('does not claim AP supplier invoice events', () => {
+        const service = new FicoAccountsReceivableService(
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            { isSdAccountingPayload: () => false, resolveFlatLines: jest.fn() } as never,
+            { resolvePaymentAccount: jest.fn() } as never,
+        )
+        expect(
+            service.supportsAccountingPayload({
+                eventType: 'SupplierInvoiceMatched',
+                sourceModule: 'MM',
+            } as never),
+        ).toBe(false)
+    })
+
+    it('skips subledger for fully settled POS sales', async () => {
+        const journal = {
+            createFromAccountingEvent: jest.fn().mockResolvedValue({
+                created: true,
+                duplicate: false,
+                journalEntryId: 'j-1',
+            }),
+        }
+        const service = new FicoAccountsReceivableService(
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            journal as never,
+            {
+                isSdAccountingPayload: () => true,
+                resolveFlatLines: jest.fn(),
+            } as never,
+            { resolvePaymentAccount: jest.fn() } as never,
+        )
+        const result = await service.postFromAccountingEvent({
+            eventType: 'PosSaleCompleted',
+            outstandingBalance: '0',
+            companyId: 'c1',
+            postingDate: new Date().toISOString(),
+            currencyCode: 'PHP',
+            documentType: 'SALES_ORDER',
+            documentId: 'so-1',
+            sourceModule: 'SD',
+        } as never)
+        expect(journal.createFromAccountingEvent).toHaveBeenCalled()
+        expect(result.journalEntryId).toBe('j-1')
+    })
+
 })

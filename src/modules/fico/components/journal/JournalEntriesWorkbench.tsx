@@ -35,6 +35,7 @@ import {
 } from './journalSource'
 import {
     JOURNAL_TABS,
+    JournalPostingOriginBadge,
     JournalPostingStatus,
     formatJournalDate,
     formatMoney,
@@ -126,6 +127,13 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                 ),
             },
             {
+                header: 'Origin',
+                id: 'origin',
+                cell: ({ row }) => (
+                    <JournalPostingOriginBadge origin={row.original.postingOrigin} />
+                ),
+            },
+            {
                 header: 'Source',
                 id: 'source',
                 cell: ({ row }) => {
@@ -145,14 +153,18 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                                         {secondary}
                                     </span>
                                 </JournalSourceLink>
+                            ) : row.original.sourceDocumentNumber ? (
+                                <span className="block max-w-[10rem] truncate font-mono text-xs text-gray-500">
+                                    {row.original.sourceDocumentNumber}
+                                </span>
                             ) : null}
                         </div>
                     )
                 },
             },
             {
-                header: 'Supplier',
-                id: 'supplier',
+                header: 'Partner',
+                id: 'partner',
                 cell: ({ row }) =>
                     row.original.supplier ? (
                         <FicoTwoLineCell
@@ -160,9 +172,27 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                             secondary={row.original.supplier.supplierName}
                             mono
                         />
+                    ) : row.original.customer ? (
+                        <FicoTwoLineCell
+                            primary={row.original.customer.customerNumber}
+                            secondary={row.original.customer.companyName}
+                            mono
+                        />
                     ) : (
                         <span className="text-sm text-gray-400">—</span>
                     ),
+            },
+            {
+                header: 'Debit / Credit',
+                id: 'drCr',
+                meta: { className: '!text-right' },
+                cell: ({ row }) => (
+                    <span className="block text-right text-xs tabular-nums text-gray-600 dark:text-gray-300">
+                        {row.original.totalDebit && row.original.totalCredit
+                            ? `${formatMoney(row.original.currencyCode, row.original.totalDebit)} · ${formatMoney(row.original.currencyCode, row.original.totalCredit)}`
+                            : '—'}
+                    </span>
+                ),
             },
             {
                 header: 'Posting',
@@ -242,6 +272,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                 id: 'actions',
                 size: 52,
                 cell: ({ row }) => (
+                    <div data-stop-row-nav>
                     <Dropdown renderTitle={<EllipsisButton />} placement="bottom-end">
                         <Dropdown.Item
                             eventKey="view"
@@ -264,6 +295,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                             </Dropdown.Item>
                         ) : null}
                     </Dropdown>
+                    </div>
                 ),
             },
         ],
@@ -487,6 +519,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                     mobile={mobile}
                     loading={loading}
                     noData={!loading && items.length === 0}
+                    onRowClick={(row) => openDetail(row.id)}
                     compact
                     tableMinWidthClass="min-w-[1180px]"
                     pagingData={{

@@ -48,6 +48,10 @@ import {
     DeterminationTransactionKeysPanel,
 } from '../components/account-determination/DeterminationWorkbenchPanels'
 import DeterminationSimulationWorkbench from '../components/account-determination/DeterminationSimulationWorkbench'
+import {
+    DeterminationDomainSectionsPanel,
+    type DeterminationDomainSection,
+} from '../components/account-determination/DeterminationDomainSectionsPanel'
 import DeterminationGlAccountPicker from '../components/account-determination/DeterminationGlAccountPicker'
 import type { FicoCompany, FicoGlAccount } from '../types'
 
@@ -183,6 +187,9 @@ export default function AccountDeterminationRulesPage({
     )
     const [reason, setReason] = useState('')
     const [deleting, setDeleting] = useState<FicoDeterminationRule | null>(null)
+    const [domainFilter, setDomainFilter] = useState<DeterminationDomainSection | null>(
+        null,
+    )
     const [draftValidation, setDraftValidation] = useState<{
         ok: boolean
         errors: string[]
@@ -827,7 +834,16 @@ export default function AccountDeterminationRulesPage({
         [],
     )
 
-    const displayRules = rules
+    const displayRules = useMemo(() => {
+        if (!domainFilter || !transactionKeys.length) return rules
+        const keySet = new Set(
+            transactionKeys.filter(domainFilter.predicate).map((row) => row.code),
+        )
+        return rules.filter(
+            (rule) =>
+                !rule.transactionKeyCode || keySet.has(rule.transactionKeyCode),
+        )
+    }, [domainFilter, rules, transactionKeys])
 
     return (
         <>
@@ -960,6 +976,16 @@ export default function AccountDeterminationRulesPage({
                 </Tabs>
 
                 {tab === 'overview' && workbench && workbenchOverview ? (
+                    <>
+                    <DeterminationDomainSectionsPanel
+                        catalog={transactionKeys}
+                        activeDomainId={domainFilter?.id}
+                        onSelectDomain={(section) => {
+                            setDomainFilter(section)
+                            setTab('rules')
+                        }}
+                        onOpenKeys={() => setTab('transaction-keys')}
+                    />
                     <div className="mt-4 rounded-xl border border-gray-100 p-4 text-sm dark:border-gray-700">
                         <ul className="grid gap-2 md:grid-cols-2">
                             <li>
@@ -988,6 +1014,7 @@ export default function AccountDeterminationRulesPage({
                             </li>
                         </ul>
                     </div>
+                    </>
                 ) : null}
 
                 {tab === 'transaction-keys' ? (

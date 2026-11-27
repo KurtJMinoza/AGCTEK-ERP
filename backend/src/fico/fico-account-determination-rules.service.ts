@@ -46,6 +46,7 @@ import {
     ficoCatalogEntryForKey,
     FICO_ACCOUNTING_CATEGORY_GL_TYPES,
 } from './fico-account-determination-policy'
+import { ficoTransactionKeyLookupCodes } from './fico-phase02-enterprise-keys.policy'
 import { FicoDeterminationSodPolicy } from './fico-determination-sod.policy'
 import { randomUUID } from 'node:crypto'
 
@@ -68,6 +69,7 @@ export type CreateDeterminationInput = {
     effectiveTo?: string | null
     valuationClassId?: string | null
     materialTypeCode?: string | null
+    materialGroupCode?: string | null
     movementType?: string | null
     customerAccountGroup?: string | null
     salesOrganization?: string | null
@@ -198,7 +200,11 @@ export class FicoAccountDeterminationRulesService {
             ...(query.sourceModule ? { sourceModule: query.sourceModule } : {}),
             ...(query.transactionType ? { transactionType: query.transactionType } : {}),
             ...(query.transactionKeyCode
-                ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                ? {
+                      transactionKeyCode: {
+                          in: ficoTransactionKeyLookupCodes(query.transactionKeyCode),
+                      },
+                  }
                 : {}),
             ...(query.status ? { status: query.status } : {}),
             ...(query.glAccountId
@@ -658,6 +664,12 @@ export class FicoAccountDeterminationRulesService {
                     ...(input.materialTypeCode !== undefined
                         ? { materialTypeCode: input.materialTypeCode?.trim() || null }
                         : {}),
+                    ...(input.materialGroupCode !== undefined
+                        ? {
+                              materialGroupCode:
+                                  input.materialGroupCode?.trim() || null,
+                          }
+                        : {}),
                     ...(input.movementType !== undefined
                         ? { movementType: normalise(input.movementType) }
                         : {}),
@@ -973,7 +985,11 @@ export class FicoAccountDeterminationRulesService {
         const where: Prisma.FicoAccountDeterminationRuleWhereInput = {
             companyId: query.companyId,
             ...(query.transactionKeyCode
-                ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                ? {
+                      transactionKeyCode: {
+                          in: ficoTransactionKeyLookupCodes(query.transactionKeyCode),
+                      },
+                  }
                 : {}),
             ...(query.glAccountId
                 ? { lines: { some: { glAccountId: query.glAccountId } } }
@@ -1000,7 +1016,11 @@ export class FicoAccountDeterminationRulesService {
                 where: {
                     companyId: query.companyId,
                     ...(query.transactionKeyCode
-                        ? { transactionKeyCode: query.transactionKeyCode.trim().toUpperCase() }
+                        ? {
+                      transactionKeyCode: {
+                          in: ficoTransactionKeyLookupCodes(query.transactionKeyCode),
+                      },
+                  }
                         : {}),
                     ...(query.glAccountId
                         ? {

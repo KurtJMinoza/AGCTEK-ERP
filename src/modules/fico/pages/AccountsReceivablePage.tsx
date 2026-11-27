@@ -7,7 +7,8 @@ import {
     FicoCompanySelect,
     useFicoCompanies,
 } from '../components/FicoCompanySelect'
-import AccountsReceivableWorkbench from '../components/accountsReceivable/AccountsReceivableWorkbench'
+import ArAccountsReceivableWorkbench from '../components/ar/ArAccountsReceivableWorkbench'
+import { FicoCompanyRequired } from '../components/workbench/FicoWorkbenchChrome'
 
 const ROUTE = '/modules/fico/accounts-receivable'
 
@@ -18,24 +19,25 @@ const AccountsReceivablePage = () => {
     return (
         <PageContainer>
             <PageHeader
-                title="AR Open Items"
-                description="Customer receivables from issued sales invoices and POS charge / unpaid balances — open amounts, due dates, and aging."
+                title="Accounts Receivable"
+                description="Customer subledger workbench — open items with POS/SO invoice reference, aging buckets, collections, credit exposure, and G/L reconciliation."
                 breadcrumbs={buildErpBreadcrumbs(ROUTE)}
                 actions={
-                    <FicoCompanySelect
-                        companies={companies}
-                        value={companyId}
-                        onChange={setCompanyId}
-                        loading={companyLoading}
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <FicoCompanySelect
+                            companies={companies}
+                            value={companyId}
+                            onChange={setCompanyId}
+                            loading={companyLoading}
+                            allowAll={false}
+                        />
+                    </div>
                 }
             />
             {companyId ? (
-                <AccountsReceivableWorkbench key={companyId} companyId={companyId} />
+                <ArAccountsReceivableWorkbench companyId={companyId} />
             ) : (
-                <p className="text-sm text-gray-500">
-                    Select a company to load Accounts Receivable open items.
-                </p>
+                <FicoCompanyRequired />
             )}
         </PageContainer>
     )

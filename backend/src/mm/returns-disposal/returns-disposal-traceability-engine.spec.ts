@@ -165,7 +165,8 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             postingService,
             configService,
             disposalService,
-            events,
+            domainEvents as any,
+            mockPeriodGuard as any,
             { assertPermission: jest.fn() } as any,
             {
                 buildIdempotencyKey: jest.fn((...parts: string[]) =>

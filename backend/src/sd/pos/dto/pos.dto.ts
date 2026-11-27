@@ -168,7 +168,10 @@ export class PosCheckoutDto {
      * no payment now, so the tenders are optional (and must be empty) there;
      * every other mode needs at least one tender.
      */
-    @ValidateIf((dto: PosCheckoutDto) => dto.paymentMode !== 'CHARGE')
+    @ValidateIf(
+        (dto: PosCheckoutDto) =>
+            dto.paymentMode !== 'CHARGE' && dto.paymentMode !== 'DEPOSIT',
+    )
     @IsArray()
     @ArrayMinSize(1)
     @ValidateNested({ each: true })
@@ -181,8 +184,8 @@ export class PosCheckoutDto {
      * (in one or several collections) against a receivable.
      */
     @IsOptional()
-    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT', 'CHARGE'])
-    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT' | 'CHARGE'
+    @IsIn(['FULL', 'SPLIT', 'DOWN_PAYMENT', 'CHARGE', 'DEPOSIT'])
+    paymentMode?: 'FULL' | 'SPLIT' | 'DOWN_PAYMENT' | 'CHARGE' | 'DEPOSIT'
 
     /** PERCENTAGE | FIXED — how the down-payment amount was chosen. */
     @IsOptional()
@@ -390,6 +393,43 @@ export class ListPosSessionsQueryDto {
     @IsOptional()
     @IsIn(['OPEN', 'CLOSED'])
     status?: string
+}
+
+/** Standalone customer deposit (advance liability; no sale revenue). */
+export class PosDepositDto {
+    @IsString()
+    @IsNotEmpty()
+    companyId!: string
+
+    @IsString()
+    @IsNotEmpty()
+    customerId!: string
+
+    @IsOptional()
+    @IsString()
+    branchId?: string
+
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0.01)
+    depositAmount!: number
+
+    @IsOptional()
+    @IsString()
+    currency?: string
+
+    @IsOptional()
+    @IsString()
+    reference?: string
+
+    @IsOptional()
+    @IsString()
+    idempotencyKey?: string
+
+    @IsArray()
+    @ArrayMinSize(1)
+    @ValidateNested({ each: true })
+    @Type(() => PosTenderDto)
+    tenders!: PosTenderDto[]
 }
 
 export class ListPosHoldsQueryDto {

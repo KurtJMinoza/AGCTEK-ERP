@@ -1261,6 +1261,9 @@ export const ficoGeneralLedgerService = {
             dateTo?: string
             page?: number
             pageSize?: number
+            sortDir?: 'asc' | 'desc'
+            sourceModule?: string
+            includeRunningBalance?: boolean
         } = {},
     ) =>
         ErpAxiosBase.get<FicoGlLedgerLineItemsResponse>(
@@ -1268,7 +1271,7 @@ export const ficoGeneralLedgerService = {
         ).then((r) => r.data),
     accountBalances: (
         glAccountId: string,
-        query: { companyId?: string } = {},
+        query: { companyId?: string; dateFrom?: string; dateTo?: string } = {},
     ) =>
         ErpAxiosBase.get<FicoGlAccountBalanceSummary>(
             `${API}/gl-accounts/${glAccountId}/balances${queryString(query)}`,
