@@ -632,14 +632,15 @@ export const MM_EVENT_CATALOG: Record<string, MmEventCatalogEntry> = {
     CustomerReturnPosted: {
         eventType: 'CustomerReturnPosted',
         category: MM_EVENT_CATEGORIES.RETURNS,
-        currentVersion: MM_EVENT_VERSIONS.V1,
+        currentVersion: MM_EVENT_VERSIONS.V2,
         supportedVersions: [MM_EVENT_VERSIONS.V1, MM_EVENT_VERSIONS.V2],
         sourceModule: 'RETURNS_DISPOSAL',
         sourceEntityType: 'CUSTOMER_RETURN',
         financial: true,
         persistsOutbox: true,
         intendedConsumers: ['FICO', 'SD'],
-        description: 'Customer return posted',
+        description:
+            'Customer return restock posted (inventory increase + COGS relief)',
     },
     DisposalPosted: {
         eventType: 'DisposalPosted',

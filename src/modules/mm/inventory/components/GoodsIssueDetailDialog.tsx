@@ -14,6 +14,7 @@ import Tag from '@/components/ui/Tag'
 import { DocStatusBadge } from '../utils/inventoryUi'
 import { fmtMoney } from '../../shared/formatters'
 import type { GoodsIssue, StockOpsLine } from '../types'
+import GoodsIssueAccountingSection from './GoodsIssueAccountingSection'
 
 const fmtDateTime = (iso?: string | null) => {
     if (!iso) return '—'
@@ -315,6 +316,13 @@ const GoodsIssueDetailDialog = ({
                                 ))}
                             </ul>
                         </section>
+
+                        {detail.status === 'POSTED' ||
+                        detail.status === 'REVERSED' ? (
+                            <GoodsIssueAccountingSection
+                                goodsIssueId={detail.id}
+                            />
+                        ) : null}
                     </div>
 
                     {footer ? (

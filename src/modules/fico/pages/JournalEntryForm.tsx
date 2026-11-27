@@ -5,19 +5,28 @@ import { useRouter } from 'next/navigation'
 import Alert from '@/components/ui/Alert'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import Tag from '@/components/ui/Tag'
 import AdaptiveCard from '@/components/shared/AdaptiveCard'
 import Breadcrumb from '@/components/shared/Breadcrumb'
 import PageContainer from '@/components/shared/PageContainer'
 import PageHeader from '@/components/shared/PageHeader'
 import ErpBackLink from '@/components/erp/ErpBackLink'
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
+import useResourceAccess from '@/utils/hooks/useResourceAccess'
 import {
     FicoCompanySelect,
+    notifyError,
+    notifySuccess,
     useFicoCompanies,
 } from '../components/FicoCompanySelect'
-import { useDocumentTypes } from '../hooks/useDocumentTypes'
+import { useManualJournalDocumentTypes } from '../hooks/useDocumentTypes'
 import { useJournalEntryMutations } from '../hooks/useJournalEntries'
-import { ficoErrorMessage, ficoGlAccountService } from '../services/ficoService'
+import {
+    ficoErrorMessage,
+    ficoGlAccountService,
+    ficoPeriodService,
+    ficoSettingsService,
+} from '../services/ficoService'
 import type { FicoGlAccount, FicoJournalEntryLineInput } from '../types'
 
 const ROUTE = '/modules/fico/journal-entries'
@@ -32,11 +41,17 @@ const emptyLine = (): FicoJournalEntryLineInput => ({
 
 export default function JournalEntryFormPage() {
     const router = useRouter()
-    const types = useDocumentTypes()
     const mutations = useJournalEntryMutations()
-    const { companies, companyId, setCompanyId, loading: companyLoading } =
-        useFicoCompanies()
-    const breadcrumbs = buildErpBreadcrumbs(ROUTE)
+    const access = useResourceAccess('fico.journal-entries')
+    const {
+        companies,
+        companyId,
+        setCompanyId,
+        selectedRow,
+        loading: companyLoading,
+    } = useFicoCompanies()
+    const types = useManualJournalDocumentTypes(companyId)
+    const breadcrumbs = buildErpBreadcrumbs(`${ROUTE}/new`)
 
     const [accounts, setAccounts] = useState<FicoGlAccount[]>([])
     const [accountsLoading, setAccountsLoading] = useState(false)
@@ -52,24 +67,62 @@ export default function JournalEntryFormPage() {
         emptyLine(),
     ])
     const [error, setError] = useState<string | null>(null)
+    const [dirty, setDirty] = useState(false)
+    const [periodChip, setPeriodChip] = useState<{
+        status: string | null
+        canPost: boolean
+        name?: string
+    } | null>(null)
 
     useEffect(() => {
+        const base = selectedRow?.settings?.baseCurrency
+        if (base) {
+            setCurrencyCode(base.toUpperCase())
+            return
+        }
         if (!companyId) return
+        void ficoSettingsService
+            .get(companyId)
+            .then((settings) => {
+                if (settings?.baseCurrency) {
+                    setCurrencyCode(settings.baseCurrency.toUpperCase())
+                }
+            })
+            .catch(() => undefined)
+    }, [companyId, selectedRow])
+
+    useEffect(() => {
+        if (!companyId) {
+            setAccounts([])
+            return
+        }
         let cancelled = false
         const load = async () => {
             setAccountsLoading(true)
             setAccountsError(null)
             try {
-                const rows = await ficoGlAccountService.list({
-                    status: 'ACTIVE',
-                    companyId,
-                })
+                const assignments =
+                    await ficoGlAccountService.listCompanyAssignments(companyId)
                 if (cancelled) return
+                const byId = new Map<string, FicoGlAccount>()
+                const byCode = new Set<string>()
+                for (const assignment of assignments) {
+                    const account = assignment.glAccount
+                    if (!account) continue
+                    if (assignment.postingEnabled !== true) continue
+                    if (assignment.manualPostingBlocked) continue
+                    if (account.status && account.status !== 'ACTIVE') continue
+                    if (!account.isPostingAccount) continue
+                    if (account.allowManualPosting === false) continue
+                    if (byId.has(account.id)) continue
+                    const code = (account.accountCode || '').trim()
+                    if (code && byCode.has(code)) continue
+                    byId.set(account.id, account)
+                    if (code) byCode.add(code)
+                }
                 setAccounts(
-                    rows.filter(
-                        (account) =>
-                            account.isPostingAccount &&
-                            account.allowManualPosting,
+                    Array.from(byId.values()).sort((a, b) =>
+                        a.accountCode.localeCompare(b.accountCode),
                     ),
                 )
             } catch (loadError: unknown) {
@@ -91,6 +144,30 @@ export default function JournalEntryFormPage() {
         }
     }, [companyId])
 
+    useEffect(() => {
+        if (!companyId || !postingDate) {
+            setPeriodChip(null)
+            return
+        }
+        let cancelled = false
+        void ficoPeriodService
+            .resolve(companyId, postingDate)
+            .then((resolved) => {
+                if (cancelled) return
+                setPeriodChip({
+                    status: resolved.status,
+                    canPost: resolved.canPost,
+                    name: resolved.period?.name,
+                })
+            })
+            .catch(() => {
+                if (!cancelled) setPeriodChip(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [companyId, postingDate])
+
     const totals = useMemo(
         () =>
             lines.reduce(
@@ -104,50 +181,132 @@ export default function JournalEntryFormPage() {
     )
     const balanced =
         totals.debit > 0 && Math.abs(totals.debit - totals.credit) < 0.00001
+    const linesWithAmounts = lines.filter(
+        (line) => Number(line.debit) > 0 || Number(line.credit) > 0,
+    ).length
+    const hasMinLines = linesWithAmounts >= 2
 
     const visibleAccounts = companyId ? accounts : []
+    const manualTypes = types.manualOptions
+
+    useEffect(() => {
+        if (
+            documentTypeId &&
+            !manualTypes.some((type) => type.documentTypeId === documentTypeId)
+        ) {
+            setDocumentTypeId('')
+        }
+    }, [documentTypeId, manualTypes])
+
+    useEffect(() => {
+        if (!documentTypeId && manualTypes.length === 1) {
+            setDocumentTypeId(manualTypes[0].documentTypeId)
+        }
+    }, [documentTypeId, manualTypes])
+
+    const markDirty = () => setDirty(true)
+
     const selectCompany = (nextCompanyId: string) => {
+        markDirty()
         setCompanyId(nextCompanyId)
+        setDocumentTypeId('')
         setLines((current) =>
             current.map((line) => ({ ...line, glAccountId: '' })),
         )
     }
 
-    const update = (index: number, patch: Partial<FicoJournalEntryLineInput>) =>
+    const update = (index: number, patch: Partial<FicoJournalEntryLineInput>) => {
+        markDirty()
         setLines((current) =>
             current.map((line, lineIndex) =>
                 lineIndex === index ? { ...line, ...patch } : line,
             ),
         )
-    const remove = (index: number) =>
+    }
+    const remove = (index: number) => {
+        markDirty()
         setLines((current) =>
             current.filter((_, lineIndex) => lineIndex !== index),
         )
+    }
+
+    const cancel = () => {
+        if (
+            dirty &&
+            !window.confirm('Discard unsaved journal entry changes?')
+        ) {
+            return
+        }
+        router.push(ROUTE)
+    }
 
     const submit = async (status: 'DRAFT' | 'POSTED') => {
         setError(null)
+        if (!access.canCreate) {
+            setError('You do not have permission to create journal entries.')
+            return
+        }
+        if (!companyId) {
+            setError('Company is required.')
+            return
+        }
+        if (!documentTypeId) {
+            setError('Select a document type that allows manual entry.')
+            return
+        }
+        if (!balanced || !hasMinLines) {
+            setError('Debits and credits must balance')
+            return
+        }
         try {
             const result = await mutations.create({
                 companyId,
                 documentTypeId,
                 postingDate,
-                documentDate,
+                documentDate: documentDate || postingDate,
                 reference: reference || undefined,
                 headerText: headerText || undefined,
                 currencyCode,
                 status,
-                lines,
+                lines: lines.filter(
+                    (line) =>
+                        line.glAccountId &&
+                        (Number(line.debit) > 0 || Number(line.credit) > 0),
+                ),
             })
+            notifySuccess(
+                status === 'POSTED'
+                    ? `Posted ${result.documentNumber || 'journal entry'}.`
+                    : `Draft ${result.documentNumber || 'journal entry'} saved.`,
+            )
             router.push(`${ROUTE}/${result.id}`)
         } catch (submitError) {
-            setError(
-                ficoErrorMessage(submitError, 'Unable to save journal entry'),
+            const message = ficoErrorMessage(
+                submitError,
+                'Unable to save journal entry',
             )
+            setError(message)
+            notifyError(submitError, message)
         }
     }
 
     const canSubmit =
-        Boolean(companyId) && Boolean(documentTypeId) && balanced && !mutations.saving
+        access.canCreate &&
+        Boolean(companyId) &&
+        Boolean(documentTypeId) &&
+        balanced &&
+        hasMinLines &&
+        !mutations.saving &&
+        !accountsLoading
+
+    const periodTone =
+        periodChip?.status === 'OPEN' || periodChip?.status === 'RESTRICTED'
+            ? 'bg-emerald-100 text-emerald-800'
+            : periodChip?.status === 'FUTURE'
+              ? 'bg-sky-100 text-sky-800'
+              : periodChip?.status
+                ? 'bg-amber-100 text-amber-900'
+                : ''
 
     return (
         <PageContainer>
@@ -155,11 +314,23 @@ export default function JournalEntryFormPage() {
             <Breadcrumb items={breadcrumbs} className="mb-4" />
             <PageHeader
                 title="New Journal Entry"
-                description="Enter a balanced document. Posting validates the company configuration, fiscal period, and G/L accounts."
+                description="Enter a balanced document. Posting validates company configuration, fiscal period, and G/L accounts."
             />
+            {!access.canCreate && (
+                <Alert showIcon type="warning" className="mb-4">
+                    You can view this form, but create permission is required to
+                    save or post journal entries.
+                </Alert>
+            )}
             {(error || types.error || accountsError) && (
                 <Alert showIcon type="danger" className="mb-4">
                     {error || types.error || accountsError}
+                </Alert>
+            )}
+            {manualTypes.length === 0 && companyId && !types.loading && (
+                <Alert showIcon type="info" className="mb-4">
+                    No active manual document types (e.g. SA, AB) are available
+                    for this company. Seed or activate FI document types first.
                 </Alert>
             )}
             <AdaptiveCard className="mb-4">
@@ -177,67 +348,82 @@ export default function JournalEntryFormPage() {
                         <select
                             className="w-full rounded-md border border-gray-300 bg-transparent px-3 py-2"
                             value={documentTypeId}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                                markDirty()
                                 setDocumentTypeId(event.target.value)
-                            }
+                            }}
                         >
-                            <option value="">Select type</option>
-                            {types.data
-                                .filter(
-                                    (type) =>
-                                        type.isActive &&
-                                        type.allowsManualEntry,
-                                )
-                                .map((type) => (
-                                    <option key={type.id} value={type.id}>
-                                        {type.code} — {type.name}
-                                    </option>
-                                ))}
+                            <option value="">
+                                {types.loading
+                                    ? 'Loading types…'
+                                    : 'Select type'}
+                            </option>
+                            {manualTypes.map((type) => (
+                                <option
+                                    key={type.companyTypeId}
+                                    value={type.documentTypeId}
+                                >
+                                    {type.label}
+                                </option>
+                            ))}
                         </select>
                     </Label>
                     <Label text="Posting date">
-                        <Input
-                            type="date"
-                            value={postingDate}
-                            onChange={(event) =>
-                                setPostingDate(event.target.value)
-                            }
-                        />
+                        <div className="flex flex-col gap-2">
+                            <Input
+                                type="date"
+                                value={postingDate}
+                                onChange={(event) => {
+                                    markDirty()
+                                    const next = event.target.value
+                                    setPostingDate(next)
+                                    if (!documentDate || documentDate === postingDate) {
+                                        setDocumentDate(next)
+                                    }
+                                }}
+                            />
+                            {periodChip?.status && (
+                                <Tag className={periodTone}>
+                                    Period {periodChip.status}
+                                    {periodChip.name ? ` · ${periodChip.name}` : ''}
+                                </Tag>
+                            )}
+                        </div>
                     </Label>
                     <Label text="Document date">
                         <Input
                             type="date"
                             value={documentDate}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                                markDirty()
                                 setDocumentDate(event.target.value)
-                            }
+                            }}
                         />
                     </Label>
                     <Label text="Reference">
                         <Input
                             value={reference}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                                markDirty()
                                 setReference(event.target.value)
-                            }
+                            }}
                         />
                     </Label>
                     <Label text="Header text">
                         <Input
                             value={headerText}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                                markDirty()
                                 setHeaderText(event.target.value)
-                            }
+                            }}
                         />
                     </Label>
                     <Label text="Currency">
                         <Input
                             maxLength={3}
                             value={currencyCode}
-                            onChange={(event) =>
-                                setCurrencyCode(
-                                    event.target.value.toUpperCase(),
-                                )
-                            }
+                            readOnly
+                            className="bg-gray-50"
                         />
                     </Label>
                 </div>
@@ -247,9 +433,10 @@ export default function JournalEntryFormPage() {
                     <h5>Entry lines</h5>
                     <Button
                         size="sm"
-                        onClick={() =>
+                        onClick={() => {
+                            markDirty()
                             setLines((current) => [...current, emptyLine()])
-                        }
+                        }}
                     >
                         Add line
                     </Button>
@@ -274,7 +461,9 @@ export default function JournalEntryFormPage() {
                                         <select
                                             className="w-full rounded-md border border-gray-300 bg-transparent px-2 py-2"
                                             value={line.glAccountId}
-                                            disabled={!companyId || accountsLoading}
+                                            disabled={
+                                                !companyId || accountsLoading
+                                            }
                                             onChange={(event) =>
                                                 update(index, {
                                                     glAccountId:
@@ -380,15 +569,17 @@ export default function JournalEntryFormPage() {
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
                     <span
                         className={
-                            balanced ? 'text-emerald-600' : 'text-red-600'
+                            balanced && hasMinLines
+                                ? 'text-emerald-600'
+                                : 'text-red-600'
                         }
                     >
-                        {balanced
+                        {balanced && hasMinLines
                             ? 'Entry is balanced'
                             : 'Debits and credits must balance'}
                     </span>
                     <div className="flex gap-2">
-                        <Button onClick={() => router.back()}>Cancel</Button>
+                        <Button onClick={cancel}>Cancel</Button>
                         <Button
                             loading={mutations.saving}
                             disabled={!canSubmit}
@@ -411,7 +602,13 @@ export default function JournalEntryFormPage() {
     )
 }
 
-function Label({ text, children }: { text: string; children: React.ReactNode }) {
+function Label({
+    text,
+    children,
+}: {
+    text: string
+    children: React.ReactNode
+}) {
     return (
         <label className="text-sm">
             {text}

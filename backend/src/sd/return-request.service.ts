@@ -14,7 +14,11 @@ import { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
 import { SalesOrderService } from './sales-order.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
-import { SD_EVENTS, type SdReturnRequestRequestedPayload } from './sd-event.types'
+import {
+    SD_EVENTS,
+    type SdReturnRefundPaidPayload,
+    type SdReturnRequestRequestedPayload,
+} from './sd-event.types'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
@@ -998,17 +1002,12 @@ export class ReturnRequestService {
     }
 
     /**
-     * APPROVED → PAID. DEMO ONLY: flips the paid payment to Refunded, marks
-     * the original invoice REFUNDED (amounts unchanged), and closes the
-     * refund on the return (status REFUNDED). Disabled unless
-     * SD_DEMO_REFUND_PAYMENT=true: without FICO no refund may be reported as paid.
+     * APPROVED → PAID. Marks the payment Refunded, invoice REFUNDED, and return
+     * REFUNDED, then emits `ReturnRefundPaid` so FICO posts the commercial
+     * reversal (Dr Revenue ± VAT / Cr Cash or AR). Inventory/COGS stays on the
+     * MM restock journal (Phase 1).
      */
     async payRefund(id: string, companyId: string, performedBy?: string) {
-        if (process.env.SD_DEMO_REFUND_PAYMENT !== 'true') {
-            throw new ConflictException(
-                'Refund payment is handled by finance (FICO); the refund stays approved until finance pays it',
-            )
-        }
         const { request, payment } = await this.loadRefundContext(id, companyId)
         const refund = await this.prisma.sdRefund.findUnique({
             where: { returnRequestId: id },
@@ -1069,6 +1068,50 @@ export class ReturnRequestService {
                 },
             })
         })
+
+        const orderTotal = new Decimal(
+            request.salesOrder.totalAmount ?? request.salesOrder.subtotal ?? 0,
+        )
+        const orderTax = new Decimal(request.salesOrder.taxAmount ?? 0)
+        const refundGross = new Decimal(refund.amount)
+        const taxAmount =
+            orderTotal.gt(0) && orderTax.gt(0)
+                ? refundGross.mul(orderTax).div(orderTotal).toDecimalPlaces(2)
+                : new Decimal(0)
+
+        const invoiceNumber =
+            refund.salesInvoiceId != null
+                ? (request.salesOrder.invoices[0]?.invoiceNumber ??
+                  request.invoiceNumber ??
+                  null)
+                : (request.invoiceNumber ?? null)
+
+        const payload: SdReturnRefundPaidPayload = {
+            companyId,
+            returnRequestId: id,
+            requestNumber: request.requestNumber,
+            refundId: refund.id,
+            refundNumber: refund.refundNumber,
+            salesOrderId: request.salesOrderId,
+            orderNumber: request.salesOrder.orderNumber,
+            invoiceNumber,
+            customerId: request.customerId,
+            currency: refund.currency ?? request.salesOrder.currency ?? 'PHP',
+            refundAmount: refundGross.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            refundMethod: refund.refundMethod,
+            paymentMethod: payment.paymentMethod ?? refund.paymentMethod,
+            paidAt: paidAt.toISOString(),
+            paidBy: performedBy ?? null,
+            idempotencyKey: `sd-return-refund:${refund.id}`,
+        }
+        if (this.sdEvents) {
+            await this.sdEvents.emit(
+                SD_EVENTS.RETURN_REFUND_PAID,
+                payload as unknown as Record<string, unknown>,
+            )
+        }
+
         return this.findOne(id)
     }
 

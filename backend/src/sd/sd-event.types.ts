@@ -15,6 +15,12 @@ export const SD_EVENTS = {
     POS_SALE_VOIDED: 'PosSaleVoided',
     /** A subsequent payment was collected against an outstanding POS receivable. */
     POS_COLLECTION_COMPLETED: 'PosCollectionCompleted',
+    /**
+     * An SD sales-return refund was marked PAID. FICO posts the commercial
+     * reversal (Dr Revenue ± VAT / Cr Cash or AR). Inventory/COGS stays on the
+     * MM restock path.
+     */
+    RETURN_REFUND_PAID: 'ReturnRefundPaid',
 } as const
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]
@@ -73,6 +79,30 @@ export type SdSalesInvoicePaidPayload = {
     totalAmount: string
     paidAt: string
     /** The invoice id: one outbox row per invoice. */
+    idempotencyKey: string
+}
+
+/** Emitted when an SD refund transitions APPROVED → PAID (Phase 2 FICO leg). */
+export type SdReturnRefundPaidPayload = {
+    companyId: string
+    returnRequestId: string
+    requestNumber: string
+    refundId: string
+    refundNumber: string
+    salesOrderId: string
+    orderNumber: string
+    invoiceNumber?: string | null
+    customerId: string
+    currency: string
+    /** Gross refund amount (decimal string). */
+    refundAmount: string
+    /** Proportional VAT portion of the refund (decimal string). */
+    taxAmount?: string
+    refundMethod?: string | null
+    paymentMethod?: string | null
+    paidAt: string
+    paidBy?: string | null
+    /** Stable: `sd-return-refund:{refundId}`. */
     idempotencyKey: string
 }
 

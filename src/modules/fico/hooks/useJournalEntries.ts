@@ -20,27 +20,48 @@ export function useJournalEntries(initial?: FicoJournalEntryParams) {
     const [params, setParams] = useState<FicoJournalEntryParams>({
         page: 1,
         pageSize: 20,
+        excludeLegacy: true,
         ...initial,
     })
     const [result, setResult] = useState(empty)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+
     const reload = useCallback(async () => {
+        if (!params.companyId) {
+            setResult(empty)
+            setLoading(false)
+            setError(null)
+            return
+        }
         setLoading(true)
         setError(null)
         try {
-            setResult(await ficoJournalService.list(params))
-        } catch (error) {
-            setError(ficoErrorMessage(error, 'Failed to load journal entries'))
+            const page = await ficoJournalService.list(params)
+            setResult({
+                data: Array.isArray(page?.data) ? page.data : [],
+                total: page?.total ?? 0,
+                page: page?.page ?? params.page ?? 1,
+                pageSize: page?.pageSize ?? params.pageSize ?? 20,
+            })
+        } catch (err) {
+            setError(ficoErrorMessage(err, 'Failed to load journal entries'))
+            setResult(empty)
         } finally {
             setLoading(false)
         }
     }, [params])
-    useEffect(() => void reload(), [reload])
+
+    useEffect(() => {
+        void reload()
+    }, [reload])
+
     return { ...result, params, setParams, loading, error, reload }
 }
 
-export function useJournalEntryMutations(onSuccess?: () => void | Promise<void>) {
+export function useJournalEntryMutations(
+    onSuccess?: () => void | Promise<void>,
+) {
     const [saving, setSaving] = useState(false)
     const mutate = async <T,>(work: () => Promise<T>) => {
         setSaving(true)
@@ -57,7 +78,7 @@ export function useJournalEntryMutations(onSuccess?: () => void | Promise<void>)
         create: (body: FicoJournalEntryInput) =>
             mutate(() => ficoJournalService.create(body)),
         post: (id: string) => mutate(() => ficoJournalService.post(id)),
-        reverse: (id: string, postingDate?: string) =>
-            mutate(() => ficoJournalService.reverse(id, postingDate)),
+        reverse: (id: string, payload: { companyId: string; reason: string }) =>
+            mutate(() => ficoJournalService.reverse(id, payload)),
     }
 }

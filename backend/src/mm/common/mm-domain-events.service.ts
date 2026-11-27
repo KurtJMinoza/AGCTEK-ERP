@@ -334,6 +334,31 @@ export class MmDomainEventsService {
         })
     }
 
+    customerReturnPosted(args: {
+        companyId: string
+        returnId: string
+        payload: Record<string, unknown>
+        correlationId?: string
+        causationId?: string | null
+        actorId?: string | null
+        plantId?: string | null
+        documentReferences?: MmIntegrationEventInput['documentReferences']
+    }) {
+        return this.emitIntegration({
+            eventType: MM_DOMAIN_EVENTS.CUSTOMER_RETURN_POSTED,
+            companyId: args.companyId,
+            sourceModule: 'RETURNS_DISPOSAL',
+            sourceEntityType: 'CUSTOMER_RETURN',
+            sourceEntityId: args.returnId,
+            payload: args.payload,
+            correlationId: args.correlationId,
+            causationId: args.causationId,
+            actorId: args.actorId,
+            plantId: args.plantId,
+            documentReferences: args.documentReferences,
+        })
+    }
+
     inventoryTransferred(args: {
         companyId: string
         documentId: string

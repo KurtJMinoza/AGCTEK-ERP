@@ -20,7 +20,6 @@ import { orgService } from '@/modules/mm/material-master/services/referenceServi
 import { buildErpBreadcrumbs } from '@/utils/erp-navigation'
 import {
     customerReturnRequestService,
-    DEMO_REFUND_PAYMENT_ENABLED,
     displayStatuses,
     isCommercialResolutionBlocked,
     REFUND_STATUS_LABEL,
@@ -505,12 +504,12 @@ const CustomerReturnsPage = () => {
                                         ),
                                 })
                             } else if (r.refundStatus === 'APPROVED') {
-                                if (DEMO_REFUND_PAYMENT_ENABLED) items.push({
-                                    label: 'Mark refund paid (demo)',
+                                items.push({
+                                    label: 'Mark refund paid',
                                     run: () =>
                                         void confirmRun(
                                             'Mark refund paid',
-                                            'DEMO settlement: flip the Paid payment to Refunded and mark the invoice REFUNDED?',
+                                            'Pay the refund? This marks the payment Refunded and posts the FICO revenue reversal journal.',
                                             () =>
                                                 customerReturnRequestService.refundPay(r.id, {
                                                     companyId: company,

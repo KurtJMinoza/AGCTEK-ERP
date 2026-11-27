@@ -143,6 +143,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             disposalPosted: jest.fn(),
             disposalReversed: jest.fn(),
             supplierReturnReversed: jest.fn(),
+            customerReturnPosted: jest.fn(),
         }
         configService = new ReturnsDisposalConfigService(prisma)
         returnService = new SupplierReturnService(
@@ -167,6 +168,7 @@ describe('Returns / Disposal / Traceability Engine (Phase 8)', () => {
             disposalService,
             events,
             { assertPermission: jest.fn() } as any,
+            domainEvents as any,
         )
         damagedExpired = new DamagedExpiredQueryService(
             prisma,

@@ -55,6 +55,7 @@ export const FICO_SD_DETERMINATION_TYPES = [
     { code: 'INVENTORY_REDUCTION', label: 'Inventory Reduction' },
     { code: 'CUSTOMER_PAYMENT', label: 'Customer Payment' },
     { code: 'SALES_RETURN', label: 'Sales Return' },
+    { code: 'SALES_RETURN_REFUND', label: 'Sales Return Refund' },
     { code: 'SALES_DISCOUNT', label: 'Sales Discount' },
     { code: 'OUTPUT_TAX', label: 'Output Tax' },
     { code: 'PAYMENT_CLEARING', label: 'Payment Clearing' },

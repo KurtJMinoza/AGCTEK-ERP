@@ -37,6 +37,9 @@ describe('FicoAccountDeterminationService', () => {
         ficoMmAccountMapping: {
             findMany: jest.fn(),
         },
+        mmMaterial: {
+            findMany: jest.fn().mockResolvedValue([]),
+        },
     }
     let service: FicoAccountDeterminationService
 
@@ -101,6 +104,58 @@ describe('FicoAccountDeterminationService', () => {
         ])
         expect(postingValidation.validate).toHaveBeenCalledWith(
             expect.objectContaining({ source: 'AUTOMATIC', companyId: 'company-1' }),
+        )
+    })
+
+    it('resolves CustomerReturnPosted restock as SALES_RETURN (Dr Inventory / Cr COGS)', async () => {
+        prisma.ficoCompanyAccountingSettings.findUnique.mockResolvedValue({
+            status: 'ACTIVE',
+            chartOfAccountsId: 'coa-1',
+            chartOfAccounts: { id: 'coa-1', status: 'ACTIVE' },
+            accountDeterminationProfileId: 'profile-1',
+            accountDeterminationProfile: { id: 'profile-1', status: 'ACTIVE' },
+        })
+        prisma.ficoMmAccountMapping.findMany.mockResolvedValue([
+            {
+                valuationClassId: null,
+                valuationScopeKey: '*',
+                debitAccountId: 'inventory-1200',
+                creditAccountId: 'cogs-5000',
+            },
+        ])
+
+        const returnPayload: MmAccountingDispatchPayload = {
+            ...payload,
+            eventType: 'CustomerReturnPosted',
+            documentType: 'CUSTOMER_RETURN',
+            documentId: 'crt-1',
+            sourceModule: 'RETURNS_DISPOSAL',
+            accountingEffects: ['INVENTORY_INCREASE', 'COGS_RELIEF'],
+            lines: [
+                {
+                    materialId: 'material-1',
+                    movementType: 'RETURN_IN',
+                    quantity: 2,
+                    unitCost: 50,
+                    totalCost: 100,
+                },
+            ],
+        }
+
+        await expect(service.resolveMmPosting(returnPayload)).resolves.toMatchObject([
+            {
+                debitAccountId: 'inventory-1200',
+                creditAccountId: 'cogs-5000',
+                transactionKey: 'SALES_RETURN',
+                amount: expect.anything(),
+            },
+        ])
+        expect(prisma.ficoMmAccountMapping.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    transactionKeyCode: 'SALES_RETURN',
+                }),
+            }),
         )
     })
 })

@@ -73,16 +73,27 @@ export class PosRevenuePostingListener {
     ) {}
 
     @OnEvent(SD_EVENTS.POS_SALE_COMPLETED, { async: true })
-    async handlePosSaleCompleted(event: PosSaleEvent): Promise<void> {
+    async handlePosSaleCompleted(
+        envelope: PosSaleEvent | { payload?: PosSaleEvent },
+    ): Promise<void> {
+        // SdEventEmitterService emits an envelope { payload }; accept bare payload too.
+        const event = this.unwrapPayload<PosSaleEvent>(envelope)
         if (!event?.salesOrderId || !event?.companyId) return
 
         const idempotencyKey = `pos-revenue:${event.salesOrderId}`
 
         try {
-            // Check the company has active accounting settings
+            // Check the company has active accounting settings + default G/L slots
             const settings = await this.prisma.ficoCompanyAccountingSettings.findFirst({
                 where: { companyId: event.companyId, status: 'ACTIVE' },
-                select: { chartOfAccountsId: true },
+                select: {
+                    chartOfAccountsId: true,
+                    defaultCashAccountId: true,
+                    defaultSalesRevenueAccountId: true,
+                    defaultTaxOutputAccountId: true,
+                    defaultReceivableAccountId: true,
+                    documentNumberPrefix: true,
+                },
             })
             if (!settings?.chartOfAccountsId) {
                 this.logger.debug(
@@ -91,7 +102,7 @@ export class PosRevenuePostingListener {
                 return
             }
 
-            // Load G/L accounts from the company's chart
+            // Load G/L accounts from the company's chart (posting accounts only)
             const glAccounts = await this.prisma.ficoGlAccount.findMany({
                 where: {
                     chartOfAccountsId: settings.chartOfAccountsId,
@@ -101,6 +112,21 @@ export class PosRevenuePostingListener {
                 select: { id: true, accountCode: true, accountName: true },
             })
             const glByCode = new Map(glAccounts.map((a) => [a.accountCode, a]))
+            const glById = new Map(glAccounts.map((a) => [a.id, a]))
+            const resolveByIdOrCodes = (
+                accountId: string | null | undefined,
+                codes: string[],
+            ) => {
+                if (accountId) {
+                    const byId = glById.get(accountId)
+                    if (byId) return byId
+                }
+                for (const code of codes) {
+                    const byCode = glByCode.get(code)
+                    if (byCode) return byCode
+                }
+                return null
+            }
 
             // Load the frozen VAT from order lines
             const order = await this.prisma.sdSalesOrder.findUnique({
@@ -133,24 +159,32 @@ export class PosRevenuePostingListener {
             const totalAmount = new Decimal(event.totalAmount)
             const netRevenue = totalAmount.minus(totalVat)
 
-            // Build journal lines
-            const journalLines: Array<{
-                debitAccountId: string
-                creditAccountId: string
-                amount: Prisma.Decimal
-                transactionKey: string
-                materialId: null
-                warehouseId: null
-            }> = []
-
             // DEBIT side: one line per tender
             const tenders = event.tenders ?? []
-            const revenueAccount = glByCode.get('4000')
-            const vatAccount = glByCode.get('2040')
+            // Prefer company default sales revenue (AWIC posting leaf, not header 4000).
+            const revenueAccount = resolveByIdOrCodes(
+                settings.defaultSalesRevenueAccountId,
+                ['4000', '4001', '4004', '4017'],
+            )
+            // Output VAT — company default, then common PH / starter COA codes.
+            const vatAccount = resolveByIdOrCodes(
+                settings.defaultTaxOutputAccountId,
+                ['2114', '2040', '2200', '2150'],
+            )
+            const cashAccount = resolveByIdOrCodes(
+                settings.defaultCashAccountId,
+                ['1005', '1002', '1001', '1000'],
+            )
+            const arAccount = resolveByIdOrCodes(
+                settings.defaultReceivableAccountId,
+                ['1101', '1100'],
+            )
+            // Employee Receivable account for salary-loan tenders
+            const empArAccount = glByCode.get('1210')
 
             if (!revenueAccount) {
                 this.logger.warn(
-                    `Skipping revenue posting for ${event.orderNumber}: G/L 4000 (Sales Revenue) not found`,
+                    `Skipping revenue posting for ${event.orderNumber}: no posting sales-revenue G/L configured`,
                 )
                 return
             }
@@ -168,26 +202,21 @@ export class PosRevenuePostingListener {
             // Load tender → G/L mapping from the configurable payment methods table
             const tenderGlMap = await this.paymentMethods.glAccountMap()
 
-            // Accounts Receivable account for outstanding balances
-            const arAccount = glByCode.get('1200')
-            // Employee Receivable account for salary-loan tenders
-            const empArAccount = glByCode.get('1210')
-
             for (const tender of tenders) {
                 const amount = new Decimal(tender.amount)
                 if (amount.lte(0)) continue
 
-                const glCode = tenderGlMap[tender.method] ?? '1000'
-                const gl = glByCode.get(glCode)
-                if (!gl) {
+                const glCode = tenderGlMap[tender.method]
+                const mapped = glCode ? glByCode.get(glCode) : null
+                if (glCode && !mapped) {
                     this.logger.warn(
-                        `G/L account ${glCode} not found for tender ${tender.method}; using 1000`,
+                        `G/L account ${glCode} not found for tender ${tender.method}; using company cash default`,
                     )
                 }
-                const accountId = gl?.id ?? glByCode.get('1000')?.id
+                const accountId = mapped?.id ?? cashAccount?.id
                 if (!accountId) {
                     this.logger.error(
-                        `Cannot post revenue for ${event.orderNumber}: no Cash on Hand (1000) account`,
+                        `Cannot post revenue for ${event.orderNumber}: no cash / tender G/L account`,
                     )
                     return
                 }
@@ -211,7 +240,7 @@ export class PosRevenuePostingListener {
                 })
                 const arAccountId = (receivable?.employeeId && empArAccount)
                     ? empArAccount.id
-                    : (arAccount?.id ?? glByCode.get('1000')?.id)
+                    : (arAccount?.id ?? cashAccount?.id)
 
                 if (arAccountId) {
                     rawLines.push({
@@ -223,7 +252,7 @@ export class PosRevenuePostingListener {
                     })
                 } else {
                     this.logger.warn(
-                        `G/L 1200 (Accounts Receivable) not found; outstanding ₱${outstandingBalance} not posted for ${event.orderNumber}`,
+                        `Accounts Receivable G/L not found; outstanding ₱${outstandingBalance} not posted for ${event.orderNumber}`,
                     )
                 }
             }
@@ -307,6 +336,15 @@ export class PosRevenuePostingListener {
                 return
             }
 
+            // Cash fully paid → OR; otherwise SI (sales invoice / AR).
+            // String `documentType` is constrained to SD_REVENUE / MM_* / JOURNAL;
+            // AWIC OR/SI live on documentTypeId (fi_document_types) + number range.
+            const awicDocTypeCode = outstandingBalance.gt(0) ? 'SI' : 'OR'
+            const fiDocType = await this.prisma.fiDocumentType.findUnique({
+                where: { code: awicDocTypeCode },
+                select: { id: true, code: true },
+            })
+
             const journal = await this.prisma.$transaction(async (tx) => {
                 // Period lock (shared) — same pattern as createResolvedJournal
                 await tx.$queryRaw`
@@ -321,6 +359,14 @@ export class PosRevenuePostingListener {
                 if (!lockedPeriod || !['OPEN', 'RESTRICTED'].includes(lockedPeriod.status)) {
                     throw new Error('Fiscal period changed; revenue posting skipped')
                 }
+
+                const documentNumber = await this.nextDocumentNumber(
+                    tx,
+                    event.companyId,
+                    fiscalPeriod.fiscalYear,
+                    awicDocTypeCode,
+                    settings.documentNumberPrefix,
+                )
 
                 // Create as DRAFT so lines can be inserted, then mark POSTED.
                 const entry = await tx.ficoJournalEntry.create({
@@ -337,11 +383,16 @@ export class PosRevenuePostingListener {
                         approvalStatus: 'POSTED',
                         requiresApproval: false,
                         documentType: 'SD_REVENUE',
+                        documentTypeId: fiDocType?.id ?? null,
+                        documentNumber,
                         sourceModule: 'SD',
                         sourceDocumentType: 'SALES_ORDER',
                         sourceDocumentId: event.salesOrderId,
                         sourcePostingKey: idempotencyKey,
                         description: `POS revenue · ${event.receiptNumber ?? event.orderNumber}`,
+                        headerText: `POS revenue · ${event.receiptNumber ?? event.orderNumber}`,
+                        postedAt: null,
+                        postedBy: null,
                     },
                 })
                 await tx.ficoJournalEntryLine.createMany({
@@ -358,7 +409,10 @@ export class PosRevenuePostingListener {
                 })
                 await tx.ficoJournalEntry.update({
                     where: { id: entry.id },
-                    data: { status: 'POSTED' },
+                    data: {
+                        status: 'POSTED',
+                        postedAt: new Date(),
+                    },
                 })
                 return entry
             })
@@ -380,7 +434,10 @@ export class PosRevenuePostingListener {
      * No second revenue recognition — the revenue was posted at sale time.
      */
     @OnEvent(SD_EVENTS.POS_COLLECTION_COMPLETED, { async: true })
-    async handlePosCollectionCompleted(event: PosCollectionEvent): Promise<void> {
+    async handlePosCollectionCompleted(
+        envelope: PosCollectionEvent | { payload?: PosCollectionEvent },
+    ): Promise<void> {
+        const event = this.unwrapPayload<PosCollectionEvent>(envelope)
         if (!event?.collectionId || !event?.companyId) return
 
         const idempotencyKey = `pos-collection:${event.collectionId}`
@@ -388,7 +445,12 @@ export class PosRevenuePostingListener {
         try {
             const settings = await this.prisma.ficoCompanyAccountingSettings.findFirst({
                 where: { companyId: event.companyId, status: 'ACTIVE' },
-                select: { chartOfAccountsId: true },
+                select: {
+                    chartOfAccountsId: true,
+                    defaultCashAccountId: true,
+                    defaultReceivableAccountId: true,
+                    documentNumberPrefix: true,
+                },
             })
             if (!settings?.chartOfAccountsId) {
                 this.logger.debug(
@@ -406,11 +468,33 @@ export class PosRevenuePostingListener {
                 select: { id: true, accountCode: true },
             })
             const glByCode = new Map(glAccounts.map((a) => [a.accountCode, a]))
+            const glById = new Map(glAccounts.map((a) => [a.id, a]))
+            const resolveByIdOrCodes = (
+                accountId: string | null | undefined,
+                codes: string[],
+            ) => {
+                if (accountId) {
+                    const byId = glById.get(accountId)
+                    if (byId) return byId
+                }
+                for (const code of codes) {
+                    const byCode = glByCode.get(code)
+                    if (byCode) return byCode
+                }
+                return null
+            }
 
-            const arAccount = glByCode.get('1200')
+            const arAccount = resolveByIdOrCodes(
+                settings.defaultReceivableAccountId,
+                ['1101', '1100'],
+            )
+            const cashAccount = resolveByIdOrCodes(
+                settings.defaultCashAccountId,
+                ['1005', '1002', '1001', '1000'],
+            )
             if (!arAccount) {
                 this.logger.warn(
-                    `Skipping collection posting for ${event.collectionNumber}: G/L 1200 (Accounts Receivable) not found`,
+                    `Skipping collection posting for ${event.collectionNumber}: Accounts Receivable G/L not found`,
                 )
                 return
             }
@@ -440,9 +524,9 @@ export class PosRevenuePostingListener {
                 const amount = new Decimal(tender.amount)
                 if (amount.lte(0)) continue
 
-                const glCode = tenderGlMap[tender.method] ?? '1000'
-                const gl = glByCode.get(glCode)
-                const accountId = gl?.id ?? glByCode.get('1000')?.id
+                const glCode = tenderGlMap[tender.method]
+                const mapped = glCode ? glByCode.get(glCode) : null
+                const accountId = mapped?.id ?? cashAccount?.id
                 if (!accountId) continue
 
                 rawLines.push({
@@ -497,6 +581,10 @@ export class PosRevenuePostingListener {
             }
 
             const currency = event.currency ?? 'PHP'
+            const fiDocType = await this.prisma.fiDocumentType.findUnique({
+                where: { code: 'CR' },
+                select: { id: true },
+            })
             const journal = await this.prisma.$transaction(async (tx) => {
                 await tx.$queryRaw`
                     SELECT id FROM fico_financial_periods
@@ -510,6 +598,14 @@ export class PosRevenuePostingListener {
                 if (!lockedPeriod || !['OPEN', 'RESTRICTED'].includes(lockedPeriod.status)) {
                     throw new Error('Fiscal period changed; collection posting skipped')
                 }
+
+                const documentNumber = await this.nextDocumentNumber(
+                    tx,
+                    event.companyId,
+                    fiscalPeriod.fiscalYear,
+                    'CR',
+                    settings.documentNumberPrefix,
+                )
 
                 const entry = await tx.ficoJournalEntry.create({
                     data: {
@@ -525,11 +621,16 @@ export class PosRevenuePostingListener {
                         approvalStatus: 'POSTED',
                         requiresApproval: false,
                         documentType: 'SD_REVENUE',
+                        documentTypeId: fiDocType?.id ?? null,
+                        documentNumber,
                         sourceModule: 'SD',
                         sourceDocumentType: 'POS_COLLECTION',
                         sourceDocumentId: event.collectionId,
                         sourcePostingKey: idempotencyKey,
                         description: `POS collection · ${event.collectionNumber} · ${event.orderNumber}`,
+                        headerText: `POS collection · ${event.collectionNumber}`,
+                        postedAt: null,
+                        postedBy: null,
                     },
                 })
                 await tx.ficoJournalEntryLine.createMany({
@@ -546,7 +647,10 @@ export class PosRevenuePostingListener {
                 })
                 await tx.ficoJournalEntry.update({
                     where: { id: entry.id },
-                    data: { status: 'POSTED' },
+                    data: {
+                        status: 'POSTED',
+                        postedAt: new Date(),
+                    },
                 })
                 return entry
             })
@@ -559,5 +663,91 @@ export class PosRevenuePostingListener {
                 `Collection posting failed for ${event.collectionNumber}: ${err instanceof Error ? err.message : String(err)}`,
             )
         }
+    }
+
+    /** SD emits `{ payload }`; tests may pass the bare payload. */
+    private unwrapPayload<T extends object>(
+        envelope: T | { payload?: T },
+    ): T | null {
+        if (!envelope || typeof envelope !== 'object') return null
+        if (
+            'payload' in envelope &&
+            envelope.payload &&
+            typeof envelope.payload === 'object'
+        ) {
+            return envelope.payload
+        }
+        return envelope as T
+    }
+
+    /**
+     * Prefer company FicoDocumentType number range (SI/OR/CR), else legacy JE sequence.
+     */
+    private async nextDocumentNumber(
+        tx: Prisma.TransactionClient,
+        companyId: string,
+        fiscalYear: number,
+        documentTypeCode?: string,
+        fallbackPrefix?: string | null,
+    ): Promise<string> {
+        if (documentTypeCode) {
+            const companyDocType = await tx.ficoDocumentType.findUnique({
+                where: {
+                    companyId_code: { companyId, code: documentTypeCode },
+                },
+                select: {
+                    numberRange: {
+                        select: {
+                            id: true,
+                            prefix: true,
+                            suffix: true,
+                            currentNumber: true,
+                            endNumber: true,
+                            paddingLength: true,
+                            status: true,
+                        },
+                    },
+                },
+            })
+            const range = companyDocType?.numberRange
+            if (
+                range &&
+                range.status === 'ACTIVE' &&
+                range.currentNumber <= range.endNumber
+            ) {
+                const seq = range.currentNumber
+                await tx.ficoNumberRange.update({
+                    where: { id: range.id },
+                    data: {
+                        currentNumber: seq + 1,
+                        status: seq + 1 > range.endNumber ? 'EXHAUSTED' : 'ACTIVE',
+                    },
+                })
+                return `${range.prefix}${String(seq).padStart(range.paddingLength, '0')}${range.suffix}`
+            }
+        }
+
+        const prefix = fallbackPrefix?.trim() || 'JE'
+        const sequence = await tx.ficoDocumentSequence.upsert({
+            where: {
+                companyId_documentType_fiscalYear: {
+                    companyId,
+                    documentType: 'JOURNAL',
+                    fiscalYear,
+                },
+            },
+            create: {
+                companyId,
+                documentType: 'JOURNAL',
+                fiscalYear,
+                prefix,
+                nextNumber: 1,
+                padding: 6,
+            },
+            update: {
+                nextNumber: { increment: 1 },
+            },
+        })
+        return `${sequence.prefix}${String(sequence.nextNumber).padStart(sequence.padding, '0')}`
     }
 }

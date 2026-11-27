@@ -15,6 +15,7 @@ export const FICO_RESOLVED_TRANSACTION_KEYS = [
     'GR_IR',
     'GI_COGS',
     'GI_EXPENSE',
+    'SALES_RETURN',
     'INVENTORY_SHRINKAGE',
     'INVENTORY_INCREASE_ADJ',
     'LANDED_COST',
@@ -118,9 +119,39 @@ export class FicoAccountDeterminationService {
             },
         })
 
+        const zeroCostMaterialIds = [
+            ...new Set(
+                payload.lines
+                    .filter((line) => new Decimal(line.totalCost ?? 0).abs().isZero())
+                    .map((line) => line.materialId)
+                    .filter(Boolean),
+            ),
+        ]
+        const fallbackCosts = new Map<string, Decimal>()
+        if (zeroCostMaterialIds.length) {
+            const materials = await this.prisma.mmMaterial.findMany({
+                where: { id: { in: zeroCostMaterialIds } },
+                select: { id: true, standardCost: true },
+            })
+            for (const material of materials) {
+                fallbackCosts.set(
+                    material.id,
+                    new Decimal(material.standardCost ?? 0),
+                )
+            }
+        }
+
         const resolved: ResolvedMmJournalLine[] = []
         for (const line of payload.lines) {
-            const amount = new Decimal(line.totalCost ?? 0).abs()
+            let amount = new Decimal(line.totalCost ?? 0).abs()
+            if (amount.isZero()) {
+                const qty = new Decimal(line.quantity ?? 0).abs()
+                const unit =
+                    new Decimal(line.unitCost ?? 0).abs().gt(0)
+                        ? new Decimal(line.unitCost ?? 0).abs()
+                        : (fallbackCosts.get(line.materialId) ?? new Decimal(0))
+                amount = unit.mul(qty)
+            }
             if (amount.isZero()) continue
             const mapping = this.mappingForLine(mappings, line)
             if (!mapping) {
@@ -178,6 +209,13 @@ export class FicoAccountDeterminationService {
         if (payload.eventType === 'GoodsReceiptPosted') return 'GR_IR'
         if (payload.eventType === 'GoodsIssuePosted') {
             return payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'GI_EXPENSE'
+        }
+        // Customer sales-return restock: reverse of GI_COGS (Dr Inventory / Cr COGS).
+        if (
+            payload.eventType === 'CustomerReturnPosted' ||
+            payload.eventType === 'CustomerReturnRestocked'
+        ) {
+            return 'SALES_RETURN'
         }
         if (effects.has('INVENTORY_LOSS')) return 'INVENTORY_SHRINKAGE'
         if (effects.has('LANDED_COST')) return 'LANDED_COST'

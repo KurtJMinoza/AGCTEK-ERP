@@ -443,39 +443,59 @@ export type FiDocumentTypeInput = Pick<
         >
     >
 
-export type FicoJournalEntryStatus = 'DRAFT' | 'POSTED' | 'REVERSED'
+export type FicoJournalEntryStatus = 'DRAFT' | 'POSTED' | 'REVERSED' | 'LEGACY'
 
 export type FicoJournalEntryLine = {
     id: string
     lineNumber: number
     glAccountId: string
-    glAccount: { id: string; accountCode: string; accountName: string }
+    glAccount?: { id: string; accountCode: string; accountName: string }
     debitAmount: string | number
     creditAmount: string | number
-    currency: string
+    currency?: string
     description: string | null
 }
 
 export type FicoJournalEntry = {
     id: string
     companyId: string
+    documentType: string
     documentTypeId: string | null
-    documentTypeRef: FiDocumentType | null
+    documentTypeRef: Pick<FiDocumentType, 'id' | 'code' | 'name'> | null
     documentNumber: string | null
     postingDate: string
     documentDate: string | null
     reference: string | null
     headerText: string | null
+    description: string | null
     currencyCode: string
     status: FicoJournalEntryStatus
+    approvalStatus?: string
+    requiresApproval?: boolean
+    totalAmount: string | number
     fiscalYear: number | null
+    fiscalPeriodId?: string | null
+    fiscalPeriod?: {
+        id?: string
+        fiscalYear: number
+        periodNumber: number
+        name: string
+        status: string
+    } | null
+    sourceModule: string | null
+    sourceEventId?: string | null
+    sourceDocumentType?: string | null
+    sourceDocumentId?: string | null
+    sourcePostingKey?: string | null
+    mmAccountingEventId?: string | null
     postedAt: string | null
+    postedBy?: string | null
     reversalOfId: string | null
     reversalOf: { id: string; documentNumber: string | null } | null
     reversedBy: { id: string; documentNumber: string | null } | null
     lines: FicoJournalEntryLine[]
     createdAt: string
-    updatedAt: string
+    updatedAt?: string
 }
 
 export type FicoJournalEntryLineInput = {
@@ -486,13 +506,14 @@ export type FicoJournalEntryLineInput = {
 }
 
 export type FicoJournalEntryInput = {
-    documentTypeId: string
+    documentTypeId?: string
     companyId: string
     postingDate: string
-    documentDate: string
+    documentDate?: string
     reference?: string
     headerText?: string
     currencyCode: string
+    /** UI intent: POSTED → autoPost without approval; DRAFT → save draft. */
     status?: 'DRAFT' | 'POSTED'
     lines: FicoJournalEntryLineInput[]
 }
@@ -502,8 +523,13 @@ export type FicoJournalEntryParams = {
     pageSize?: number
     search?: string
     status?: FicoJournalEntryStatus
+    /** Default list mode: hide LEGACY stubs when no explicit status is set. */
+    excludeLegacy?: boolean
     documentTypeId?: string
     companyId?: string
+    dateFrom?: string
+    dateTo?: string
+    source?: 'MANUAL' | 'MM'
 }
 
 export type FicoPaginated<T> = {
@@ -1032,4 +1058,166 @@ export type FicoDocumentTypeHistoryResponse = {
     total: number
     page: number
     pageSize: number
+}
+/** Accounts Receivable V1 */
+
+export type FicoArAgingBucket =
+    | 'CURRENT'
+    | 'D1_30'
+    | 'D31_60'
+    | 'D61_90'
+    | 'D90_PLUS'
+
+export type FicoArCustomerSummary = {
+    id: string
+    customerNumber: string
+    companyName: string
+    email?: string | null
+}
+
+export type FicoArOpenItem = {
+    id: string
+    companyId: string
+    customerId: string
+    documentId: string
+    itemType: string
+    direction: string
+    originalAmount: string
+    openAmount: string
+    currencyCode: string
+    baselineDate: string
+    dueDate: string | null
+    status: string
+    clearedAt?: string | null
+    agingBucket?: FicoArAgingBucket
+    daysPastDue?: number
+    asOfDate?: string
+    customer?: FicoArCustomerSummary | null
+    reconciliationAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+    } | null
+    document?: {
+        id: string
+        documentType: string
+        status: string
+        referenceNumber: string | null
+        postingDate: string
+        journalEntryId: string
+        clearingJournalEntryId?: string | null
+        sourceSalesInvoiceId?: string
+        sourceSalesInvoice?: {
+            id: string
+            invoiceNumber: string
+            salesOrderId?: string
+        } | null
+        journalEntry?: {
+            id: string
+            documentNumber: string | null
+            status?: string
+        } | null
+    } | null
+}
+
+export type FicoArDocumentDetail = {
+    id: string
+    companyId: string
+    customerId: string
+    sourceSalesInvoiceId: string
+    journalEntryId: string
+    clearingJournalEntryId?: string | null
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    documentDate: string
+    postingDate: string
+    baselineDate: string
+    dueDate: string | null
+    currencyCode: string
+    netAmount: string
+    taxAmount: string
+    grossAmount: string
+    receivableAmount: string
+    reconciliationAccountId?: string | null
+    reconciliationAccountCode?: string | null
+    createdAt?: string
+    customer?: FicoArCustomerSummary | null
+    reconciliationAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+    } | null
+    sourceSalesInvoice?: {
+        id: string
+        invoiceNumber: string
+        status: string
+        salesOrderId: string
+        issuedAt?: string | null
+        paidAt?: string | null
+        totalAmount?: string
+    } | null
+    journalEntry?: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postingDate?: string
+        totalAmount?: string
+        currencyCode?: string
+        lines?: Array<{
+            id: string
+            lineNumber: number
+            debitAmount: string
+            creditAmount: string
+            description?: string | null
+            glAccount?: {
+                id: string
+                accountCode: string
+                accountName: string
+            } | null
+        }>
+    } | null
+    clearingJournalEntry?: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postingDate?: string
+    } | null
+    openItem?: {
+        id: string
+        openAmount: string
+        originalAmount: string
+        status: string
+        dueDate: string | null
+        direction?: string
+        baselineDate?: string
+    } | null
+    agingBucket?: FicoArAgingBucket
+    aging?: {
+        bucket: FicoArAgingBucket
+        daysPastDue: number
+    } | null
+}
+
+export type FicoArAgingResponse = {
+    asOfDate: string
+    buckets: Record<FicoArAgingBucket, string> | {
+        CURRENT: { toString(): string } | string
+        D1_30: { toString(): string } | string
+        D31_60: { toString(): string } | string
+        D61_90: { toString(): string } | string
+        D90_PLUS: { toString(): string } | string
+    }
+    totalOpen?: string | { toString(): string }
+    totalReceivable?: string | { toString(): string }
+    items: FicoArOpenItem[]
+}
+
+export type FicoArOpenItemQuery = {
+    companyId: string
+    customerId?: string
+    status?: string
+    search?: string
+    overdueOnly?: boolean
+    asOfDate?: string
 }

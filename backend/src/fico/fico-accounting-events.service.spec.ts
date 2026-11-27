@@ -54,10 +54,18 @@ describe('FicoAccountingEventsService', () => {
             assertAccess: jest.fn().mockResolvedValue(undefined),
             accessibleCompanyIds: jest.fn().mockResolvedValue(accessible),
         }
+        const journal = {
+            createFromAccountingEvent: jest.fn(),
+        }
         return {
-            service: new FicoAccountingEventsService(prisma as never, access as never),
+            service: new FicoAccountingEventsService(
+                prisma as never,
+                access as never,
+                journal as never,
+            ),
             prisma,
             access,
+            journal,
         }
     }
 

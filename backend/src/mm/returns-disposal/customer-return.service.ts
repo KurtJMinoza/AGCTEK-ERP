@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { PermissionsService } from '../../permissions/permissions.service'
 import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { postingKey } from '../common/idempotency.util'
+import { MmDomainEventsService } from '../common/mm-domain-events.service'
+import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { DisposalService } from './disposal.service'
 import {
@@ -35,6 +37,17 @@ const DETAIL_INCLUDE = {
             returnNumber: true,
             status: true,
             salesOrderId: true,
+            salesOrder: {
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    invoices: {
+                        select: { invoiceNumber: true, status: true },
+                        orderBy: { createdAt: 'desc' as const },
+                        take: 1,
+                    },
+                },
+            },
         },
     },
     /** Originating SCM damage report (Phase 5 traceability). */
@@ -88,6 +101,7 @@ export class CustomerReturnService {
         private disposalService: DisposalService,
         private events: EventEmitter2,
         private permissions: PermissionsService,
+        private domainEvents: MmDomainEventsService,
     ) {}
 
     async create(dto: CreateCustomerReturnDto) {
@@ -686,30 +700,86 @@ export class CustomerReturnService {
             }
         }
 
-        await this.prisma.mmAccountingEvent.create({
-            data: {
-                eventType: 'CUSTOMER_RETURN_COMPLETED',
-                sourceModule: 'RETURNS_DISPOSAL',
-                documentType: 'CUSTOMER_RETURN',
-                documentId: doc.id,
-                companyId: doc.companyId,
-                payload: {
-                    returnNumber: doc.returnNumber,
-                    lines: doc.lines.map((l) => ({
-                        materialId: l.materialId,
-                        quantity: Number(l.quantity),
-                        disposition: l.disposition,
-                    })),
+        // Financial effect for RESTOCK only (valuation cost). SCRAP uses the
+        // linked disposal → ScrapPosted / INVENTORY_SHRINKAGE path. REFUND_ONLY
+        // has no stock/COGS effect here.
+        const restockLines = doc.lines.filter(
+            (line) => line.disposition === 'RESTOCK',
+        )
+        if (restockLines.length > 0) {
+            const commercial =
+                await this.resolveSalesReturnCommercialRefs(doc)
+            const documentReferences = [
+                {
+                    entityType: 'CUSTOMER_RETURN' as const,
+                    entityId: doc.id,
                 },
-                status: 'PENDING',
-            },
-        })
-        this.events.emit('accounting.entry.requested', {
-            sourceModule: 'RETURNS_DISPOSAL',
-            documentType: 'CUSTOMER_RETURN',
-            documentId: doc.id,
-            companyId: doc.companyId,
-        })
+                ...(commercial.salesReturnId
+                    ? [
+                          {
+                              entityType: 'SD_SALES_RETURN' as const,
+                              entityId: commercial.salesReturnId,
+                          },
+                      ]
+                    : []),
+                ...(commercial.returnRequestId
+                    ? [
+                          {
+                              entityType: 'SD_RETURN_REQUEST' as const,
+                              entityId: commercial.returnRequestId,
+                          },
+                      ]
+                    : []),
+                ...(commercial.salesOrderId
+                    ? [
+                          {
+                              entityType: 'SALES_ORDER' as const,
+                              entityId: commercial.salesOrderId,
+                          },
+                      ]
+                    : []),
+            ]
+            void this.domainEvents.customerReturnPosted({
+                companyId: doc.companyId,
+                returnId: doc.id,
+                plantId: doc.warehouse?.plantId ?? null,
+                actorId: dto?.performedBy ?? null,
+                documentReferences,
+                payload: {
+                    schemaVersion: 'v2',
+                    returnNumber: doc.returnNumber,
+                    salesReturnNumber: commercial.salesReturnNumber,
+                    salesOrderId: commercial.salesOrderId,
+                    orderNumber: commercial.orderNumber,
+                    invoiceNumber: commercial.invoiceNumber,
+                    postingDate: now,
+                    warehouseId: doc.warehouseId,
+                    financiallyRelevant: true,
+                    accountingEffects: [
+                        MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+                        MM_ACCOUNTING_EFFECT_HINTS.COGS_RELIEF,
+                    ],
+                    sdReturnRequestId:
+                        commercial.returnRequestId ?? commercial.salesReturnId,
+                    salesReturnId: commercial.salesReturnId,
+                    lines: restockLines.map((line) => {
+                        const quantity = Number(line.quantity)
+                        const unitCost = Number(line.unitCost ?? 0)
+                        return {
+                            materialId: line.materialId,
+                            warehouseId: doc.warehouseId,
+                            movementType: 'RETURN_IN',
+                            quantity,
+                            unitCost,
+                            totalCost: quantity * unitCost,
+                            disposition: line.disposition,
+                        }
+                    }),
+                },
+            })
+        }
+
+        this.events.emit('customer-return.completed', { customerReturnId: doc.id })
 
         const updated = await this.prisma.mmCustomerReturn.update({
             where: { id },
@@ -830,6 +900,79 @@ export class CustomerReturnService {
         })
         if (!doc) throw new NotFoundException('Customer return not found')
         return doc
+    }
+
+    /**
+     * Commercial refs for FICO journal reference/headerText.
+     * Prefer SdSalesReturn handoff; fall back to legacy SdReturnRequest link.
+     */
+    private async resolveSalesReturnCommercialRefs(
+        doc: Awaited<ReturnType<CustomerReturnService['findOneOrFail']>>,
+    ): Promise<{
+        salesReturnId: string | null
+        returnRequestId: string | null
+        salesReturnNumber: string | null
+        salesOrderId: string | null
+        orderNumber: string | null
+        invoiceNumber: string | null
+    }> {
+        const sdReturn = doc.sdSalesReturn
+        if (sdReturn?.salesOrder) {
+            return {
+                salesReturnId: sdReturn.id,
+                returnRequestId: null,
+                salesReturnNumber: sdReturn.returnNumber?.trim() || null,
+                salesOrderId: sdReturn.salesOrderId,
+                orderNumber: sdReturn.salesOrder.orderNumber?.trim() || null,
+                invoiceNumber:
+                    sdReturn.salesOrder.invoices?.[0]?.invoiceNumber?.trim() ||
+                    null,
+            }
+        }
+
+        if (doc.sdReturnRequestRef) {
+            const request = await this.prisma.sdReturnRequest.findUnique({
+                where: { id: doc.sdReturnRequestRef },
+                select: {
+                    id: true,
+                    requestNumber: true,
+                    salesOrderId: true,
+                    invoiceNumber: true,
+                    salesOrder: {
+                        select: {
+                            orderNumber: true,
+                            invoices: {
+                                select: { invoiceNumber: true },
+                                orderBy: { createdAt: 'desc' },
+                                take: 1,
+                            },
+                        },
+                    },
+                },
+            })
+            if (request) {
+                return {
+                    salesReturnId: null,
+                    returnRequestId: request.id,
+                    salesReturnNumber: request.requestNumber?.trim() || null,
+                    salesOrderId: request.salesOrderId,
+                    orderNumber: request.salesOrder?.orderNumber?.trim() || null,
+                    invoiceNumber:
+                        request.invoiceNumber?.trim() ||
+                        request.salesOrder?.invoices?.[0]?.invoiceNumber?.trim() ||
+                        null,
+                }
+            }
+        }
+
+        return {
+            salesReturnId: doc.sdSalesReturnId ?? sdReturn?.id ?? null,
+            returnRequestId: doc.sdReturnRequestRef ?? null,
+            salesReturnNumber: sdReturn?.returnNumber?.trim() || null,
+            salesOrderId: sdReturn?.salesOrderId ?? null,
+            orderNumber: null,
+            invoiceNumber: null,
+        }
     }
 
     private async assertLineTracking(

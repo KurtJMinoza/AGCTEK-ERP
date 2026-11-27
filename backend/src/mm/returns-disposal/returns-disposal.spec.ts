@@ -110,6 +110,7 @@ describe('MM-11 Returns & Disposal', () => {
         disposalPosted: jest.Mock
         disposalReversed: jest.Mock
         supplierReturnReversed: jest.Mock
+        customerReturnPosted: jest.Mock
     }
     const mockPeriodGuard = { assertCanPost: jest.fn().mockResolvedValue(undefined) }
 
@@ -126,6 +127,7 @@ describe('MM-11 Returns & Disposal', () => {
             disposalPosted: jest.fn(),
             disposalReversed: jest.fn(),
             supplierReturnReversed: jest.fn(),
+            customerReturnPosted: jest.fn(),
         }
 
         configService = new ReturnsDisposalConfigService(prisma)
@@ -151,6 +153,7 @@ describe('MM-11 Returns & Disposal', () => {
             disposalService,
             events,
             { assertPermission: jest.fn() } as any,
+            mockDomainEvents as unknown as import('../common/mm-domain-events.service').MmDomainEventsService,
         )
         damagedExpired = new DamagedExpiredQueryService(
             prisma,
@@ -333,13 +336,29 @@ describe('MM-11 Returns & Disposal', () => {
                     reasonCode: 'RESTOCK',
                 }),
             )
-            expect(prisma.mmAccountingEvent.create).toHaveBeenCalledWith(
+            expect(mockDomainEvents.customerReturnPosted).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        eventType: 'CUSTOMER_RETURN_COMPLETED',
+                    companyId: 'c1',
+                    returnId: 'crt-1',
+                    payload: expect.objectContaining({
+                        financiallyRelevant: true,
+                        accountingEffects: expect.arrayContaining([
+                            'INVENTORY_INCREASE',
+                            'COGS_RELIEF',
+                        ]),
+                        lines: [
+                            expect.objectContaining({
+                                materialId: expect.any(String),
+                                movementType: 'RETURN_IN',
+                                quantity: 2,
+                                unitCost: 50,
+                                totalCost: 100,
+                            }),
+                        ],
                     }),
                 }),
             )
+            expect(prisma.mmAccountingEvent.create).not.toHaveBeenCalled()
         })
     })
 

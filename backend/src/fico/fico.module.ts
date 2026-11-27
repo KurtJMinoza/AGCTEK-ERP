@@ -17,6 +17,8 @@ import { FicoDocumentTypeService } from './fico-document-type.service'
 import { FicoFiscalCalendarService } from './fico-fiscal-calendar.service'
 import { FicoGlAccountsService } from './fico-gl-accounts.service'
 import { FicoJournalService } from './fico-journal.service'
+import { FicoSalesReturnRefundListener } from './fico-sales-return-refund.listener'
+import { FicoSalesReturnRefundService } from './fico-sales-return-refund.service'
 import { FicoNumberRangeController } from './fico-number-range.controller'
 import { FicoNumberRangeService } from './fico-number-range.service'
 import { FicoOverviewService } from './fico-overview.service'
@@ -49,6 +51,8 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoFinancialPeriodService,
         FicoFinancialPeriodAdapter,
         FicoJournalService,
+        FicoSalesReturnRefundService,
+        FicoSalesReturnRefundListener,
         FicoAccountDeterminationService,
         FicoAccountDeterminationRulesService,
         FicoAccountResolutionService,
@@ -80,6 +84,7 @@ import { JournalEntryService } from './journal-entries/journal-entry.service'
         FicoFinancialPeriodService,
         FicoFinancialPeriodAdapter,
         FicoJournalService,
+        FicoSalesReturnRefundService,
         FicoAccountDeterminationService,
         FicoAccountDeterminationRulesService,
         FicoAccountResolutionService,

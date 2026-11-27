@@ -1317,14 +1317,63 @@ export class ProductService {
         }
         const current = await this.findOne(id)
         if (current.status === status) return current
-        await this.prisma.sdProduct.update({
-            where: { id },
-            data: {
-                status,
-                isActive: status === 'ACTIVE',
-                updatedBy: updatedBy ?? current.updatedBy ?? null,
-            },
+        const leavingActive =
+            current.status === 'ACTIVE' &&
+            (status === 'INACTIVE' || status === 'ARCHIVED')
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.sdProduct.update({
+                where: { id },
+                data: {
+                    status,
+                    isActive: status === 'ACTIVE',
+                    updatedBy: updatedBy ?? current.updatedBy ?? null,
+                },
+            })
+
+            if (!leavingActive) return
+
+            // Free globally-unique variant SKU / barcode so the same MM
+            // material can be re-listed on a new catalog product. Order-line
+            // snapshots keep the historical codes.
+            const variants = await tx.sdProductVariant.findMany({
+                where: { productId: id },
+                select: { id: true, sku: true, barcode: true, materialId: true },
+            })
+            for (const variant of variants) {
+                const releasedSku = `${variant.sku}__${status.toLowerCase()}__${variant.id.slice(-6)}`
+                await tx.sdProductVariant.update({
+                    where: { id: variant.id },
+                    data: {
+                        sku: releasedSku,
+                        barcode: null,
+                        isActive: false,
+                        isPublished: false,
+                    },
+                })
+                if (variant.materialId) {
+                    await tx.mmMaterial.updateMany({
+                        where: {
+                            id: variant.materialId,
+                            catalogVariantId: variant.id,
+                        },
+                        data: {
+                            catalogVariantId: null,
+                            catalogSource: null,
+                        },
+                    })
+                }
+            }
+
+            await tx.sdProductMaterialAssignment.updateMany({
+                where: { productId: id, status: 'ACTIVE' },
+                data: {
+                    status: 'INACTIVE',
+                    effectiveTo: new Date(),
+                },
+            })
         })
+
         return this.findOne(id)
     }
 

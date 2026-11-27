@@ -5,6 +5,7 @@ import {
     NotFoundException,
     Optional,
 } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
@@ -54,21 +55,42 @@ export type ManualJournalEntry = {
 
 export type JournalEntryListItem = {
     id: string
+    companyId: string
     documentNumber: string | null
+    documentType: string
+    documentTypeId: string | null
     postingDate: Date
     fiscalYear: number | null
     status: string
     totalAmount: Decimal
     currencyCode: string
     description: string | null
+    reference: string | null
+    headerText: string | null
+    sourceModule: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    mmAccountingEventId: string | null
     postedAt: Date | null
-    lines: { id: string; lineNumber: number }[]
+    createdAt: Date
+    lines: {
+        id: string
+        lineNumber: number
+        debitAmount: Decimal
+        creditAmount: Decimal
+    }[]
+    documentTypeRef: {
+        id: string
+        code: string
+        name: string
+    } | null
     fiscalPeriod: {
         fiscalYear: number
         periodNumber: number
         name: string
         status: string
     } | null
+    reversedBy: { id: string; documentNumber: string | null } | null
 }
 
 export type JournalEntryDetail = {
@@ -83,10 +105,29 @@ export type JournalEntryDetail = {
     currencyCode: string
     status: string
     description: string | null
+    reference: string | null
+    headerText: string | null
     documentType: string
+    documentTypeId: string | null
+    sourceModule: string | null
+    sourceEventId: string | null
+    sourceDocumentType: string | null
+    sourceDocumentId: string | null
+    sourcePostingKey: string | null
+    mmAccountingEventId: string | null
+    requiresApproval: boolean
+    approvalStatus: string
     postedAt: Date | null
     postedBy: string | null
     createdAt: Date
+    reversalOfId: string | null
+    documentTypeRef: {
+        id: string
+        code: string
+        name: string
+    } | null
+    reversalOf: { id: string; documentNumber: string | null } | null
+    reversedBy: { id: string; documentNumber: string | null } | null
     fiscalPeriod: {
         id: string
         fiscalYear: number
@@ -287,6 +328,7 @@ export class FicoJournalService {
                     )
                 }
             }
+            const labels = this.resolveAutomatedJournalLabels(payload)
             const created = await tx.ficoJournalEntry.create({
                 data: {
                     idempotencyKey,
@@ -309,11 +351,16 @@ export class FicoJournalService {
                     sourceDocumentType: payload.documentType,
                     sourceDocumentId: payload.documentId,
                     sourcePostingKey: idempotencyKey,
-                    description: `Automatic ${payload.eventType} posting`,
+                    reference: labels.reference,
+                    headerText: labels.headerText,
+                    description: labels.headerText,
                     metadata: {
                         eventType: payload.eventType,
                         accountingEffects: payload.accountingEffects,
                         correlationId: payload.correlationId ?? null,
+                        orderNumber: labels.orderNumber,
+                        invoiceNumber: labels.invoiceNumber,
+                        returnNumber: labels.returnNumber,
                     },
                 },
             })
@@ -382,6 +429,233 @@ export class FicoJournalService {
         return { created: true, duplicate: false, journalEntryId: journal.id }
     }
 
+    /**
+     * Automated SD/MM journals that are not MM accounting-event driven
+     * (e.g. sales-return refund). Idempotent on `idempotencyKey`.
+     */
+    async createAutomatedEntry(input: {
+        idempotencyKey: string
+        companyId: string
+        postingDate: Date
+        currencyCode: string
+        documentType: string
+        sourceModule: string
+        sourceDocumentType: string
+        sourceDocumentId: string
+        reference?: string | null
+        headerText: string
+        postedBy?: string | null
+        metadata?: Record<string, unknown>
+        lines: Array<{
+            glAccountId: string
+            debitAmount: number
+            creditAmount: number
+            description?: string | null
+        }>
+    }): Promise<CreateJournalResult> {
+        const existing = await this.prisma.ficoJournalEntry.findUnique({
+            where: { idempotencyKey: input.idempotencyKey },
+            select: { id: true },
+        })
+        if (existing) {
+            return {
+                created: false,
+                duplicate: true,
+                journalEntryId: existing.id,
+            }
+        }
+
+        const postingDate = input.postingDate
+        if (Number.isNaN(postingDate.getTime())) {
+            throw new BadRequestException('A valid accounting posting date is required.')
+        }
+        if (!input.lines || input.lines.length < 2) {
+            throw new BadRequestException(
+                'At least two journal lines are required.',
+            )
+        }
+
+        const totalDebit = input.lines.reduce(
+            (sum, line) => sum + (Number(line.debitAmount) || 0),
+            0,
+        )
+        const totalCredit = input.lines.reduce(
+            (sum, line) => sum + (Number(line.creditAmount) || 0),
+            0,
+        )
+        if (Math.abs(totalDebit - totalCredit) > 0.0001) {
+            throw new BadRequestException(
+                'Journal entry is unbalanced: total debits must equal total credits.',
+            )
+        }
+
+        const period = await this.financialPeriods.canPostToPeriod({
+            companyId: input.companyId,
+            postingDate,
+        })
+        if (!period.allowed) {
+            throw new BadRequestException(
+                period.reason ??
+                    'Accounting posting is not allowed for this fiscal period.',
+            )
+        }
+
+        const fiscalPeriod = await this.prisma.ficoFinancialPeriod.findFirst({
+            where: {
+                companyId: input.companyId,
+                periodType: 'NORMAL',
+                startDate: { lte: postingDate },
+                endDate: { gte: postingDate },
+            },
+            select: { id: true, fiscalYear: true },
+        })
+
+        const currencyCode = input.currencyCode.trim().toUpperCase() || 'PHP'
+
+        try {
+            const journal = await this.prisma.$transaction(async (tx) => {
+                if (fiscalPeriod) {
+                    await tx.$queryRaw`
+                        SELECT id FROM fico_financial_periods
+                        WHERE id = ${fiscalPeriod.id}
+                        FOR SHARE
+                    `
+                    const lockedPeriod = await tx.ficoFinancialPeriod.findUnique({
+                        where: { id: fiscalPeriod.id },
+                        select: { status: true },
+                    })
+                    if (
+                        !lockedPeriod ||
+                        !['OPEN', 'RESTRICTED'].includes(lockedPeriod.status)
+                    ) {
+                        throw new BadRequestException(
+                            'Accounting posting is not allowed because the fiscal period changed while the journal was being prepared.',
+                        )
+                    }
+                }
+
+                const prefix =
+                    (await this.settingsPrefix(input.companyId)) ?? 'JE'
+                const sequence = await tx.ficoDocumentSequence.upsert({
+                    where: {
+                        companyId_documentType_fiscalYear: {
+                            companyId: input.companyId,
+                            documentType: 'JOURNAL',
+                            fiscalYear: fiscalPeriod?.fiscalYear ?? postingDate.getUTCFullYear(),
+                        },
+                    },
+                    create: {
+                        companyId: input.companyId,
+                        documentType: 'JOURNAL',
+                        fiscalYear:
+                            fiscalPeriod?.fiscalYear ??
+                            postingDate.getUTCFullYear(),
+                        prefix,
+                        nextNumber: 1,
+                        padding: 6,
+                    },
+                    update: {
+                        nextNumber: { increment: 1 },
+                    },
+                })
+                const documentNumber = `${sequence.prefix}${String(sequence.nextNumber).padStart(sequence.padding, '0')}`
+
+                const created = await tx.ficoJournalEntry.create({
+                    data: {
+                        idempotencyKey: input.idempotencyKey,
+                        companyId: input.companyId,
+                        postingDate,
+                        documentDate: postingDate,
+                        fiscalYear: fiscalPeriod?.fiscalYear ?? null,
+                        fiscalPeriodId: fiscalPeriod?.id ?? null,
+                        totalAmount: new Decimal(totalDebit),
+                        currencyCode,
+                        status: 'DRAFT',
+                        approvalStatus: 'POSTED',
+                        requiresApproval: false,
+                        documentType: input.documentType,
+                        documentNumber,
+                        sourceModule: input.sourceModule,
+                        sourceDocumentType: input.sourceDocumentType,
+                        sourceDocumentId: input.sourceDocumentId,
+                        sourcePostingKey: input.idempotencyKey,
+                        reference: input.reference?.trim() || null,
+                        headerText: input.headerText,
+                        description: input.headerText,
+                        metadata: (input.metadata ??
+                            undefined) as Prisma.InputJsonValue | undefined,
+                        preparedBy: input.postedBy ?? null,
+                        preparedAt: new Date(),
+                        createdBy: input.postedBy ?? null,
+                    },
+                })
+
+                await tx.ficoJournalEntryLine.createMany({
+                    data: input.lines.map((line, index) => ({
+                        journalEntryId: created.id,
+                        lineNumber: index + 1,
+                        glAccountId: line.glAccountId,
+                        companyId: input.companyId,
+                        debitAmount: new Decimal(Number(line.debitAmount) || 0),
+                        creditAmount: new Decimal(
+                            Number(line.creditAmount) || 0,
+                        ),
+                        currency: currencyCode,
+                        description: line.description ?? null,
+                    })),
+                })
+
+                const posted = await tx.ficoJournalEntry.update({
+                    where: { id: created.id },
+                    data: {
+                        status: 'POSTED',
+                        postedAt: new Date(),
+                        postedBy: input.postedBy ?? null,
+                    },
+                })
+
+                await tx.ficoAccountingAuditLog.create({
+                    data: {
+                        companyId: input.companyId,
+                        action: 'JOURNAL_POST',
+                        entityType: 'FicoJournalEntry',
+                        entityId: posted.id,
+                        newValues: {
+                            documentType: input.documentType,
+                            sourceDocumentType: input.sourceDocumentType,
+                            sourceDocumentId: input.sourceDocumentId,
+                            totalAmount: String(totalDebit),
+                        },
+                        metadata: {
+                            idempotencyKey: input.idempotencyKey,
+                        },
+                    },
+                })
+
+                return posted
+            })
+
+            return {
+                created: true,
+                duplicate: false,
+                journalEntryId: journal.id,
+            }
+        } catch (err: unknown) {
+            if (this.isUniqueConstraintError(err)) {
+                const dup = await this.prisma.ficoJournalEntry.findUnique({
+                    where: { idempotencyKey: input.idempotencyKey },
+                    select: { id: true },
+                })
+                return {
+                    created: false,
+                    duplicate: true,
+                    journalEntryId: dup?.id,
+                }
+            }
+            throw err
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Manual journal entry creation (frontend posting UI)
     // -----------------------------------------------------------------------
@@ -440,6 +714,42 @@ export class FicoJournalService {
 
         const currencyCode =
             (dto.currencyCode ?? 'PHP').toUpperCase().trim()
+        const documentDate = dto.documentDate
+            ? new Date(dto.documentDate)
+            : postingDate
+        if (Number.isNaN(documentDate.getTime())) {
+            throw new BadRequestException('A valid document date is required.')
+        }
+
+        // DB check constraint on documentType only allows engine categories
+        // (JOURNAL/MANUAL/MM_*). FI document type codes (e.g. SA) live on documentTypeId.
+        const documentTypeCode = 'MANUAL'
+        let documentTypeId: string | null = null
+        if (dto.documentTypeId) {
+            const documentType = await this.prisma.fiDocumentType.findUnique({
+                where: { id: dto.documentTypeId },
+                select: {
+                    id: true,
+                    code: true,
+                    isActive: true,
+                    allowsManualEntry: true,
+                },
+            })
+            if (!documentType) {
+                throw new BadRequestException('Document type was not found.')
+            }
+            if (!documentType.isActive) {
+                throw new BadRequestException(
+                    'The selected document type is inactive.',
+                )
+            }
+            if (!documentType.allowsManualEntry) {
+                throw new BadRequestException(
+                    'The selected document type does not allow manual journal entry.',
+                )
+            }
+            documentTypeId = documentType.id
+        }
 
         // Validate every account is active, postable, and assigned to the company.
         const settings = await this.prisma.ficoCompanyAccountingSettings.findUnique(
@@ -550,30 +860,36 @@ export class FicoJournalService {
             const documentNumber = `${sequence.prefix}${String(sequence.nextNumber).padStart(sequence.padding, '0')}`
 
             const now = new Date()
-            const isDraft = !canPostImmediately
 
-            const journal = await tx.ficoJournalEntry.create({
+            const headerText =
+                dto.headerText?.trim() ||
+                dto.description?.trim() ||
+                null
+            // Create as DRAFT first so line inserts are allowed; the line
+            // immutability trigger blocks INSERT when the parent is already POSTED.
+            let journal = await tx.ficoJournalEntry.create({
                 data: {
                     idempotencyKey,
                     companyId: dto.companyId,
                     postingDate,
-                    documentDate: postingDate,
+                    documentDate,
                     fiscalYear: fiscalPeriod.fiscalYear,
                     fiscalPeriodId: fiscalPeriod.id,
                     totalAmount: new Decimal(totalDebit),
                     currencyCode,
-                    status: canPostImmediately ? 'POSTED' : 'DRAFT',
-                    approvalStatus: canPostImmediately
-                        ? 'POSTED'
-                        : 'DRAFT',
+                    status: 'DRAFT',
+                    approvalStatus: 'DRAFT',
                     requiresApproval,
-                    documentType: 'JOURNAL',
+                    documentType: documentTypeCode,
+                    documentTypeId,
                     documentNumber,
-                    description: dto.description ?? null,
-                    postedAt: canPostImmediately ? now : null,
-                    postedBy: canPostImmediately ? user.id ?? null : null,
-                    preparedBy: isDraft ? user.id ?? null : null,
-                    preparedAt: isDraft ? now : null,
+                    reference: dto.reference?.trim() || null,
+                    headerText,
+                    description: headerText,
+                    postedAt: null,
+                    postedBy: null,
+                    preparedBy: user.id ?? null,
+                    preparedAt: now,
                     createdBy: user.id ?? null,
                     lines: {
                         create: dto.lines.map((line, index) => ({
@@ -597,6 +913,19 @@ export class FicoJournalService {
             })
 
             if (canPostImmediately) {
+                journal = await tx.ficoJournalEntry.update({
+                    where: { id: journal.id },
+                    data: {
+                        status: 'POSTED',
+                        approvalStatus: 'POSTED',
+                        postedAt: now,
+                        postedBy: user.id ?? null,
+                    },
+                    include: {
+                        lines: true,
+                    },
+                })
+
                 await tx.ficoAccountingAuditLog.create({
                     data: {
                         companyId: dto.companyId,
@@ -605,7 +934,7 @@ export class FicoJournalService {
                         entityId: journal.id,
                         newValues: {
                             documentNumber,
-                            documentType: 'JOURNAL',
+                            documentType: documentTypeCode,
                             postingDate: postingDate.toISOString().slice(0, 10),
                             totalAmount: totalDebit.toString(),
                             currencyCode,
@@ -858,7 +1187,7 @@ export class FicoJournalService {
         return this.toManualJournalEntry(updated)
     }
 
-    /** Post an approved journal entry to the GL (APPROVED → POSTED). */
+    /** Post an approved journal entry to the GL (APPROVED → POSTED), or a draft that does not require approval. */
     async postApproved(
         id: string,
         user: { id?: string; name?: string | null },
@@ -870,7 +1199,14 @@ export class FicoJournalService {
         if (!journal) {
             throw new NotFoundException('Journal entry not found.')
         }
-        if (!isValidJournalApprovalTransition(journal.approvalStatus, 'POSTED')) {
+        const canDirectPostDraft =
+            journal.status === 'DRAFT' &&
+            journal.approvalStatus === 'DRAFT' &&
+            !journal.requiresApproval
+        if (
+            !canDirectPostDraft &&
+            !isValidJournalApprovalTransition(journal.approvalStatus, 'POSTED')
+        ) {
             throw new BadRequestException(
                 `Cannot post a journal entry in ${journal.approvalStatus} status. Approve it first.`,
             )
@@ -969,6 +1305,13 @@ export class FicoJournalService {
                         },
                     },
                 },
+                documentTypeRef: {
+                    select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                    },
+                },
                 fiscalPeriod: {
                     select: {
                         id: true,
@@ -976,6 +1319,18 @@ export class FicoJournalService {
                         periodNumber: true,
                         name: true,
                         status: true,
+                    },
+                },
+                reversalOf: {
+                    select: {
+                        id: true,
+                        documentNumber: true,
+                    },
+                },
+                reversedBy: {
+                    select: {
+                        id: true,
+                        documentNumber: true,
                     },
                 },
             },
@@ -992,8 +1347,12 @@ export class FicoJournalService {
         query: {
             companyId: string
             status?: string
+            excludeLegacy?: boolean
             dateFrom?: string
             dateTo?: string
+            search?: string
+            source?: 'MANUAL' | 'MM'
+            documentTypeId?: string
             page: number
             pageSize: number
         },
@@ -1008,12 +1367,25 @@ export class FicoJournalService {
         const pageSize = Math.min(100, Math.max(1, query.pageSize))
         const where: {
             companyId: string
-            status?: string
+            status?: string | { not: string }
+            documentTypeId?: string
+            sourceModule?: null | { not: null }
             postingDate?: { gte?: Date; lte?: Date }
+            OR?: Array<Record<string, unknown>>
         } = { companyId: query.companyId }
 
         if (query.status) {
             where.status = query.status
+        } else if (query.excludeLegacy) {
+            where.status = { not: 'LEGACY' }
+        }
+        if (query.documentTypeId) {
+            where.documentTypeId = query.documentTypeId
+        }
+        if (query.source === 'MANUAL') {
+            where.sourceModule = null
+        } else if (query.source === 'MM') {
+            where.sourceModule = { not: null }
         }
         if (query.dateFrom || query.dateTo) {
             where.postingDate = {}
@@ -1023,6 +1395,15 @@ export class FicoJournalService {
             if (query.dateTo) {
                 where.postingDate.lte = new Date(query.dateTo)
             }
+        }
+        const search = query.search?.trim()
+        if (search) {
+            where.OR = [
+                { documentNumber: { contains: search, mode: 'insensitive' } },
+                { reference: { contains: search, mode: 'insensitive' } },
+                { headerText: { contains: search, mode: 'insensitive' } },
+                { description: { contains: search, mode: 'insensitive' } },
+            ]
         }
 
         const [items, total] = await Promise.all([
@@ -1036,6 +1417,15 @@ export class FicoJournalService {
                         select: {
                             id: true,
                             lineNumber: true,
+                            debitAmount: true,
+                            creditAmount: true,
+                        },
+                    },
+                    documentTypeRef: {
+                        select: {
+                            id: true,
+                            code: true,
+                            name: true,
                         },
                     },
                     fiscalPeriod: {
@@ -1044,6 +1434,12 @@ export class FicoJournalService {
                             periodNumber: true,
                             name: true,
                             status: true,
+                        },
+                    },
+                    reversedBy: {
+                        select: {
+                            id: true,
+                            documentNumber: true,
                         },
                     },
                 },
@@ -1101,22 +1497,26 @@ export class FicoJournalService {
                 FOR SHARE
             `
 
-            const reversal = await tx.ficoJournalEntry.create({
+            const now = new Date()
+            // DRAFT + lines first — line trigger blocks INSERT under a POSTED parent.
+            let reversal = await tx.ficoJournalEntry.create({
                 data: {
                     idempotencyKey: `REVERSE:${original.id}:${Date.now()}`,
                     companyId: original.companyId,
-                    postingDate: new Date(),
-                    documentDate: new Date(),
+                    postingDate: now,
+                    documentDate: now,
                     fiscalYear: original.fiscalYear,
                     fiscalPeriodId: original.fiscalPeriodId,
                     totalAmount: original.totalAmount,
                     currencyCode: original.currencyCode,
-                    status: 'POSTED',
-                    documentType: 'JOURNAL_REVERSAL',
+                    status: 'DRAFT',
+                    approvalStatus: 'DRAFT',
+                    requiresApproval: false,
+                    documentType: 'MANUAL',
                     description: `Reversal of ${original.documentNumber ?? original.id} — ${dto.reason.trim()}`,
                     reversalOfId: original.id,
-                    postedAt: new Date(),
-                    postedBy: user.id ?? null,
+                    postedAt: null,
+                    postedBy: null,
                     createdBy: user.id ?? null,
                     lines: {
                         create: original.lines.map((line) => ({
@@ -1129,6 +1529,16 @@ export class FicoJournalService {
                             description: `Reverse of line ${line.lineNumber}`,
                         })),
                     },
+                },
+            })
+
+            reversal = await tx.ficoJournalEntry.update({
+                where: { id: reversal.id },
+                data: {
+                    status: 'POSTED',
+                    approvalStatus: 'POSTED',
+                    postedAt: now,
+                    postedBy: user.id ?? null,
                 },
             })
 
@@ -1186,7 +1596,77 @@ export class FicoJournalService {
     private documentType(eventType: string) {
         if (eventType === 'GoodsReceiptPosted') return 'MM_GR'
         if (eventType === 'GoodsIssuePosted') return 'MM_GI'
+        if (
+            eventType === 'CustomerReturnPosted' ||
+            eventType === 'CustomerReturnRestocked'
+        ) {
+            return 'MM_ADJUSTMENT'
+        }
         return 'MM_ADJUSTMENT'
+    }
+
+    /**
+     * Human-readable journal reference / header for automated MM postings.
+     * Sales returns must point at the originating order (and invoice when present).
+     */
+    private resolveAutomatedJournalLabels(payload: MmAccountingDispatchPayload): {
+        reference: string | null
+        headerText: string
+        orderNumber: string | null
+        invoiceNumber: string | null
+        returnNumber: string | null
+    } {
+        const asText = (value: unknown) =>
+            typeof value === 'string' && value.trim() ? value.trim() : null
+
+        const orderNumber = asText(payload.orderNumber)
+        const invoiceNumber = asText(payload.invoiceNumber)
+        const returnNumber =
+            asText(payload.returnNumber) ?? asText(payload.salesReturnNumber)
+        const receiptNumber = asText(payload.receiptNumber)
+        const documentNumber = asText(payload.documentNumber)
+
+        const isSalesReturn =
+            payload.eventType === 'CustomerReturnPosted' ||
+            payload.eventType === 'CustomerReturnRestocked'
+
+        if (isSalesReturn) {
+            const referenceParts = [orderNumber, invoiceNumber].filter(
+                (part): part is string => Boolean(part),
+            )
+            const reference =
+                referenceParts.join(' / ') || returnNumber || null
+            const headerParts = [
+                'Sales return',
+                returnNumber,
+                orderNumber,
+                invoiceNumber,
+            ].filter((part): part is string => Boolean(part))
+            return {
+                reference,
+                headerText: headerParts.join(' · '),
+                orderNumber,
+                invoiceNumber,
+                returnNumber,
+            }
+        }
+
+        const reference =
+            orderNumber ||
+            invoiceNumber ||
+            receiptNumber ||
+            documentNumber ||
+            returnNumber ||
+            null
+        return {
+            reference,
+            headerText: reference
+                ? `Automatic ${payload.eventType} · ${reference}`
+                : `Automatic ${payload.eventType} posting`,
+            orderNumber,
+            invoiceNumber,
+            returnNumber,
+        }
     }
 
     private isUniqueConstraintError(error: unknown): error is { code: string } {

@@ -119,6 +119,7 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
     const [detailId, setDetailId] = useState<string | null>(null)
     const [detail, setDetail] = useState<FicoAccountingEventDetail | null>(null)
     const [detailLoading, setDetailLoading] = useState(false)
+    const [retrying, setRetrying] = useState(false)
 
     const load = useCallback(() => {
         if (!companyId) return
@@ -432,9 +433,37 @@ const AccountingEventsPanel = ({ companyId }: { companyId: string }) => {
                         : undefined
                 }
                 footer={
-                    <Button size="sm" onClick={() => setDetailId(null)}>
-                        Close
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                        {detail?.status === 'FAILED' && (
+                            <Button
+                                size="sm"
+                                variant="solid"
+                                loading={retrying}
+                                onClick={() => {
+                                    if (!detailId) return
+                                    setRetrying(true)
+                                    ficoAccountingEventService
+                                        .retry(detailId)
+                                        .then((value) => {
+                                            setDetail(value)
+                                            load()
+                                        })
+                                        .catch((error) =>
+                                            notifyError(
+                                                error,
+                                                'Unable to retry this accounting event.',
+                                            ),
+                                        )
+                                        .finally(() => setRetrying(false))
+                                }}
+                            >
+                                Retry posting
+                            </Button>
+                        )}
+                        <Button size="sm" onClick={() => setDetailId(null)}>
+                            Close
+                        </Button>
+                    </div>
                 }
             >
                 {detailLoading || !detail ? (

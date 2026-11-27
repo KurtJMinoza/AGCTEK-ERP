@@ -34,6 +34,7 @@ import {
     SalesOrderChannelBadge,
     SalesOrderStatusBadge,
 } from './salesOrderPresentation'
+import SalesOrderAccountingSection from './SalesOrderAccountingSection'
 
 type Line = SalesOrderRecord['lines'][number]
 
@@ -614,6 +615,11 @@ const SalesOrderDetailDialog = ({
                         ) : null}
                     </dl>
                 </section>
+
+                <SalesOrderAccountingSection
+                    orderId={order.id}
+                    companyId={order.company?.id}
+                />
             </div>
 
             {footer ? (

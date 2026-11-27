@@ -416,22 +416,17 @@ describe('ReturnRequestService — return eligibility', () => {
 })
 
 describe('ReturnRequestService — Phase 4 admin actions', () => {
-    beforeEach(() => {
-        process.env.SD_DEMO_REFUND_PAYMENT = 'true'
-    })
-    afterEach(() => {
-        delete process.env.SD_DEMO_REFUND_PAYMENT
-    })
-
     type Phase4Row = {
         id: string
         companyId: string
         salesOrderId: string
+        customerId: string
         requestNumber: string
         status: string
         reason: string | null
         preferredResolution: string | null
         refundStatus: string
+        invoiceNumber?: string | null
         mmCustomerReturnId: string | null
         replacementSalesOrderId?: string | null
         crmTicket?: { id: string } | null
@@ -450,6 +445,8 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
             id: string
             orderNumber: string
             totalAmount: Decimal
+            taxAmount?: Decimal | null
+            subtotal?: Decimal | null
             status: string
             currency: string
             isDemoPayment: boolean
@@ -474,11 +471,13 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
             id: 'rr-1',
             companyId: 'comp-1',
             salesOrderId: 'so-1',
+            customerId: 'cust-1',
             requestNumber: 'RET-20261013-0001',
             status: 'REQUESTED',
             reason: 'DAMAGED_ITEM',
             preferredResolution: 'REFUND',
             refundStatus: 'NONE',
+            invoiceNumber: 'INV-1',
             mmCustomerReturnId: 'mm-1',
             replacementSalesOrderId: null,
             lines: [
@@ -494,6 +493,8 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
                 id: 'so-1',
                 orderNumber: 'SO-100',
                 totalAmount: new Decimal('500'),
+                taxAmount: new Decimal('0'),
+                subtotal: new Decimal('500'),
                 status: 'DELIVERED',
                 currency: 'PHP',
                 isDemoPayment: true,
@@ -807,21 +808,6 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         })
     })
 
-    describe('without the demo refund settlement flag', () => {
-        it('refuses to pay an approved refund and leaves payment and status unchanged', async () => {
-            delete process.env.SD_DEMO_REFUND_PAYMENT
-            const { service, row, paymentCas } = phase4Setup({ status: 'MARKED_DAMAGED' })
-            await service.createRefund('rr-1', 'comp-1', {})
-            await service.approveRefund('rr-1', 'comp-1', 'mgmt')
-
-            await expect(service.payRefund('rr-1', 'comp-1', 'cashier')).rejects.toThrow(
-                /handled by finance/,
-            )
-            expect(row.refundStatus).toBe('APPROVED')
-            expect(paymentCas).toEqual([])
-        })
-    })
-
     it('receive stamps RECEIVED and opens the MM intake', async () => {
         const { service, mmCalls } = phase4Setup({ status: 'AWAITING_RETURN' })
         const updated = await service.receive('rr-1', 'comp-1', 'wh-user')
@@ -889,7 +875,7 @@ describe('ReturnRequestService — Phase 4 admin actions', () => {
         expect(paymentCas.length).toBe(0)
     })
 
-    it('Phase 7: create refund → approve → pay (DEMO ONLY) with credit memo', async () => {
+    it('Phase 7: create refund → approve → pay with credit memo and FICO event', async () => {
         const { service, row, paymentCas, refunds, memos } = phase4Setup({
             status: 'MARKED_DAMAGED',
         })

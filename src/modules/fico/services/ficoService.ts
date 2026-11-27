@@ -28,6 +28,7 @@ import type {
     FicoJournalEntry,
     FicoJournalEntryInput,
     FicoJournalEntryParams,
+    FicoJournalReversalResult,
     FicoNumberRange,
     FicoNumberRangeLog,
     FicoOverview,
@@ -41,6 +42,10 @@ import type {
     FicoTaxCalculationResult,
     FicoTaxRate,
     FicoTaxRateListResponse,
+    FicoArAgingResponse,
+    FicoArDocumentDetail,
+    FicoArOpenItem,
+    FicoArOpenItemQuery,
 } from '../types'
 
 const API = '/fico'
@@ -235,6 +240,10 @@ export const ficoAccountingEventService = {
         ErpAxiosBase.get<FicoAccountingEventDetail>(`${API}/accounting-events/${id}`).then(
             (r) => r.data,
         ),
+    retry: (id: string) =>
+        ErpAxiosBase.post<FicoAccountingEventDetail>(
+            `${API}/accounting-events/${id}/retry`,
+        ).then((r) => r.data),
 }
 
 export const ficoAccountDeterminationService = {
@@ -897,25 +906,83 @@ export const fiDocumentTypeService = {
 
 export const ficoJournalService = {
     list: (query: FicoJournalEntryParams = {}) =>
-        ErpAxiosBase.get<FicoPaginated<FicoJournalEntry>>(
-            `${API}/journal-entries${queryString(query)}`,
-        ).then((r) => r.data),
-    get: (id: string) =>
+        ErpAxiosBase.get<{
+            items?: FicoJournalEntry[]
+            data?: FicoJournalEntry[]
+            total: number
+            page: number
+            pageSize: number
+        }>(`${API}/journal-entries${queryString(query)}`).then((r) => ({
+            data: r.data.items ?? r.data.data ?? [],
+            total: r.data.total ?? 0,
+            page: r.data.page ?? query.page ?? 1,
+            pageSize: r.data.pageSize ?? query.pageSize ?? 20,
+        })),
+    get: (id: string, companyId: string) =>
         ErpAxiosBase.get<FicoJournalEntry>(
-            `${API}/journal-entries/${id}`,
+            `${API}/journal-entries/${id}${queryString({ companyId })}`,
         ).then((r) => r.data),
-    create: (data: FicoJournalEntryInput) =>
-        ErpAxiosBase.post<FicoJournalEntry>(
-            `${API}/journal-entries`,
-            data,
-        ).then((r) => r.data),
+    create: (data: FicoJournalEntryInput) => {
+        const autoPost = data.status === 'POSTED'
+        return ErpAxiosBase.post<FicoJournalEntry>(`${API}/journal-entries`, {
+            companyId: data.companyId,
+            postingDate: data.postingDate,
+            documentDate: data.documentDate ?? data.postingDate,
+            documentTypeId: data.documentTypeId || undefined,
+            reference: data.reference || undefined,
+            headerText: data.headerText || undefined,
+            description: data.headerText || undefined,
+            currencyCode: data.currencyCode,
+            autoPost,
+            // Manual UI skips approval gate so Post/draft behave as documented.
+            requiresApproval: false,
+            lines: data.lines.map((line) => ({
+                glAccountId: line.glAccountId,
+                debitAmount: Number(line.debit) || 0,
+                creditAmount: Number(line.credit) || 0,
+                description: line.text || undefined,
+            })),
+        }).then((r) => r.data)
+    },
     post: (id: string) =>
-        ErpAxiosBase.patch<FicoJournalEntry>(
+        ErpAxiosBase.post<FicoJournalEntry>(
             `${API}/journal-entries/${id}/post`,
         ).then((r) => r.data),
-    reverse: (id: string, postingDate?: string) =>
-        ErpAxiosBase.post<FicoJournalEntry>(
+    reverse: (
+        id: string,
+        payload: { companyId: string; reason: string },
+    ) =>
+        ErpAxiosBase.post<FicoJournalReversalResult>(
             `${API}/journal-entries/${id}/reverse`,
-            { postingDate },
+            {
+                companyId: payload.companyId,
+                journalEntryId: id,
+                reason: payload.reason,
+            },
         ).then((r) => r.data),
 }
+
+export const ficoAccountsReceivableService = {
+    listOpenItems: (query: FicoArOpenItemQuery) =>
+        ErpAxiosBase.get<FicoArOpenItem[]>(
+            `${API}/accounts-receivable/open-items${queryString(query)}`,
+        ).then((r) => r.data),
+    getAging: (companyId: string, asOfDate?: string) =>
+        ErpAxiosBase.get<FicoArAgingResponse>(
+            `${API}/accounts-receivable/aging${queryString({ companyId, asOfDate })}`,
+        ).then((r) => r.data),
+    listDocuments: (query: {
+        companyId: string
+        customerId?: string
+        status?: string
+        search?: string
+    }) =>
+        ErpAxiosBase.get<FicoArDocumentDetail[]>(
+            `${API}/accounts-receivable/documents${queryString(query)}`,
+        ).then((r) => r.data),
+    getDocument: (id: string, companyId: string) =>
+        ErpAxiosBase.get<FicoArDocumentDetail>(
+            `${API}/accounts-receivable/documents/${id}${queryString({ companyId })}`,
+        ).then((r) => r.data),
+}
+

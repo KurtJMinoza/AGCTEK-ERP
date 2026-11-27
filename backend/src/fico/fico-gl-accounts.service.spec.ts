@@ -95,6 +95,39 @@ describe('FicoGlAccountsService create', () => {
     })
 })
 
+describe('FicoGlAccountsService list', () => {
+    it('scopes company lists to the company active chart of accounts', async () => {
+        const prisma = {
+            ficoCompanyAccountingSettings: {
+                findUnique: jest.fn().mockResolvedValue({
+                    chartOfAccountsId: 'coa-active',
+                }),
+            },
+            ficoGlAccount: {
+                findMany: jest.fn().mockResolvedValue([]),
+            },
+        }
+        const service = new FicoGlAccountsService(
+            prisma as never,
+            {} as never,
+            {} as never,
+        )
+        await service.list({ companyId: 'co-1' })
+        expect(prisma.ficoCompanyAccountingSettings.findUnique).toHaveBeenCalledWith({
+            where: { companyId: 'co-1' },
+            select: { chartOfAccountsId: true },
+        })
+        expect(prisma.ficoGlAccount.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    chartOfAccountsId: 'coa-active',
+                    companyAssignments: { some: { companyId: 'co-1' } },
+                }),
+            }),
+        )
+    })
+})
+
 describe('FicoGlAccountsService usage', () => {
     function usageSetup(companyIds: string[] | null) {
         const prisma = {

@@ -2133,6 +2133,181 @@ export class SalesOrderService {
         return row
     }
 
+    /**
+     * Read-only FICO linkage for an SD/POS sales order.
+     *
+     * Journals are resolved from:
+     * - `fico_journal_entries.sourceDocumentId` = order id (`SALES_ORDER` / SD revenue)
+     * - idempotency / posting keys `pos-revenue:<orderId>`
+     * - POS collection journals (`sourceDocumentId` = collection id)
+     * - MM goods-issue accounting events / journals when GI.sourceDocumentId = order id
+     */
+    async findAccounting(id: string, companyId?: string) {
+        const order = await this.findOne(id, companyId)
+
+        const collections = await this.prisma.sdPosCollection.findMany({
+            where: { salesOrderId: order.id },
+            select: { id: true, collectionNumber: true },
+        })
+        const collectionIds = collections.map((row) => row.id)
+
+        // Commercial / SD accounting only (revenue, collections).
+        // MM Goods Issue → COGS/Inventory journals belong on the GI document
+        // in Stock Ops / Goods Issue — not on the sales order Accounting card.
+        const documentIds = [order.id, ...collectionIds]
+
+        const [directJournals, events] = await Promise.all([
+            this.prisma.ficoJournalEntry.findMany({
+                where: {
+                    OR: [
+                        {
+                            sourceDocumentId: { in: documentIds },
+                            // Exclude accidental MM stock-ops journals if a GI
+                            // id somehow matched (defensive — GI ids are omitted).
+                            NOT: { sourceModule: 'STOCK_OPS' },
+                        },
+                        { idempotencyKey: `pos-revenue:${order.id}` },
+                        { sourcePostingKey: `pos-revenue:${order.id}` },
+                        ...collectionIds.map((collectionId) => ({
+                            idempotencyKey: `pos-collection:${collectionId}`,
+                        })),
+                        ...collectionIds.map((collectionId) => ({
+                            sourcePostingKey: `pos-collection:${collectionId}`,
+                        })),
+                    ],
+                },
+                include: {
+                    lines: {
+                        orderBy: { lineNumber: 'asc' },
+                        include: {
+                            glAccount: {
+                                select: {
+                                    id: true,
+                                    accountCode: true,
+                                    accountName: true,
+                                },
+                            },
+                        },
+                    },
+                    documentTypeRef: {
+                        select: { id: true, code: true, name: true },
+                    },
+                },
+                orderBy: [{ postingDate: 'asc' }, { createdAt: 'asc' }],
+            }),
+            this.prisma.mmAccountingEvent.findMany({
+                where: {
+                    OR: [
+                        {
+                            documentId: { in: documentIds },
+                            NOT: { sourceModule: 'STOCK_OPS' },
+                        },
+                        { idempotencyKey: `pos-revenue:${order.id}` },
+                    ],
+                },
+                orderBy: { createdAt: 'asc' },
+                select: {
+                    id: true,
+                    eventType: true,
+                    sourceModule: true,
+                    documentType: true,
+                    documentId: true,
+                    status: true,
+                    lastError: true,
+                    journalEntryId: true,
+                    createdAt: true,
+                    consumedAt: true,
+                },
+            }),
+        ])
+
+        // Journals referenced only via SD accounting events (not MM GI).
+        const missingJournalIds = events
+            .map((event) => event.journalEntryId)
+            .filter(
+                (journalId): journalId is string =>
+                    Boolean(journalId) &&
+                    !directJournals.some((journal) => journal.id === journalId),
+            )
+
+        const eventJournals =
+            missingJournalIds.length > 0
+                ? await this.prisma.ficoJournalEntry.findMany({
+                      where: {
+                          id: { in: missingJournalIds },
+                          NOT: { sourceModule: 'STOCK_OPS' },
+                      },
+                      include: {
+                          lines: {
+                              orderBy: { lineNumber: 'asc' },
+                              include: {
+                                  glAccount: {
+                                      select: {
+                                          id: true,
+                                          accountCode: true,
+                                          accountName: true,
+                                      },
+                                  },
+                              },
+                          },
+                          documentTypeRef: {
+                              select: { id: true, code: true, name: true },
+                          },
+                      },
+                  })
+                : []
+
+        const journalsById = new Map(
+            [...directJournals, ...eventJournals].map((journal) => [
+                journal.id,
+                journal,
+            ]),
+        )
+
+        const journals = Array.from(journalsById.values()).map((journal) => ({
+            id: journal.id,
+            documentNumber: journal.documentNumber,
+            status: journal.status,
+            documentType: journal.documentType,
+            documentTypeCode: journal.documentTypeRef?.code ?? null,
+            documentTypeName: journal.documentTypeRef?.name ?? null,
+            postingDate: journal.postingDate,
+            currencyCode: journal.currencyCode,
+            sourceModule: journal.sourceModule,
+            sourceDocumentType: journal.sourceDocumentType,
+            sourceDocumentId: journal.sourceDocumentId,
+            mmAccountingEventId: journal.mmAccountingEventId,
+            headerText: journal.headerText ?? journal.description,
+            lines: journal.lines.map((line) => ({
+                lineNumber: line.lineNumber,
+                glAccountId: line.glAccountId,
+                accountCode: line.glAccount?.accountCode ?? null,
+                accountName: line.glAccount?.accountName ?? null,
+                debit: Number(line.debitAmount),
+                credit: Number(line.creditAmount),
+                description: line.description,
+            })),
+        }))
+
+        return {
+            salesOrderId: order.id,
+            orderNumber: order.orderNumber,
+            journals,
+            events: events.map((event) => ({
+                id: event.id,
+                eventType: event.eventType,
+                sourceModule: event.sourceModule,
+                documentType: event.documentType,
+                documentId: event.documentId,
+                status: event.status,
+                lastError: event.lastError,
+                journalEntryId: event.journalEntryId,
+                createdAt: event.createdAt,
+                consumedAt: event.consumedAt,
+            })),
+        }
+    }
+
     async confirm(id: string) {
         const order = await this.findOne(id)
         if (order.status === 'CANCELLED') {

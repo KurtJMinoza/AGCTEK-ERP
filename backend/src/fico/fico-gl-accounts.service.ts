@@ -144,11 +144,21 @@ export class FicoGlAccountsService {
 
     async list(query: GlAccountListQuery = {}) {
         const search = query.search?.trim()
+        // When filtering by company, scope to that company's active COA so
+        // leftover assignments from a previous chart (e.g. DEFAULT) do not
+        // surface as duplicate account codes with different groups.
+        let chartOfAccountsId = query.chartOfAccountsId
+        if (!chartOfAccountsId && query.companyId) {
+            const settings =
+                await this.prisma.ficoCompanyAccountingSettings.findUnique({
+                    where: { companyId: query.companyId },
+                    select: { chartOfAccountsId: true },
+                })
+            chartOfAccountsId = settings?.chartOfAccountsId ?? undefined
+        }
         const accounts = await this.prisma.ficoGlAccount.findMany({
             where: {
-                ...(query.chartOfAccountsId
-                    ? { chartOfAccountsId: query.chartOfAccountsId }
-                    : {}),
+                ...(chartOfAccountsId ? { chartOfAccountsId } : {}),
                 ...(query.accountType
                     ? { accountType: query.accountType }
                     : {}),
@@ -701,8 +711,22 @@ export class FicoGlAccountsService {
 
     async listCompanyAssignments(companyId: string, user: AuthRequestUser) {
         await this.access.assertAccess(user, companyId)
+        const settings =
+            await this.prisma.ficoCompanyAccountingSettings.findUnique({
+                where: { companyId },
+                select: { chartOfAccountsId: true },
+            })
         return this.prisma.ficoCompanyGlAccount.findMany({
-            where: { companyId },
+            where: {
+                companyId,
+                ...(settings?.chartOfAccountsId
+                    ? {
+                          glAccount: {
+                              chartOfAccountsId: settings.chartOfAccountsId,
+                          },
+                      }
+                    : {}),
+            },
             include: {
                 glAccount: {
                     include: {

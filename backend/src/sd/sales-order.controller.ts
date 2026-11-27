@@ -207,6 +207,16 @@ export class SalesOrderController {
         return { imageUrl: saveDeliveryProofImage(buffer) }
     }
 
+    /** Read-only FICO journals + accounting events linked to this sales order. */
+    @Get(':id/accounting')
+    @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
+    findAccounting(
+        @Param('id') id: string,
+        @Query('companyId') companyId?: string,
+    ) {
+        return this.salesOrders.findAccounting(id, companyId)
+    }
+
     @Get(':id')
     @RequirePermission(['sd.sales-orders', 'sd.pos'], 'read')
     findOne(

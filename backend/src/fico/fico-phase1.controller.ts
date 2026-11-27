@@ -656,8 +656,12 @@ export class FicoPhase1Controller {
                 this.journal.listEntries({
                     companyId: query.companyId,
                     status: query.status,
+                    excludeLegacy: query.excludeLegacy,
                     dateFrom: query.dateFrom,
                     dateTo: query.dateTo,
+                    search: query.search,
+                    source: query.source,
+                    documentTypeId: query.documentTypeId,
                     page: query.page ?? 1,
                     pageSize: query.pageSize ?? 20,
                 }),
@@ -779,6 +783,15 @@ export class FicoPhase1Controller {
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accountingEvents.get(id, user)
+    }
+
+    @Post('accounting-events/:id/retry')
+    @RequirePermission('fico.journal-entries', 'update')
+    retryAccountingEvent(
+        @Param('id') id: string,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountingEvents.retry(id, user)
     }
 
     @Get('audit')

@@ -24,6 +24,14 @@ export function ficoTableRowEnterClass(index: number): string {
     ].join(' ')
 }
 
+export function ficoMobileCardEnterClass(index: number): string {
+    const delay = Math.min(index, 10) * 55
+    return `animate-mm-row-in motion-reduce:animate-none [animation-delay:${delay}ms]`
+}
+
+/** Column meta for DataTable header/cell right alignment (amount columns). */
+export const FICO_TABLE_COL_RIGHT = { className: '!text-right' } as const
+
 function iconPopClass(extraDelayMs = 0): string {
     return [
         'animate-mm-icon-pop motion-reduce:animate-none',

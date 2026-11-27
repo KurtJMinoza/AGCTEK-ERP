@@ -1,8 +1,16 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+    BadRequestException,
+    ForbiddenException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { Decimal } from '@prisma/client/runtime/library'
 import type { AuthRequestUser } from '../auth/auth.decorator'
+import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-event.types'
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoCompanyAccessService } from './fico-company-access.service'
+import { FicoJournalService } from './fico-journal.service'
 import {
     FICO_POSTING_MODULE_KNOWN_SOURCES,
     ficoPostingModuleOf,
@@ -61,15 +69,16 @@ export function summarizeAccountingError(error: string | null | undefined) {
 }
 
 /**
- * Read-only view of the FICO accounting bridge (`mm_accounting_events`) for
- * every module that posts automatically (MM, SD, PP). The producing module
- * owns the events; this service never changes them.
+ * Monitor + retry surface for the FICO accounting bridge
+ * (`mm_accounting_events`). Producing modules own creation; FICO may retry a
+ * FAILED consumer attempt after configuration or valuation fixes.
  */
 @Injectable()
 export class FicoAccountingEventsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly access: FicoCompanyAccessService,
+        private readonly journal: FicoJournalService,
     ) {}
 
     async list(query: AccountingEventQuery, user: AuthRequestUser) {
@@ -203,5 +212,117 @@ export class FicoAccountingEventsService {
             journal: ficoJournalEntry,
             lines: Array.isArray(lines) ? lines.slice(0, 200) : [],
         }
+    }
+
+    /**
+     * Re-run FICO consumption for a FAILED bridge event (e.g. after fixing
+     * zero-cost GI lines / account mappings).
+     */
+    async retry(id: string, user: AuthRequestUser) {
+        const event = await this.prisma.mmAccountingEvent.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                companyId: true,
+                status: true,
+                payload: true,
+                idempotencyKey: true,
+                sourceEventId: true,
+                sourceTransactionId: true,
+            },
+        })
+        if (!event) throw new NotFoundException('Accounting event not found')
+        if (!event.companyId) {
+            throw new BadRequestException(
+                'This accounting event has no company and cannot be retried.',
+            )
+        }
+        await this.access.assertAccess(user, event.companyId)
+        if (event.status !== 'FAILED') {
+            throw new BadRequestException(
+                `Only FAILED accounting events can be retried (current status: ${event.status}).`,
+            )
+        }
+        if (!event.payload || typeof event.payload !== 'object') {
+            throw new BadRequestException(
+                'This accounting event has no stored payload to retry.',
+            )
+        }
+
+        const base = event.payload as MmAccountingDispatchPayload
+        const enriched = await this.enrichZeroCostLines(base)
+
+        await this.prisma.mmAccountingEvent.update({
+            where: { id: event.id },
+            data: {
+                status: 'PENDING',
+                lastError: null,
+                payload: enriched as unknown as Prisma.InputJsonValue,
+                totalValue: new Decimal(
+                    enriched.totalValue ??
+                        enriched.lines.reduce(
+                            (sum, line) => sum + Math.abs(Number(line.totalCost ?? 0)),
+                            0,
+                        ),
+                ),
+            },
+        })
+
+        const result = await this.journal.createFromAccountingEvent({
+            ...enriched,
+            mmAccountingEventId: event.id,
+            idempotencyKey:
+                event.idempotencyKey ??
+                enriched.idempotencyKey ??
+                `${enriched.eventType}:${enriched.documentType}:${enriched.documentId}`,
+            sourceEventId: event.sourceEventId ?? enriched.sourceEventId,
+            sourceTransactionId:
+                event.sourceTransactionId ?? enriched.sourceTransactionId,
+        })
+
+        return this.get(event.id, user).then((detail) => ({
+            ...detail,
+            retry: result,
+        }))
+    }
+
+    private async enrichZeroCostLines(
+        payload: MmAccountingDispatchPayload,
+    ): Promise<MmAccountingDispatchPayload> {
+        const lines = Array.isArray(payload.lines) ? payload.lines : []
+        if (!lines.some((line) => !(Number(line.totalCost) > 0))) {
+            return payload
+        }
+
+        const materialIds = [
+            ...new Set(lines.map((line) => line.materialId).filter(Boolean)),
+        ]
+        const materials = materialIds.length
+            ? await this.prisma.mmMaterial.findMany({
+                  where: { id: { in: materialIds } },
+                  select: { id: true, standardCost: true },
+              })
+            : []
+        const costByMaterial = new Map(
+            materials.map((row) => [row.id, Number(row.standardCost ?? 0)]),
+        )
+
+        const nextLines = lines.map((line) => {
+            const qty = Number(line.quantity ?? 0)
+            let unitCost = Number(line.unitCost ?? 0)
+            let totalCost = Number(line.totalCost ?? 0)
+            if (!(totalCost > 0)) {
+                if (!(unitCost > 0)) {
+                    unitCost = costByMaterial.get(line.materialId) ?? 0
+                }
+                totalCost = unitCost * qty
+            }
+            return { ...line, unitCost, totalCost }
+        })
+        const totalValue = nextLines.reduce(
+            (sum, line) => sum + Math.abs(Number(line.totalCost ?? 0)),
+            0,
+        )
+        return { ...payload, lines: nextLines, totalValue }
     }
 }

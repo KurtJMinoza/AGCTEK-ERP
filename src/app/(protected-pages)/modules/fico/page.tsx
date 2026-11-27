@@ -15,6 +15,7 @@ const FICO_SUBMODULES = [
     'chart-of-accounts',
     'gl-accounts',
     'journal-entries',
+    'accounts-receivable',
     'fiscal-years',
     'company-settings',
     'fiscal-periods',

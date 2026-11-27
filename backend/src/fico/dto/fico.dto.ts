@@ -67,8 +67,24 @@ export class FicoReconciliationQueryDto {
     postingDate!: string
 
     @IsOptional()
+    @IsDateString()
+    documentDate?: string
+
+    @IsOptional()
     @IsString()
     description?: string
+
+    @IsOptional()
+    @IsString()
+    reference?: string
+
+    @IsOptional()
+    @IsString()
+    headerText?: string
+
+    @IsOptional()
+    @IsString()
+    documentTypeId?: string
 
     @IsOptional()
     @IsString()
@@ -117,6 +133,12 @@ export class JournalEntryListQueryDto {
     @IsString()
     status?: string
 
+    /** When true and status is omitted, hide LEGACY header stubs from the list. */
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === 'true' || value === '1')
+    @IsBoolean()
+    excludeLegacy?: boolean
+
     @IsOptional()
     @IsDateString()
     dateFrom?: string
@@ -124,6 +146,19 @@ export class JournalEntryListQueryDto {
     @IsOptional()
     @IsDateString()
     dateTo?: string
+
+    @IsOptional()
+    @IsString()
+    search?: string
+
+    /** MANUAL = no sourceModule; MM = sourceModule set. */
+    @IsOptional()
+    @IsIn(['MANUAL', 'MM'])
+    source?: 'MANUAL' | 'MM'
+
+    @IsOptional()
+    @IsString()
+    documentTypeId?: string
 
     @IsOptional()
     @IsInt()
