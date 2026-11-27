@@ -27,6 +27,7 @@ import {
 export const FICO_RESOLVED_TRANSACTION_KEYS = [
     'GR_IR',
     'GI_COGS',
+    'SALES_RETURN',
     'CONSUMPTION_EXPENSE',
     'GI_EXPENSE',
     'INVENTORY_LOSS',

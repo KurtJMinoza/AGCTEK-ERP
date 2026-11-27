@@ -5,8 +5,10 @@ import { RequirePermission } from '../permissions/permission.guard'
 import {
     CreateFicoArAdjustmentDto,
     CreateFicoArCollectionDto,
+    FicoArAgingQueryDto,
     FicoArCompanyQueryDto,
     FicoArDashboardQueryDto,
+    FicoArDocumentQueryDto,
     FicoArOpenItemQueryDto,
     UpsertCustomerCompanyAccountDto,
 } from './dto/fico-accounts-receivable.dto'
@@ -37,10 +39,29 @@ export class FicoAccountsReceivableController {
     @Get('aging')
     @RequirePermission('fico.accounts-receivable', 'read')
     getAging(
-        @Query() query: FicoArDashboardQueryDto,
+        @Query() query: FicoArAgingQueryDto,
         @CurrentUser() user: AuthRequestUser,
     ) {
         return this.accountsReceivable.getAging(query.companyId, query.asOfDate, user)
+    }
+
+    @Get('documents')
+    @RequirePermission('fico.accounts-receivable', 'read')
+    listDocuments(
+        @Query() query: FicoArDocumentQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsReceivable.listDocuments(query, user)
+    }
+
+    @Get('documents/:id')
+    @RequirePermission('fico.accounts-receivable', 'read')
+    getDocument(
+        @Param('id') id: string,
+        @Query() query: FicoArCompanyQueryDto,
+        @CurrentUser() user: AuthRequestUser,
+    ) {
+        return this.accountsReceivable.getDocument(id, query.companyId, user)
     }
 
     @Get('reconciliation')

@@ -35,6 +35,21 @@ describe('FicoApReconciliationGuardService', () => {
         expect(findMany).not.toHaveBeenCalled()
     })
 
+    it('allows AR subledger postings to protected receivable accounts', async () => {
+        const findMany = jest.fn()
+        const service = new FicoApReconciliationGuardService({
+            ficoGlAccount: { findMany },
+        } as any)
+
+        await expect(
+            service.assertPostingAllowed({
+                glAccountIds: ['ar-recon'],
+                subledgerPosting: 'AR',
+            }),
+        ).resolves.toBeUndefined()
+        expect(findMany).not.toHaveBeenCalled()
+    })
+
     it('rejects manual posting to AR reconciliation accounts', async () => {
         const service = new FicoApReconciliationGuardService({
             ficoGlAccount: {
@@ -83,6 +98,7 @@ describe('FicoApReconciliationGuardService', () => {
             service.assertPostingAllowed({
                 glAccountIds: ['ar-recon'],
                 source: 'AUTOMATIC',
+                subledgerPosting: 'AR',
             }),
         ).resolves.toBeUndefined()
     })

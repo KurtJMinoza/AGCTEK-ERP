@@ -3,8 +3,10 @@ import {
     BadRequestException,
     NotFoundException,
     Inject,
+    Optional,
     forwardRef,
 } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { PermissionsService } from '../../permissions/permissions.service'
@@ -12,6 +14,8 @@ import { InventoryPostingService } from '../inventory/inventory-posting.service'
 import { MmDomainEventsService } from '../common/mm-domain-events.service'
 import { MmPostingPeriodGuard } from '../integration/fico/mm-posting-period.guard'
 import { postingKey } from '../common/idempotency.util'
+import { MmAccountingEventService } from '../common/mm-accounting-event.service'
+import { MM_ACCOUNTING_EFFECT_HINTS } from '../common/mm-accounting-event.types'
 import { ReturnsDisposalConfigService } from './returns-disposal-config.service'
 import { DisposalService } from './disposal.service'
 import {
@@ -90,6 +94,9 @@ export class CustomerReturnService {
         private domainEvents: MmDomainEventsService,
         private periodGuard: MmPostingPeriodGuard,
         private permissions: PermissionsService,
+        private accountingEvents: MmAccountingEventService,
+        /** Optional so Nest/tests without EventEmitter2 still construct; restock dispatch needs it. */
+        @Optional() private readonly events?: EventEmitter2,
     ) {}
 
     async create(dto: CreateCustomerReturnDto) {
@@ -697,6 +704,8 @@ export class CustomerReturnService {
         const accountingLines = (postedDoc?.lines ?? []).filter(
             (l) => l.dispositionStatus === 'POSTED' && l.inventoryTxnId,
         )
+        // FICO SALES_RETURN inventory/COGS leg — RESTOCK only (never dual-post with CustomerReturnPosted).
+        await this.emitRestockAccounting(postedDoc ?? doc)
         if (accountingLines.length > 0) {
             const references: Array<{ entityType: string; entityId: string }> = []
             if (postedDoc?.sdSalesReturnId) {
@@ -711,28 +720,32 @@ export class CustomerReturnService {
                     entityId: postedDoc.damageReportId,
                 })
             }
-            await this.domainEvents.customerReturnPosted({
-                companyId: doc.companyId,
-                returnId: doc.id,
-                payload: {
-                    returnNumber: doc.returnNumber,
-                    warehouseId: doc.warehouseId,
-                    postingDate: now,
-                    sdSalesReturnId: postedDoc?.sdSalesReturnId ?? null,
-                    customerRef: doc.customerRef,
-                    lines: accountingLines.map((l) => ({
-                        materialId: l.materialId,
+            // Domain outbox for SD/traceability — non-RESTOCK lines only so FICO is not dual-written.
+            const domainLines = accountingLines.filter((l) => l.disposition !== 'RESTOCK')
+            if (domainLines.length > 0) {
+                await this.domainEvents.customerReturnPosted({
+                    companyId: doc.companyId,
+                    returnId: doc.id,
+                    payload: {
+                        returnNumber: doc.returnNumber,
                         warehouseId: doc.warehouseId,
-                        movementType: 'RETURN_IN',
-                        quantity: Number(l.quantity),
-                        unitCost: Number(l.unitCost),
-                        totalCost: Number(l.unitCost) * Number(l.quantity),
-                        inventoryTxnId: l.inventoryTxnId,
-                        disposition: l.disposition,
-                    })),
-                },
-                documentReferences: references.length ? references : undefined,
-            })
+                        postingDate: now,
+                        sdSalesReturnId: postedDoc?.sdSalesReturnId ?? null,
+                        customerRef: doc.customerRef,
+                        lines: domainLines.map((l) => ({
+                            materialId: l.materialId,
+                            warehouseId: doc.warehouseId,
+                            movementType: 'RETURN_IN',
+                            quantity: Number(l.quantity),
+                            unitCost: Number(l.unitCost),
+                            totalCost: Number(l.unitCost) * Number(l.quantity),
+                            inventoryTxnId: l.inventoryTxnId,
+                            disposition: l.disposition,
+                        })),
+                    },
+                    documentReferences: references.length ? references : undefined,
+                })
+            }
         }
 
         const updated = await this.prisma.mmCustomerReturn.update({
@@ -793,7 +806,23 @@ export class CustomerReturnService {
         const reversalLines = doc.lines.filter(
             (l) => l.dispositionStatus === 'POSTED' && l.inventoryTxnId,
         )
-        if (reversalLines.length) {
+        // Financial undo: reverse the restock journal in FICO (never edit POSTED lines).
+        this.events?.emit('accounting.entry.requested', {
+            schemaVersion: 'v2',
+            eventType: 'CustomerReturnReversed',
+            companyId: doc.companyId,
+            documentType: 'CUSTOMER_RETURN',
+            documentId: doc.id,
+            sourceModule: 'RETURNS_DISPOSAL',
+            accountingEffects: [MM_ACCOUNTING_EFFECT_HINTS.REVERSAL],
+            lines: [],
+            financiallyRelevant: false,
+            returnNumber: doc.returnNumber,
+            idempotencyKey: `CustomerReturnReversed:CUSTOMER_RETURN:${doc.id}`,
+        })
+        // Domain outbox for non-RESTOCK reversal consumers (RESTOCK undo is the FICO emit above).
+        const domainReversalLines = reversalLines.filter((l) => l.disposition !== 'RESTOCK')
+        if (domainReversalLines.length) {
             await this.domainEvents.customerReturnReversed({
                 companyId: doc.companyId,
                 returnId: doc.id,
@@ -801,7 +830,7 @@ export class CustomerReturnService {
                     returnNumber: doc.returnNumber,
                     warehouseId: doc.warehouseId,
                     postingDate: new Date().toISOString(),
-                    lines: reversalLines.map((l) => ({
+                    lines: domainReversalLines.map((l) => ({
                         materialId: l.materialId,
                         warehouseId: doc.warehouseId,
                         movementType: 'RETURN_IN_REVERSAL',
@@ -963,6 +992,68 @@ export class CustomerReturnService {
             where: { legacyCustomerReturnId: doc.id },
             data: { intakePostedAt: new Date() },
         })
+    }
+
+    /**
+     * RESTOCK inventory leg → FICO SALES_RETURN (Dr Inventory / Cr COGS at cost).
+     * SCRAP uses Disposal/ScrapPosted → INVENTORY_SHRINKAGE. REFUND_ONLY has no MM journal.
+     */
+    private async emitRestockAccounting(
+        doc: Awaited<ReturnType<CustomerReturnService['findOneOrFail']>>,
+    ) {
+        const restockLines = doc.lines.filter((line) => {
+            if (line.disposition !== 'RESTOCK') return false
+            const qty = Number(line.quantity)
+            const unitCost = Number(line.unitCost)
+            return qty > 0 && unitCost >= 0 && qty * unitCost > 0
+        })
+        if (!restockLines.length) return
+
+        const idempotencyKey =
+            this.accountingEvents.buildIdempotencyKey(
+                'CustomerReturnRestocked',
+                'CUSTOMER_RETURN',
+                doc.id,
+            )
+
+        const record = await this.prisma.$transaction(async (tx) =>
+            this.accountingEvents.recordStandalone(tx, {
+                eventType: 'CustomerReturnRestocked',
+                sourceModule: 'RETURNS_DISPOSAL',
+                documentType: 'CUSTOMER_RETURN',
+                documentId: doc.id,
+                companyId: doc.companyId,
+                postingDate: new Date(),
+                idempotencyKey,
+                accountingEffects: [
+                    MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+                    MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
+                ],
+                lines: restockLines.map((line) => ({
+                    materialId: line.materialId,
+                    warehouseId: doc.warehouseId,
+                    movementType: 'RETURN_IN',
+                    quantity: Number(line.quantity),
+                    unitCost: Number(line.unitCost),
+                    totalCost: Number(line.quantity) * Number(line.unitCost),
+                })),
+                financiallyRelevant: true,
+                extraPayload: {
+                    returnNumber: doc.returnNumber,
+                    sdReturnRequestRef: doc.sdReturnRequestRef ?? null,
+                    sdSalesReturnId: doc.sdSalesReturnId ?? null,
+                    dispositions: restockLines.map((line) => ({
+                        lineId: line.id,
+                        disposition: line.disposition,
+                    })),
+                },
+            }),
+        )
+
+        const payload = this.accountingEvents.toDispatchPayload(record)
+        if (payload) {
+            this.events?.emit('accounting.entry.requested', payload)
+        }
     }
 
     /**

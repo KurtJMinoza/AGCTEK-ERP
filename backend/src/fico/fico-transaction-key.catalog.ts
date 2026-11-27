@@ -192,6 +192,21 @@ export const FICO_TRANSACTION_KEY_CATALOG: FicoTransactionKeyCatalogEntry[] = [
         sortOrder: 70,
     }),
     entry({
+        code: 'SALES_RETURN',
+        name: 'Customer sales return restock',
+        description:
+            'Customer return RESTOCK mirrors sales GI: Dr Inventory / Cr COGS at valuation cost.',
+        owningModule: 'MM',
+        accountingCategory: 'COGS',
+        supportedSourceModules: ['MM', 'SD'],
+        requiresValuationClass: true,
+        inventorySide: 'DEBIT_INVENTORY',
+        automaticPostingEligible: true,
+        systemDefined: true,
+        integrationStatus: 'LIVE',
+        sortOrder: 71,
+    }),
+    entry({
         code: 'LANDED_COST',
         name: 'Landed cost',
         description: 'Capitalizable landed cost to inventory.',

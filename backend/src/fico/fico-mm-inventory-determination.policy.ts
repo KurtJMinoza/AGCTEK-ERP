@@ -27,8 +27,12 @@ export const FICO_MM_EVENT_TRANSACTION_KEYS: ReadonlyArray<{
             payload.issuePurpose === 'SALES' ? 'GI_COGS' : 'CONSUMPTION_EXPENSE',
     },
     {
-        eventTypes: ['CustomerReturnPosted', 'CustomerReturnReversed'],
-        resolve: () => 'GI_COGS',
+        eventTypes: [
+            'CustomerReturnRestocked',
+            'CustomerReturnPosted',
+            'CustomerReturnReversed',
+        ],
+        resolve: () => 'SALES_RETURN',
     },
     {
         eventTypes: ['DisposalReversed'],
@@ -59,6 +63,7 @@ export const FICO_MM_KEY_TO_TRANSACTION_TYPE: Record<string, string> = {
     INVENTORY: 'GOODS_RECEIPT',
     GI_COGS: 'INVENTORY_CONSUMPTION',
     COGS: 'INVENTORY_CONSUMPTION',
+    SALES_RETURN: 'SALES_RETURN',
     CONSUMPTION_EXPENSE: 'INVENTORY_DECREASE',
     GI_EXPENSE: 'INVENTORY_DECREASE',
     INVENTORY_GAIN: 'INVENTORY_INCREASE',
@@ -100,6 +105,12 @@ export const FICO_MM_POSTING_ROLE_GUIDE: ReadonlyArray<{
         transactionKey: 'GI_COGS',
         debitRole: 'COGS',
         creditRole: 'INVENTORY',
+    },
+    {
+        scenario: 'Customer sales return restock',
+        transactionKey: 'SALES_RETURN',
+        debitRole: 'INVENTORY',
+        creditRole: 'COGS',
     },
     {
         scenario: 'Inventory shortage',
@@ -151,9 +162,13 @@ export function ficoResolveMmTransactionKey(
         )
     }
     if (
-        ['CustomerReturnPosted', 'CustomerReturnReversed'].includes(payload.eventType)
+        [
+            'CustomerReturnRestocked',
+            'CustomerReturnPosted',
+            'CustomerReturnReversed',
+        ].includes(payload.eventType)
     ) {
-        return ficoCanonicalMmTransactionKey('GI_COGS')
+        return ficoCanonicalMmTransactionKey('SALES_RETURN')
     }
     if (payload.eventType === 'DisposalReversed') {
         return ficoCanonicalMmTransactionKey('INVENTORY_LOSS')
@@ -184,7 +199,8 @@ export function ficoMmEventReversesPostingDirection(
         'GoodsReceiptReversed',
         'SupplierReturnPosted',
         'GoodsIssueReversed',
-        'CustomerReturnPosted',
+        // SALES_RETURN already Dr Inv / Cr COGS; reverse undoes that direction.
+        'CustomerReturnReversed',
         'DisposalReversed',
     ].includes(payload.eventType)
 }

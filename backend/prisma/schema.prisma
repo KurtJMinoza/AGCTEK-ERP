@@ -4158,6 +4158,7 @@ model FicoJournalEntry {
   apClearing          FicoApClearing?        @relation("FicoApClearingJournal")
   apClearingReversal  FicoApClearing?        @relation("FicoApClearingReversalJournal")
   arDocument          FicoArDocument?        @relation("FicoArDocumentJournal")
+  arDocumentClearing  FicoArDocument?        @relation("FicoArDocumentClearingJournal")
   arDocumentReversal  FicoArDocument?        @relation("FicoArDocumentReversalJournal")
   arPayment           FicoArPayment?         @relation("FicoArPaymentJournal")
   arPaymentReversal   FicoArPayment?         @relation("FicoArPaymentReversalJournal")
@@ -4524,6 +4525,7 @@ model FicoArCreditProfile {
   @@map("fico_ar_credit_profiles")
 }
 
+/// Immutable AR source document. Financial effect is always represented by the linked FICO journal.
 model FicoArDocument {
   id                        String                      @id @default(cuid())
   companyId                 String
@@ -4532,18 +4534,25 @@ model FicoArDocument {
   customer                  SdCustomer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   customerCompanyAccountId  String?
   customerCompanyAccount    FicoCustomerCompanyAccount? @relation(fields: [customerCompanyAccountId], references: [id], onDelete: Restrict)
+  /// Issued SD invoice AR (non-POS). Null for POS charge / unpaid POS balances.
   sourceSalesInvoiceId      String?                     @unique
   sourceSalesInvoice        SdSalesInvoice?             @relation(fields: [sourceSalesInvoiceId], references: [id], onDelete: Restrict)
-  sourceSalesOrderId        String?
+  /// POS charge / unpaid POS sale — links subledger to the existing pos-revenue journal.
+  sourceSalesOrderId        String?                     @unique
+  sourceSalesOrder          SdSalesOrder?               @relation(fields: [sourceSalesOrderId], references: [id], onDelete: Restrict)
+  sourcePosReceivableId     String?                     @unique
+  sourcePosReceivable       SdPosReceivable?            @relation(fields: [sourcePosReceivableId], references: [id], onDelete: Restrict)
   journalEntryId            String                      @unique
   journalEntry              FicoJournalEntry            @relation("FicoArDocumentJournal", fields: [journalEntryId], references: [id], onDelete: Restrict)
+  clearingJournalEntryId    String?                     @unique
+  clearingJournalEntry      FicoJournalEntry?           @relation("FicoArDocumentClearingJournal", fields: [clearingJournalEntryId], references: [id], onDelete: Restrict)
   reversalJournalEntryId    String?                     @unique
   reversalJournalEntry      FicoJournalEntry?           @relation("FicoArDocumentReversalJournal", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
   originalDocumentId        String?
   originalDocument          FicoArDocument?             @relation("FicoArDocumentReversal", fields: [originalDocumentId], references: [id], onDelete: Restrict)
   reversalDocuments         FicoArDocument[]            @relation("FicoArDocumentReversal")
-  documentType              String
-  status                    String                      @default("POSTED")
+  documentType              String // INVOICE | CREDIT_MEMO | POS_CHARGE | SALES_RETURN
+  status                    String                      @default("POSTED") // POSTED | REVERSED
   referenceNumber           String?
   documentDate              DateTime                    @db.Date
   postingDate               DateTime                    @db.Date
@@ -4572,6 +4581,7 @@ model FicoArDocument {
   @@index([companyId, customerId, status])
   @@index([companyId, dueDate])
   @@index([sourceSalesOrderId])
+  @@index([reconciliationAccountId])
   @@map("fico_ar_documents")
 }
 
@@ -4593,6 +4603,7 @@ model FicoArDocumentLine {
   @@map("fico_ar_document_lines")
 }
 
+/// Customer subledger open-item balance. This is the authoritative AR aging and clearing source.
 model FicoArOpenItem {
   id                      String                @id @default(cuid())
   companyId               String
@@ -4604,14 +4615,14 @@ model FicoArOpenItem {
   reconciliationAccountId String?
   reconciliationAccount   FicoGlAccount?        @relation("FicoArOpenItemRecon", fields: [reconciliationAccountId], references: [id], onDelete: Restrict)
   itemType                String                @default("INVOICE")
-  direction               String                @default("DEBIT")
+  direction               String                @default("DEBIT") // DEBIT = customer receivable
   originalAmount          Decimal               @db.Decimal(18, 4)
   openAmount              Decimal               @db.Decimal(18, 4)
   currencyCode            String                @db.VarChar(3)
   baselineDate            DateTime              @db.Date
   dueDate                 DateTime?             @db.Date
   collectionBlocked       Boolean               @default(false)
-  status                  String                @default("OPEN")
+  status                  String                @default("OPEN") // OPEN | PARTIALLY_CLEARED | CLEARED | REVERSED
   clearedAt               DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
@@ -4621,6 +4632,7 @@ model FicoArOpenItem {
 
   @@index([companyId, customerId, status])
   @@index([companyId, dueDate, status])
+  @@index([reconciliationAccountId, status])
   @@map("fico_ar_open_items")
 }
 
@@ -6206,6 +6218,8 @@ model SdSalesOrder {
   collections        SdPosCollection[]
   /// Employee loan items for SALARY_LOAN tenders.
   employeeLoanItems  SdEmployeeLoanItem[]
+  /// FICO AR open-item document when unpaid POS balance was attached to the revenue journal.
+  ficoArDocument     FicoArDocument?
 
   @@index([companyId, status])
   @@index([correlationId])
@@ -7064,6 +7078,7 @@ model SdPosReceivable {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   collections     SdPosCollection[]
+  ficoArDocument  FicoArDocument?
 
   @@index([companyId, status])
   @@index([customerId])

@@ -24,6 +24,7 @@ import {
 import CrmSelect from './CrmSelect'
 import { decimal, enumOptions, formatDate, formatEnumLabel, formatMoney } from '../utils/format'
 import type { TicketOverrideStatus, TicketReturnCase, TicketStatus } from '../types'
+import ReturnRequestAccountingPanel from '@/modules/sd/components/ReturnRequestAccountingPanel'
 
 const SD_CUSTOMER_RETURNS_PATH = '/modules/sd/customer-returns'
 const DECIDABLE_RESOLUTIONS: ReadonlySet<string> = new Set(['REPLACEMENT', 'REFUND'])
@@ -241,6 +242,13 @@ export default function TicketReturnPanel({
                     ))}
                 </ol>
             )}
+
+            <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                <ReturnRequestAccountingPanel
+                    returnRequestId={rc.id}
+                    companyId={null}
+                />
+            </div>
 
             {rc.refund ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-gray-600 dark:text-gray-300">

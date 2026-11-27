@@ -22,6 +22,11 @@ import {
     journalAmountColumnHeader,
     sumLineTotals,
 } from './journalUi'
+import {
+    JournalSourceBadge,
+    JournalSourceLink,
+    journalSourceSecondaryLabel,
+} from './journalSource'
 import JournalDocumentFlow from './JournalDocumentFlow'
 import type { FicoAuditEntry, FicoJournalEntryDetail, FicoJournalLine } from '../../types'
 import {
@@ -44,20 +49,6 @@ function humanizeAuditAction(action: string) {
         .replace(/_/g, ' ')
         .toLowerCase()
         .replace(/^\w/, (c) => c.toUpperCase())
-}
-
-function sourceLabel(entry: FicoJournalEntryDetail) {
-    if (!entry.sourceModule) {
-        return { primary: 'Manual entry', secondary: undefined as string | undefined }
-    }
-    return {
-        primary: entry.sourceModule,
-        secondary:
-            entry.sourceDocumentNumber ??
-            entry.accountingEvent?.sourceDocumentNumber ??
-            entry.sourceDocumentId ??
-            undefined,
-    }
 }
 
 function MetaBlock({
@@ -111,7 +102,22 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
         [entry.lines],
     )
 
-    const source = sourceLabel(entry)
+    const metadataReturnRequestId =
+        entry.metadata &&
+        typeof entry.metadata.returnRequestId === 'string'
+            ? entry.metadata.returnRequestId
+            : null
+    const sourceFields = {
+        sourceModule: entry.sourceModule,
+        sourceDocumentType: entry.sourceDocumentType,
+        sourceDocumentId: entry.sourceDocumentId,
+        returnRequestId: metadataReturnRequestId,
+        description:
+            entry.description ??
+            entry.lines.find((l) => l.description?.includes('POS-'))?.description ??
+            null,
+    }
+    const sourceSecondary = journalSourceSecondaryLabel(sourceFields)
 
     const columns = useMemo<ColumnDef<FicoJournalLine>[]>(
         () => [
@@ -274,6 +280,7 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                     />
                     <div className="flex flex-wrap items-center gap-2 lg:justify-end lg:pt-1">
                         <JournalPostingStatus status={entry.status} />
+                        <JournalSourceBadge sourceModule={entry.sourceModule} />
                         <StatusBadge tone="info">{humanizeDocType(entry.documentType)}</StatusBadge>
                     </div>
                 </div>
@@ -313,11 +320,38 @@ export default function JournalEntryDetailView({ entry, companyLabel, audit }: P
                         <MetaItem
                             label="Source"
                             value={
-                                <FicoTwoLineCell
-                                    primary={source.primary}
-                                    secondary={source.secondary}
-                                    mono={Boolean(source.secondary && source.secondary.length <= 24)}
-                                />
+                                <div className="flex flex-col gap-1.5">
+                                    <JournalSourceBadge sourceModule={entry.sourceModule} />
+                                    {sourceSecondary ? (
+                                        <JournalSourceLink source={sourceFields}>
+                                            {sourceSecondary}
+                                        </JournalSourceLink>
+                                    ) : entry.sourceDocumentNumber ||
+                                      entry.accountingEvent?.sourceDocumentNumber ? (
+                                        <span className="font-mono text-sm text-gray-600 dark:text-gray-300">
+                                            {entry.sourceDocumentNumber ??
+                                                entry.accountingEvent?.sourceDocumentNumber}
+                                        </span>
+                                    ) : (
+                                        <span className="text-sm text-gray-500">
+                                            {entry.sourceModule
+                                                ? 'No linked document id'
+                                                : 'Entered in Finance'}
+                                        </span>
+                                    )}
+                                    {metadataReturnRequestId ? (
+                                        <JournalSourceLink
+                                            source={{
+                                                sourceModule: 'SD',
+                                                sourceDocumentType: 'RETURN_REQUEST',
+                                                sourceDocumentId: metadataReturnRequestId,
+                                                returnRequestId: metadataReturnRequestId,
+                                            }}
+                                        >
+                                            {`Sales return · ${metadataReturnRequestId.slice(0, 12)}${metadataReturnRequestId.length > 12 ? '…' : ''}`}
+                                        </JournalSourceLink>
+                                    ) : null}
+                                </div>
                             }
                         />
                         <MetaItem

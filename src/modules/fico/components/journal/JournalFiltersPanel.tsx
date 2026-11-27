@@ -31,11 +31,13 @@ const originOptions = [
 
 const sourceModuleOptions = [
     { value: '', label: 'Any module' },
+    { value: 'MANUAL', label: 'Manual' },
     { value: 'MM', label: 'MM' },
     { value: 'SD', label: 'SD' },
     { value: 'AP', label: 'AP' },
     { value: 'AR', label: 'AR' },
     { value: 'FICO', label: 'FICO' },
+    { value: 'PP', label: 'PP' },
 ]
 
 function stripAdvancedFilters(
@@ -97,7 +99,7 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
                 size="sm"
                 icon={<HiOutlineFilter />}
                 title="Journal filters"
-                description="Narrow the list by posting status or date range."
+                description="Narrow the list by posting status, source module, or date range."
                 footer={
                     <div className="flex w-full justify-end gap-2">
                         <Button size="sm" variant="plain" onClick={clear}>

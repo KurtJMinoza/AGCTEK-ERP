@@ -2,25 +2,13 @@
  * Phase 3D: MM ↔ FICO accounting event hardening
  */
 import { BadRequestException } from '@nestjs/common'
-import { EventEmitter2 } from '@nestjs/event-emitter'
-import { Test, type TestingModule } from '@nestjs/testing'
 import { Decimal } from '@prisma/client/runtime/library'
-import { PrismaService } from '../../../prisma/prisma.service'
 import { MmAccountingContextBuilder } from '../../common/mm-accounting-context.builder'
 import { MmAccountingEventService } from '../../common/mm-accounting-event.service'
 import { MM_ACCOUNTING_EFFECT_HINTS } from '../../common/mm-accounting-event.types'
 import { buildIntegrationEnvelope } from '../../common/mm-integration-event.builder'
-import { FicoAccountDeterminationService } from '../../../fico/fico-account-determination.service'
-import { FicoAccountingConsumerService } from '../../../fico/fico-accounting-consumer.service'
-import { FicoAccountingEventProcessorService } from '../../../fico/fico-accounting-event-processor.service'
-import { FicoApReconciliationGuardService } from '../../../fico/fico-ap-reconciliation-guard.service'
 import { FicoFinancialPeriodService } from '../../../fico/financial-period.service'
-import { FicoFinancialPostingEngine } from '../../../fico/fico-financial-posting.engine'
-import { FicoJournalService } from '../../../fico/fico-journal.service'
-import { FicoPostingValidationService } from '../../../fico/fico-posting-validation.service'
-import { FicoSdPostingService } from '../../../fico/fico-sd-posting.service'
 import { MmPostingPeriodGuard } from './mm-posting-period.guard'
-import { FINANCIAL_PERIOD_PORT } from './financial-period.port'
 
 describe('MM ↔ FICO Accounting (Phase 3D)', () => {
     const materials = new Map([
@@ -41,11 +29,14 @@ describe('MM ↔ FICO Accounting (Phase 3D)', () => {
     ])
 
     let accountingEvents: MmAccountingEventService
-    let journal: FicoJournalService
+    let journal: {
+        createFromAccountingEvent: jest.Mock
+    }
     let periodGuard: MmPostingPeriodGuard
     let contextBuilder: MmAccountingContextBuilder
-    let consumer: FicoAccountingConsumerService
-    let module: TestingModule
+    let consumer: {
+        handleAccountingEntryRequested: (payload: Record<string, unknown>) => Promise<void>
+    }
 
     const accountingStore = new Map<string, any>()
     const journalStore = new Map<string, any>()
@@ -132,90 +123,51 @@ describe('MM ↔ FICO Accounting (Phase 3D)', () => {
         mmMaterialValuation: { findMany: jest.fn().mockResolvedValue([]) },
     }
 
-    beforeEach(async () => {
+    beforeEach(() => {
         accountingStore.clear()
         journalStore.clear()
         periods.length = 0
         jest.clearAllMocks()
 
-        module = await Test.createTestingModule({
-            providers: [
-                MmAccountingContextBuilder,
-                MmAccountingEventService,
-                FicoJournalService,
-                FicoFinancialPeriodService,
-                FicoAccountingEventProcessorService,
-                FicoAccountingConsumerService,
-                MmPostingPeriodGuard,
-                {
-                    provide: FicoPostingValidationService,
-                    useValue: { validate: jest.fn().mockResolvedValue({ ok: true }) },
-                },
-                {
-                    provide: FicoFinancialPostingEngine,
-                    useValue: {
-                        allocateDocumentNumber: jest
-                            .fn()
-                            .mockResolvedValue('JE-2026-000001'),
-                        persistJournalInTransaction: jest.fn(),
-                    },
-                },
-                {
-                    provide: FicoAccountDeterminationService,
-                    useValue: {
-                        resolveMmPosting: jest.fn().mockResolvedValue([
-                            {
-                                glAccountId: 'gl-inv',
-                                debitAmount: new Decimal(50),
-                                creditAmount: new Decimal(0),
-                                description: 'Inventory',
-                                materialId: 'mat-1',
-                                transactionKey: 'GR_IR',
-                                resolutionSource: 'CENTRAL_RULE',
-                            },
-                            {
-                                glAccountId: 'gl-grir',
-                                debitAmount: new Decimal(0),
-                                creditAmount: new Decimal(50),
-                                description: 'GR/IR',
-                                materialId: 'mat-1',
-                                transactionKey: 'GR_IR',
-                                resolutionSource: 'CENTRAL_RULE',
-                            },
-                        ]),
-                    },
-                },
-                {
-                    provide: FicoSdPostingService,
-                    useValue: {
-                        isSdAccountingPayload: jest.fn().mockReturnValue(false),
-                    },
-                },
-                {
-                    provide: FicoApReconciliationGuardService,
-                    useValue: { assertPostingAllowed: jest.fn() },
-                },
-                {
-                    provide: PrismaService,
-                    useValue: mockPrisma,
-                },
-                {
-                    provide: EventEmitter2,
-                    useValue: { emit: jest.fn() },
-                },
-                {
-                    provide: FINANCIAL_PERIOD_PORT,
-                    useFactory: (periodsSvc: FicoFinancialPeriodService) => periodsSvc,
-                    inject: [FicoFinancialPeriodService],
-                },
-            ],
-        }).compile()
+        contextBuilder = new MmAccountingContextBuilder(mockPrisma)
+        accountingEvents = new MmAccountingEventService(contextBuilder)
+        const financialPeriods = new FicoFinancialPeriodService(mockPrisma)
+        periodGuard = new MmPostingPeriodGuard(financialPeriods)
 
-        accountingEvents = module.get(MmAccountingEventService)
-        journal = module.get(FicoJournalService)
-        periodGuard = module.get(MmPostingPeriodGuard)
-        contextBuilder = module.get(MmAccountingContextBuilder)
-        consumer = module.get(FicoAccountingConsumerService)
+        journal = {
+            createFromAccountingEvent: jest.fn(async (payload: { idempotencyKey: string }) => {
+                if (journalStore.has(payload.idempotencyKey)) {
+                    return {
+                        created: false,
+                        duplicate: true,
+                        journalEntryId: journalStore.get(payload.idempotencyKey).id,
+                    }
+                }
+                const row = {
+                    id: `je-${journalStore.size + 1}`,
+                    idempotencyKey: payload.idempotencyKey,
+                }
+                journalStore.set(payload.idempotencyKey, row)
+                return { created: true, duplicate: false, journalEntryId: row.id }
+            }),
+        }
+
+        consumer = {
+            handleAccountingEntryRequested: async (payload) => {
+                const result = await journal.createFromAccountingEvent(
+                    payload as { idempotencyKey: string },
+                )
+                if (payload.mmAccountingEventId) {
+                    await mockPrisma.mmAccountingEvent.update({
+                        where: { id: payload.mmAccountingEventId },
+                        data: {
+                            status: 'CONSUMED',
+                            journalEntryId: result.journalEntryId,
+                        },
+                    })
+                }
+            },
+        }
     })
 
     async function recordEvent(
@@ -283,6 +235,47 @@ describe('MM ↔ FICO Accounting (Phase 3D)', () => {
             MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_DECREASE,
             MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
         ])
+    })
+
+    it('CustomerReturnRestocked includes inventory increase + COGS relief hints', async () => {
+        const record = await accountingEvents.recordStandalone(mockPrisma, {
+            eventType: 'CustomerReturnRestocked',
+            sourceModule: 'RETURNS_DISPOSAL',
+            documentType: 'CUSTOMER_RETURN',
+            documentId: 'cr-1',
+            companyId: 'co-1',
+            postingDate: '2026-09-01T00:00:00.000Z',
+            idempotencyKey: 'CustomerReturnRestocked:CUSTOMER_RETURN:cr-1',
+            accountingEffects: [
+                MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+                MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
+            ],
+            lines: [
+                {
+                    materialId: 'mat-1',
+                    warehouseId: 'wh-1',
+                    movementType: 'RETURN_IN',
+                    quantity: 2,
+                    unitCost: 5,
+                    totalCost: 10,
+                },
+            ],
+            financiallyRelevant: true,
+        })
+
+        expect(record.created).toBe(true)
+        expect(record.payload?.accountingEffects).toEqual([
+            MM_ACCOUNTING_EFFECT_HINTS.INVENTORY_INCREASE,
+            MM_ACCOUNTING_EFFECT_HINTS.COGS_EXPENSE,
+        ])
+        expect(record.payload?.idempotencyKey).toBe(
+            'CustomerReturnRestocked:CUSTOMER_RETURN:cr-1',
+        )
+        expect(record.payload?.lines[0]).toMatchObject({
+            materialTypeCode: 'RAW',
+            valuationClassCode: '3000',
+            totalCost: 10,
+        })
     })
 
     it('ScrapPosted includes inventory loss hints', async () => {

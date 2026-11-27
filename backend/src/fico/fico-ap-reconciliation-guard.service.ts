@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
  * Protects reconciliation accounts from being used as ordinary G/L accounts.
  * Manual journals never touch them by default. AP postings must come from the
  * AP subledger; automatic AR/GR-IR/bank/asset/tax postings keep their existing
- * controlled paths.
+ * controlled paths. Subledger documents pass `subledgerPosting` (AP|AR).
  */
 @Injectable()
 export class FicoApReconciliationGuardService {

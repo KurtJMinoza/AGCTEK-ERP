@@ -14,7 +14,11 @@ import { Prisma } from '@prisma/client'
 import { CustomerReturnService } from '../mm/returns-disposal/customer-return.service'
 import { SalesOrderService } from './sales-order.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
-import { SD_EVENTS, type SdReturnRequestRequestedPayload } from './sd-event.types'
+import {
+    SD_EVENTS,
+    type SdReturnRefundPaidPayload,
+    type SdReturnRequestRequestedPayload,
+} from './sd-event.types'
 
 /**
  * Sales Return status machine (Phase 4). Cancellation covers the
@@ -998,20 +1002,41 @@ export class ReturnRequestService {
     }
 
     /**
-     * APPROVED → PAID. DEMO ONLY: flips the paid payment to Refunded, marks
-     * the original invoice REFUNDED (amounts unchanged), and closes the
-     * refund on the return (status REFUNDED). Disabled unless
-     * SD_DEMO_REFUND_PAYMENT=true: without FICO no refund may be reported as paid.
+     * APPROVED → PAID. Flips the paid payment to Refunded, marks the original
+     * invoice REFUNDED (amounts unchanged), and closes the refund on the return
+     * (status REFUNDED). Emits ReturnRefundPaid for the commercial FICO journal.
+     *
+     * Allowed when SD_DEMO_REFUND_PAYMENT=true (legacy demo) or when the SD
+     * event bus is wired (FICO consumer posts Dr Revenue / Cr Cash|AR).
      */
     async payRefund(id: string, companyId: string, performedBy?: string) {
-        if (process.env.SD_DEMO_REFUND_PAYMENT !== 'true') {
+        const ficoPathAvailable = Boolean(this.sdEvents)
+        if (
+            process.env.SD_DEMO_REFUND_PAYMENT !== 'true' &&
+            !ficoPathAvailable
+        ) {
             throw new ConflictException(
                 'Refund payment is handled by finance (FICO); the refund stays approved until finance pays it',
             )
         }
         const { request, payment } = await this.loadRefundContext(id, companyId)
+        if ((request.preferredResolution ?? 'REFUND') === 'REPLACEMENT') {
+            throw new BadRequestException(
+                'Replacement returns do not post a refund journal',
+            )
+        }
+        if (request.refundStatus === 'NOT_REQUIRED') {
+            throw new BadRequestException(
+                'Refund is not required — no commercial journal is posted',
+            )
+        }
         const refund = await this.prisma.sdRefund.findUnique({
             where: { returnRequestId: id },
+            include: {
+                creditMemo: {
+                    select: { id: true, creditMemoNumber: true },
+                },
+            },
         })
         if (!refund || refund.status !== 'APPROVED') {
             throw new ConflictException(
@@ -1069,7 +1094,107 @@ export class ReturnRequestService {
                 },
             })
         })
+
+        await this.announceRefundPaid({
+            request,
+            refund,
+            paymentMethod: payment.paymentMethod ?? null,
+        })
         return this.findOne(id)
+    }
+
+    /** Commercial FICO leg only — inventory journals stay on MM restock/scrap. */
+    private async announceRefundPaid(input: {
+        request: {
+            id: string
+            requestNumber: string
+            salesOrderId: string
+            companyId: string
+            customerId: string
+            preferredResolution: string | null
+            lines: Array<{
+                salesOrderLineId: string
+                quantity: Decimal
+            }>
+            salesOrder: {
+                orderNumber: string
+                currency?: string | null
+                lines: Array<{
+                    id: string
+                    quantity: Decimal
+                    taxAmount?: Decimal | null
+                }>
+            }
+        }
+        refund: {
+            id: string
+            refundNumber: string
+            amount: Decimal
+            currency: string
+            refundMethod: string | null
+            creditMemo?: { id: string; creditMemoNumber: string } | null
+        }
+        paymentMethod: string | null
+    }) {
+        if (!this.sdEvents) return
+        const taxAmount = this.refundTaxPortion(input.request)
+        const payload: SdReturnRefundPaidPayload = {
+            returnRequestId: input.request.id,
+            requestNumber: input.request.requestNumber,
+            refundId: input.refund.id,
+            refundNumber: input.refund.refundNumber,
+            creditMemoId: input.refund.creditMemo?.id ?? null,
+            creditMemoNumber: input.refund.creditMemo?.creditMemoNumber ?? null,
+            salesOrderId: input.request.salesOrderId,
+            orderNumber: input.request.salesOrder.orderNumber,
+            companyId: input.request.companyId,
+            customerId: input.request.customerId,
+            currency:
+                input.refund.currency ||
+                input.request.salesOrder.currency ||
+                'PHP',
+            totalAmount: input.refund.amount.toString(),
+            taxAmount: taxAmount.toString(),
+            refundMethod: input.refund.refundMethod,
+            originalPaymentMethod: input.paymentMethod,
+            preferredResolution: input.request.preferredResolution,
+            refundStatus: 'PAID',
+            idempotencyKey: `sales-return-refund:${input.request.id}:${input.refund.id}`,
+        }
+        try {
+            await this.sdEvents.emit(SD_EVENTS.RETURN_REFUND_PAID, payload)
+        } catch (err) {
+            this.logger.error(
+                `ReturnRefundPaid emit failed for ${input.request.requestNumber}: ${
+                    err instanceof Error ? err.message : String(err)
+                }`,
+            )
+        }
+    }
+
+    /** Proportional output tax from original SO lines for returned quantities. */
+    private refundTaxPortion(request: {
+        lines: Array<{ salesOrderLineId: string; quantity: Decimal }>
+        salesOrder: {
+            lines: Array<{
+                id: string
+                quantity: Decimal
+                taxAmount?: Decimal | null
+            }>
+        }
+    }): Decimal {
+        let tax = new Decimal(0)
+        for (const line of request.lines) {
+            const soLine = request.salesOrder.lines.find(
+                (l) => l.id === line.salesOrderLineId,
+            )
+            if (!soLine) continue
+            const soQty = new Decimal(soLine.quantity)
+            const lineTax = new Decimal(soLine.taxAmount ?? 0)
+            if (soQty.lte(0) || lineTax.lte(0)) continue
+            tax = tax.plus(lineTax.mul(line.quantity).div(soQty))
+        }
+        return tax.toDecimalPlaces(2)
     }
 
     /** PENDING_REFUND | APPROVED → FAILED (no payment changes). */

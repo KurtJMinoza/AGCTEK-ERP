@@ -15,6 +15,11 @@ export const SD_EVENTS = {
     POS_SALE_VOIDED: 'PosSaleVoided',
     /** A subsequent payment was collected against an outstanding POS receivable. */
     POS_COLLECTION_COMPLETED: 'PosCollectionCompleted',
+    /**
+     * Customer sales-return refund settled (refundStatus → PAID).
+     * Triggers the commercial FICO journal only — never inventory.
+     */
+    RETURN_REFUND_PAID: 'ReturnRefundPaid',
     /** Partial POS refund: revenue and settlement reversal without voiding the sale. */
     POS_SALE_REFUNDED: 'PosSaleRefunded',
     /** Customer deposit at POS — advance liability only (no revenue). */
@@ -22,6 +27,27 @@ export const SD_EVENTS = {
     /** SD return authorized as credit without physical MM intake. */
     SALES_RETURN_CREDIT_AUTHORIZED: 'SalesReturnCreditAuthorized',
 } as const
+
+export type SdReturnRefundPaidPayload = {
+    returnRequestId: string
+    requestNumber: string
+    refundId: string
+    refundNumber: string
+    creditMemoId?: string | null
+    creditMemoNumber?: string | null
+    salesOrderId: string
+    orderNumber?: string
+    companyId: string
+    customerId: string
+    currency?: string
+    totalAmount: string
+    taxAmount?: string
+    refundMethod?: string | null
+    originalPaymentMethod?: string | null
+    preferredResolution?: string | null
+    refundStatus: string
+    idempotencyKey: string
+}
 
 export type SdEventType = (typeof SD_EVENTS)[keyof typeof SD_EVENTS]
 
