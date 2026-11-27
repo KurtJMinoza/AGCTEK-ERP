@@ -29,6 +29,11 @@ import {
 } from '../ficoTableUi'
 import JournalFiltersPanel from './JournalFiltersPanel'
 import {
+    JournalSourceBadge,
+    JournalSourceLink,
+    journalSourceSecondaryLabel,
+} from './journalSource'
+import {
     JOURNAL_TABS,
     JournalPostingStatus,
     formatJournalDate,
@@ -119,6 +124,31 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                         {humanizeType(row.original.documentType)}
                     </span>
                 ),
+            },
+            {
+                header: 'Source',
+                id: 'source',
+                cell: ({ row }) => {
+                    const source = {
+                        sourceModule: row.original.sourceModule,
+                        sourceDocumentType: row.original.sourceDocumentType,
+                        sourceDocumentId: row.original.sourceDocumentId,
+                        description: row.original.description,
+                    }
+                    const secondary = journalSourceSecondaryLabel(source)
+                    return (
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <JournalSourceBadge sourceModule={row.original.sourceModule} />
+                            {secondary ? (
+                                <JournalSourceLink source={source}>
+                                    <span className="block max-w-[10rem] truncate text-xs text-gray-500">
+                                        {secondary}
+                                    </span>
+                                </JournalSourceLink>
+                            ) : null}
+                        </div>
+                    )
+                },
             },
             {
                 header: 'Supplier',
@@ -252,6 +282,11 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             onPress: (row: FicoJournalEntryListItem) => openDetail(row.id),
             fields: [
                 {
+                    label: 'Source',
+                    value: (row: FicoJournalEntryListItem) =>
+                        row.sourceModule?.trim() ? row.sourceModule : 'MANUAL',
+                },
+                {
                     label: 'Posting date',
                     value: (row: FicoJournalEntryListItem) =>
                         formatJournalDate(row.postingDate),
@@ -288,6 +323,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             'Lines',
             'Description',
             'Source module',
+            'Source document type',
             'Source document',
         ]
         const data = items.map((row) => [
@@ -302,7 +338,8 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
             row.totalAmount,
             String(row.lines?.length ?? 0),
             row.description ?? '',
-            row.sourceModule ?? '',
+            row.sourceModule ?? 'MANUAL',
+            row.sourceDocumentType ?? '',
             row.sourceDocumentId ?? '',
         ])
         downloadCsv(
@@ -451,7 +488,7 @@ export default function JournalEntriesWorkbench({ companyId }: Props) {
                     loading={loading}
                     noData={!loading && items.length === 0}
                     compact
-                    tableMinWidthClass="min-w-[1080px]"
+                    tableMinWidthClass="min-w-[1180px]"
                     pagingData={{
                         total,
                         pageIndex: page - 1,

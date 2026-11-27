@@ -2,10 +2,9 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
 /**
- * Protects supplier reconciliation accounts from being used as ordinary G/L
- * accounts. AP documents always pass through the AP subledger and provide the
- * `subledgerPosting` marker; direct/manual postings are rejected before a
- * journal can be persisted.
+ * Protects AP/AR reconciliation accounts from being used as ordinary G/L
+ * accounts. Subledger documents pass `subledgerPosting`; direct/manual
+ * postings are rejected before a journal can be persisted.
  */
 @Injectable()
 export class FicoApReconciliationGuardService {
@@ -13,26 +12,34 @@ export class FicoApReconciliationGuardService {
 
     async assertPostingAllowed(input: {
         glAccountIds: readonly string[]
-        subledgerPosting?: 'AP'
+        subledgerPosting?: 'AP' | 'AR'
     }): Promise<void> {
         const glAccountIds = [...new Set(input.glAccountIds.filter(Boolean))]
-        if (!glAccountIds.length || input.subledgerPosting === 'AP') return
+        if (!glAccountIds.length) return
+        if (input.subledgerPosting === 'AP' || input.subledgerPosting === 'AR') return
 
         const protectedAccounts = await this.prisma.ficoGlAccount.findMany({
             where: {
                 id: { in: glAccountIds },
                 isReconciliationAccount: true,
-                reconciliationType: 'AP',
+                reconciliationType: { in: ['AP', 'AR'] },
             },
-            select: { accountCode: true, accountName: true },
+            select: {
+                accountCode: true,
+                accountName: true,
+                reconciliationType: true,
+            },
         })
         if (!protectedAccounts.length) return
 
         const labels = protectedAccounts
-            .map((account) => `${account.accountCode} (${account.accountName})`)
+            .map(
+                (account) =>
+                    `${account.accountCode} (${account.accountName}, ${account.reconciliationType})`,
+            )
             .join(', ')
         throw new BadRequestException(
-            `Supplier reconciliation account posting is restricted to the Accounts Payable subledger: ${labels}. Create or reverse the AP document instead of posting a direct journal.`,
+            `Reconciliation account posting is restricted to the owning subledger: ${labels}. Create or reverse the AP/AR document instead of posting a direct journal.`,
         )
     }
 }

@@ -21,6 +21,16 @@ const statusOptions = [
     { value: 'REVERSED', label: 'Reversed' },
 ]
 
+const sourceModuleOptions = [
+    { value: '', label: 'Any source' },
+    { value: 'MANUAL', label: 'Manual' },
+    { value: 'MM', label: 'MM' },
+    { value: 'SD', label: 'SD' },
+    { value: 'AP', label: 'AP' },
+    { value: 'AR', label: 'AR' },
+    { value: 'PP', label: 'PP' },
+]
+
 function stripAdvancedFilters(
     filters: FicoJournalListQuery,
 ): FicoJournalListQuery {
@@ -50,6 +60,7 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
         if (draft.status) next.status = draft.status
         if (draft.dateFrom) next.dateFrom = draft.dateFrom
         if (draft.dateTo) next.dateTo = draft.dateTo
+        if (draft.sourceModule) next.sourceModule = draft.sourceModule
         onApply(next)
         setOpen(false)
     }
@@ -77,7 +88,7 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
                 size="sm"
                 icon={<HiOutlineFilter />}
                 title="Journal filters"
-                description="Narrow the list by posting status or date range."
+                description="Narrow the list by posting status, source module, or date range."
                 footer={
                     <div className="flex w-full justify-end gap-2">
                         <Button size="sm" variant="plain" onClick={clear}>
@@ -103,6 +114,26 @@ export default function JournalFiltersPanel({ filters, onApply }: Props) {
                                 setDraft((p) => ({
                                     ...p,
                                     status:
+                                        (opt as { value: string })?.value ||
+                                        undefined,
+                                }))
+                            }
+                        />
+                    </FormItem>
+                    <FormItem label="Source module" className="sm:col-span-2">
+                        <Select
+                            size="sm"
+                            options={sourceModuleOptions}
+                            value={
+                                sourceModuleOptions.find(
+                                    (o) =>
+                                        o.value === (draft.sourceModule ?? ''),
+                                ) ?? null
+                            }
+                            onChange={(opt) =>
+                                setDraft((p) => ({
+                                    ...p,
+                                    sourceModule:
                                         (opt as { value: string })?.value ||
                                         undefined,
                                 }))

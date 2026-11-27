@@ -202,6 +202,15 @@ export const ERP_MODULES: ErpModule[] = [
                         icon: 'fileText',
                     },
                     {
+                        code: 'ar-open-items',
+                        permissionCode: 'fico.accounts-receivable',
+                        title: 'Accounts Receivable',
+                        description:
+                            'Customer invoice open items, aging buckets, and links to SD billing and journals.',
+                        path: '/modules/fico/accounts-receivable',
+                        icon: 'receipt',
+                    },
+                    {
                         code: 'general-ledger',
                         permissionCode: 'fico.journal-entries',
                         title: 'General Ledger',

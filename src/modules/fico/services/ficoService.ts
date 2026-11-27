@@ -50,6 +50,10 @@ import type {
     FicoGlAccountBalanceSummary,
     FicoTrialBalanceResponse,
     FicoAuditEntry,
+    FicoArAgingResponse,
+    FicoArDocumentDetail,
+    FicoArOpenItem,
+    FicoArOpenItemQuery,
 } from '../types'
 
 type UpdateJournalEntryBody = {
@@ -1102,6 +1106,30 @@ export const ficoJournalService = {
         ErpAxiosBase.post(`${API}/posting-validation`, body).then(
             (r) => r.data,
         ),
+}
+
+export const ficoAccountsReceivableService = {
+    listOpenItems: (query: FicoArOpenItemQuery) =>
+        ErpAxiosBase.get<FicoArOpenItem[]>(
+            `${API}/accounts-receivable/open-items${queryString(query)}`,
+        ).then((r) => r.data),
+    getAging: (companyId: string, asOfDate?: string) =>
+        ErpAxiosBase.get<FicoArAgingResponse>(
+            `${API}/accounts-receivable/aging${queryString({ companyId, asOfDate })}`,
+        ).then((r) => r.data),
+    listDocuments: (query: {
+        companyId: string
+        customerId?: string
+        status?: string
+        search?: string
+    }) =>
+        ErpAxiosBase.get<FicoArDocumentDetail[]>(
+            `${API}/accounts-receivable/documents${queryString(query)}`,
+        ).then((r) => r.data),
+    getDocument: (id: string, companyId: string) =>
+        ErpAxiosBase.get<FicoArDocumentDetail>(
+            `${API}/accounts-receivable/documents/${id}${queryString({ companyId })}`,
+        ).then((r) => r.data),
 }
 
 export const ficoReconciliationService = {

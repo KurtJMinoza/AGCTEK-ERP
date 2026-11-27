@@ -30,4 +30,19 @@ describe('FicoApReconciliationGuardService', () => {
         ).resolves.toBeUndefined()
         expect(findMany).not.toHaveBeenCalled()
     })
+
+    it('allows AR subledger postings to protected receivable accounts', async () => {
+        const findMany = jest.fn()
+        const service = new FicoApReconciliationGuardService({
+            ficoGlAccount: { findMany },
+        } as any)
+
+        await expect(
+            service.assertPostingAllowed({
+                glAccountIds: ['ar-recon'],
+                subledgerPosting: 'AR',
+            }),
+        ).resolves.toBeUndefined()
+        expect(findMany).not.toHaveBeenCalled()
+    })
 })

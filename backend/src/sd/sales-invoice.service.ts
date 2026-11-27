@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { FicoSdAccountingBridgeService } from '../fico/fico-sd-accounting-bridge.service'
 import { SdEventEmitterService } from './sd-event-emitter.service'
 import { SD_EVENTS, type SdSalesInvoicePaidPayload } from './sd-event.types'
 import type { Prisma, PrismaClient } from '@prisma/client'
@@ -93,6 +94,7 @@ export class SalesInvoiceService {
     constructor(
         private prisma: PrismaService,
         @Optional() private readonly sdEvents?: SdEventEmitterService,
+        @Optional() private readonly accounting?: FicoSdAccountingBridgeService,
     ) {}
 
     async createForSalesOrder(salesOrderId: string) {
@@ -161,11 +163,18 @@ export class SalesInvoiceService {
                 include: { lines: true },
             })) ?? (await this.createForSalesOrder(salesOrderId))
 
+        let becameIssued = false
         if (invoice.status === 'DRAFT') {
-            await this.prisma.sdSalesInvoice.updateMany({
+            const updated = await this.prisma.sdSalesInvoice.updateMany({
                 where: { id: invoice.id, status: 'DRAFT' },
                 data: { status: 'ISSUED', issuedAt: new Date() },
             })
+            becameIssued = updated.count > 0
+        }
+
+        // Emit AR recognition before any immediate PAID clear so open item exists first.
+        if (becameIssued || invoice.status === 'ISSUED' || invoice.status === 'PAID') {
+            await this.announceIssued(salesOrderId)
         }
 
         const order = await this.prisma.sdSalesOrder.findUnique({
@@ -209,11 +218,11 @@ export class SalesInvoiceService {
     }
 
     /**
-     * Publishes the settled invoice (CRM loyalty earns on it). The payment is already committed, so a
-     * failed hand-off is logged and the outbox row stays PENDING instead of failing the payment.
+     * Durably records SalesInvoiceIssued for FICO AR (idempotent bridge key).
+     * Failures are logged — invoice issue itself already committed.
      */
-    private async announcePaid(salesOrderId: string, paidAt: Date) {
-        if (!this.sdEvents) return
+    private async announceIssued(salesOrderId: string) {
+        if (!this.accounting) return
         const invoice = await this.prisma.sdSalesInvoice.findUnique({
             where: { salesOrderId },
             select: {
@@ -222,7 +231,81 @@ export class SalesInvoiceService {
                 companyId: true,
                 currency: true,
                 totalAmount: true,
-                salesOrder: { select: { customerId: true } },
+                subtotal: true,
+                discountAmount: true,
+                shippingAmount: true,
+                issuedAt: true,
+                status: true,
+                salesOrder: {
+                    select: {
+                        id: true,
+                        orderNumber: true,
+                        channel: true,
+                        customerId: true,
+                        lines: { select: { taxAmount: true } },
+                    },
+                },
+            },
+        })
+        if (!invoice || (invoice.status !== 'ISSUED' && invoice.status !== 'PAID')) return
+        if (!invoice.salesOrder.customerId || !invoice.issuedAt) return
+        // POS owns GL via PosSaleCompleted — do not dual-write AR events.
+        if (invoice.salesOrder.channel === 'POS') return
+
+        const taxAmount = invoice.salesOrder.lines.reduce(
+            (sum, line) => sum.plus(new Decimal((line.taxAmount ?? 0).toString())),
+            new Decimal(0),
+        )
+        const dueDate = dueDateFor(invoice.issuedAt)
+        try {
+            await this.accounting.recordAndDispatch({
+                eventType: 'SalesInvoiceIssued',
+                documentType: 'SALES_INVOICE',
+                documentId: invoice.id,
+                companyId: invoice.companyId,
+                postingDate: invoice.issuedAt,
+                currencyCode: invoice.currency,
+                idempotencyKey: `sales-invoice-ar:${invoice.id}`,
+                totalValue: invoice.totalAmount,
+                payload: {
+                    salesInvoiceId: invoice.id,
+                    invoiceNumber: invoice.invoiceNumber,
+                    salesOrderId,
+                    orderNumber: invoice.salesOrder.orderNumber,
+                    customerId: invoice.salesOrder.customerId,
+                    companyId: invoice.companyId,
+                    currency: invoice.currency,
+                    totalAmount: invoice.totalAmount.toString(),
+                    subtotal: invoice.subtotal.toString(),
+                    discountAmount: invoice.discountAmount.toString(),
+                    shippingAmount: invoice.shippingAmount.toString(),
+                    taxAmount: taxAmount.toString(),
+                    issuedAt: invoice.issuedAt.toISOString(),
+                    dueDate: dueDate?.toISOString() ?? null,
+                    channel: invoice.salesOrder.channel,
+                },
+            })
+        } catch (err) {
+            this.logger.error(
+                `Invoice ${invoice.invoiceNumber}: AR issue hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+            )
+        }
+    }
+
+    /**
+     * Publishes the settled invoice (CRM loyalty + FICO AR clear). The payment is already
+     * committed, so a failed hand-off is logged instead of failing the payment.
+     */
+    private async announcePaid(salesOrderId: string, paidAt: Date) {
+        const invoice = await this.prisma.sdSalesInvoice.findUnique({
+            where: { salesOrderId },
+            select: {
+                id: true,
+                invoiceNumber: true,
+                companyId: true,
+                currency: true,
+                totalAmount: true,
+                salesOrder: { select: { customerId: true, channel: true, orderNumber: true } },
             },
         })
         if (!invoice?.salesOrder.customerId) return
@@ -237,12 +320,38 @@ export class SalesInvoiceService {
             paidAt: paidAt.toISOString(),
             idempotencyKey: invoice.id,
         }
-        try {
-            await this.sdEvents.emit(SD_EVENTS.SALES_INVOICE_PAID, payload)
-        } catch (err) {
-            this.logger.error(
-                `Invoice ${invoice.invoiceNumber}: paid hand-off failed (${err instanceof Error ? err.message : String(err)})`,
-            )
+        if (this.sdEvents) {
+            try {
+                await this.sdEvents.emit(SD_EVENTS.SALES_INVOICE_PAID, payload)
+            } catch (err) {
+                this.logger.error(
+                    `Invoice ${invoice.invoiceNumber}: paid hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+                )
+            }
+        }
+        if (this.accounting && invoice.salesOrder.channel !== 'POS') {
+            try {
+                await this.accounting.recordAndDispatch({
+                    eventType: 'SalesInvoicePaid',
+                    documentType: 'SALES_INVOICE',
+                    documentId: invoice.id,
+                    companyId: invoice.companyId,
+                    postingDate: paidAt,
+                    currencyCode: invoice.currency,
+                    idempotencyKey: `sales-invoice-ar-clear:${invoice.id}`,
+                    totalValue: invoice.totalAmount,
+                    payload: {
+                        ...payload,
+                        channel: invoice.salesOrder.channel,
+                        orderNumber: invoice.salesOrder.orderNumber,
+                        salesOrderId,
+                    },
+                })
+            } catch (err) {
+                this.logger.error(
+                    `Invoice ${invoice.invoiceNumber}: AR clear hand-off failed (${err instanceof Error ? err.message : String(err)})`,
+                )
+            }
         }
     }
 

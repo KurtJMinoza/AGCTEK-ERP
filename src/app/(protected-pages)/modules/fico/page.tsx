@@ -21,6 +21,7 @@ const FICO_SUBMODULES = [
     'tax-codes',
     'document-types-fi',
     'accounting-events',
+    'ar-open-items',
 ]
 export default async function Page() {
     return (

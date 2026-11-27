@@ -10,6 +10,7 @@ import type { MmAccountingDispatchPayload } from '../mm/common/mm-accounting-eve
 import { PrismaService } from '../prisma/prisma.service'
 import { FicoJournalService } from './fico-journal.service'
 import { FicoAccountsPayableService } from './fico-accounts-payable.service'
+import { FicoAccountsReceivableService } from './fico-accounts-receivable.service'
 import {
     FICO_ACCOUNTING_ERROR_CODES,
     FICO_ACCOUNTING_MAX_ATTEMPTS,
@@ -82,6 +83,8 @@ export class FicoAccountingEventProcessorService {
         private readonly prisma: PrismaService,
         private readonly journal: FicoJournalService,
         @Optional()
+        private readonly accountsReceivable?: FicoAccountsReceivableService,
+        @Optional()
         private readonly accountsPayable?: FicoAccountsPayableService,
     ) {}
 
@@ -113,13 +116,33 @@ export class FicoAccountingEventProcessorService {
             if (eventId) {
                 await this.assertPayloadCompatible(eventId, payload)
             }
-            const result = this.accountsPayable?.supportsAccountingPayload(payload)
-                ? await this.accountsPayable.postMatchedSupplierInvoice(payload)
-                : await this.journal.createFromAccountingEvent(payload)
-            if (result.duplicate) {
+            const result = this.accountsReceivable?.supportsAccountingPayload(payload)
+                ? await this.accountsReceivable.handleAccountingPayload(payload)
+                : this.accountsPayable?.supportsAccountingPayload(payload)
+                  ? await this.accountsPayable.postMatchedSupplierInvoice(payload)
+                  : await this.journal.createFromAccountingEvent(payload)
+            const skipped =
+                'skipped' in result &&
+                Boolean((result as { skipped?: boolean }).skipped)
+            if (skipped) {
+                const skipReason =
+                    'skipReason' in result &&
+                    typeof (result as { skipReason?: unknown }).skipReason === 'string'
+                        ? (result as { skipReason: string }).skipReason
+                        : 'AR posting skipped.'
+                await this.markSkipped(eventId, payload.idempotencyKey, skipReason)
+            } else if (result.duplicate) {
                 await this.linkExistingJournal(eventId, payload.idempotencyKey)
             } else if (eventId && result.journalEntryId) {
                 await this.linkExistingJournal(eventId, payload.idempotencyKey)
+            }
+
+            if (
+                !skipped &&
+                result.journalEntryId &&
+                this.accountsReceivable
+            ) {
+                await this.syncPosArSubledger(payload, result.journalEntryId)
             }
         } catch (err) {
             const classified = classifyError(err)
@@ -144,6 +167,65 @@ export class FicoAccountingEventProcessorService {
                 this.logger.error(
                     `Accounting dispatch failed (retryable): ${classified.message}`,
                 )
+            }
+        }
+    }
+
+    /**
+     * Attach / clear FICO AR open items for POS unpaid balances after the
+     * SD POS journal succeeds (subledger only — no second GL).
+     */
+    private async syncPosArSubledger(
+        payload: MmAccountingDispatchPayload,
+        journalEntryId: string,
+    ): Promise<void> {
+        if (!this.accountsReceivable) return
+
+        if (payload.eventType === 'PosSaleCompleted') {
+            const sale = payload as MmAccountingDispatchPayload & {
+                salesOrderId?: string
+                outstandingBalance?: string
+            }
+            const salesOrderId = sale.salesOrderId ?? payload.documentId
+            if (!salesOrderId) return
+            try {
+                await this.accountsReceivable.registerPosChargeOpenItemFromJournal({
+                    companyId: payload.companyId,
+                    salesOrderId,
+                    journalEntryId,
+                    outstandingBalance: sale.outstandingBalance,
+                    currencyCode: payload.currencyCode,
+                    postingDate: payload.postingDate,
+                })
+            } catch (error) {
+                this.logger.error(
+                    `POS AR open-item attach failed for ${salesOrderId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                )
+                throw error
+            }
+            return
+        }
+
+        if (payload.eventType === 'PosCollectionCompleted') {
+            const collection = payload as MmAccountingDispatchPayload & {
+                collectedAmount?: string
+            }
+            try {
+                await this.accountsReceivable.applyPosCollectionToOpenItem({
+                    companyId: payload.companyId,
+                    collectionId: payload.documentId,
+                    journalEntryId,
+                    collectedAmount: collection.collectedAmount,
+                })
+            } catch (error) {
+                this.logger.error(
+                    `POS AR open-item collection sync failed for ${payload.documentId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                )
+                throw error
             }
         }
     }

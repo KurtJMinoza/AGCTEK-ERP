@@ -33,6 +33,7 @@ export type FicoJournalEntryListItem = {
     currencyCode: string
     description: string | null
     sourceModule?: string | null
+    sourceDocumentType?: string | null
     sourceDocumentId?: string | null
     supplierId?: string | null
     supplier?: FicoJournalSupplierSummary | null
@@ -57,10 +58,12 @@ export type FicoJournalEntryDetail = FicoJournalEntryListItem & {
     fiscalPeriodId?: string | null
     approvalStatus: string
     sourceModule?: string | null
+    sourceDocumentType?: string | null
     sourceDocumentId?: string | null
     supplierId?: string | null
     supplier?: FicoJournalSupplierSummary | null
     reversalOfId?: string | null
+    metadata?: Record<string, unknown> | null
     lines: FicoJournalLine[]
 }
 
@@ -1444,4 +1447,167 @@ export type FicoPeriodClosingReadiness = {
         notApplicable: number
         readyToClose: boolean
     }
+}
+
+/** Accounts Receivable V1 */
+
+export type FicoArAgingBucket =
+    | 'CURRENT'
+    | 'D1_30'
+    | 'D31_60'
+    | 'D61_90'
+    | 'D90_PLUS'
+
+export type FicoArCustomerSummary = {
+    id: string
+    customerNumber: string
+    companyName: string
+    email?: string | null
+}
+
+export type FicoArOpenItem = {
+    id: string
+    companyId: string
+    customerId: string
+    documentId: string
+    itemType: string
+    direction: string
+    originalAmount: string
+    openAmount: string
+    currencyCode: string
+    baselineDate: string
+    dueDate: string | null
+    status: string
+    clearedAt?: string | null
+    agingBucket?: FicoArAgingBucket
+    daysPastDue?: number
+    asOfDate?: string
+    customer?: FicoArCustomerSummary | null
+    reconciliationAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+    } | null
+    document?: {
+        id: string
+        documentType: string
+        status: string
+        referenceNumber: string | null
+        postingDate: string
+        journalEntryId: string
+        clearingJournalEntryId?: string | null
+        sourceSalesInvoiceId?: string
+        sourceSalesInvoice?: {
+            id: string
+            invoiceNumber: string
+            salesOrderId?: string
+        } | null
+        journalEntry?: {
+            id: string
+            documentNumber: string | null
+            status?: string
+        } | null
+    } | null
+}
+
+export type FicoArDocumentDetail = {
+    id: string
+    companyId: string
+    customerId: string
+    sourceSalesInvoiceId: string
+    journalEntryId: string
+    clearingJournalEntryId?: string | null
+    documentType: string
+    status: string
+    referenceNumber: string | null
+    documentDate: string
+    postingDate: string
+    baselineDate: string
+    dueDate: string | null
+    currencyCode: string
+    netAmount: string
+    taxAmount: string
+    grossAmount: string
+    receivableAmount: string
+    reconciliationAccountId?: string | null
+    reconciliationAccountCode?: string | null
+    createdAt?: string
+    customer?: FicoArCustomerSummary | null
+    reconciliationAccount?: {
+        id: string
+        accountCode: string
+        accountName: string
+    } | null
+    sourceSalesInvoice?: {
+        id: string
+        invoiceNumber: string
+        status: string
+        salesOrderId: string
+        issuedAt?: string | null
+        paidAt?: string | null
+        totalAmount?: string
+    } | null
+    journalEntry?: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postingDate?: string
+        totalAmount?: string
+        currencyCode?: string
+        lines?: Array<{
+            id: string
+            lineNumber: number
+            debitAmount: string
+            creditAmount: string
+            description?: string | null
+            glAccount?: {
+                id: string
+                accountCode: string
+                accountName: string
+            } | null
+        }>
+    } | null
+    clearingJournalEntry?: {
+        id: string
+        documentNumber: string | null
+        status: string
+        postingDate?: string
+    } | null
+    openItem?: {
+        id: string
+        openAmount: string
+        originalAmount: string
+        status: string
+        dueDate: string | null
+        direction?: string
+        baselineDate?: string
+    } | null
+    agingBucket?: FicoArAgingBucket
+    aging?: {
+        bucket: FicoArAgingBucket
+        daysPastDue: number
+    } | null
+}
+
+export type FicoArAgingResponse = {
+    asOfDate: string
+    buckets: Record<FicoArAgingBucket, string> | {
+        CURRENT: { toString(): string } | string
+        D1_30: { toString(): string } | string
+        D31_60: { toString(): string } | string
+        D61_90: { toString(): string } | string
+        D90_PLUS: { toString(): string } | string
+    }
+    totalOpen?: string | { toString(): string }
+    totalReceivable?: string | { toString(): string }
+    items: FicoArOpenItem[]
+}
+
+export type FicoArOpenItemQuery = {
+    companyId: string
+    customerId?: string
+    status?: string
+    search?: string
+    overdueOnly?: boolean
+    asOfDate?: string
 }

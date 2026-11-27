@@ -44,8 +44,8 @@ export type FinancialPostingRequest = {
     lines: FinancialPostingLineInput[]
     metadata?: Record<string, unknown>
     sourcePostingKey?: string | null
-    /** AP reconciliation accounts can only be posted from the AP subledger. */
-    subledgerPosting?: 'AP'
+    /** AP/AR reconciliation accounts can only be posted from their subledger. */
+    subledgerPosting?: 'AP' | 'AR'
     afterPersist?: FinancialPostingAfterPersist
     /** When set, journal is posted immediately with consistent approval fields. */
     postImmediately: boolean
