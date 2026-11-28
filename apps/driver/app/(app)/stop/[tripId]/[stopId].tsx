@@ -15,6 +15,7 @@ import {
     useFocusEffect,
     useLocalSearchParams,
     useNavigation,
+    usePreventRemove,
     useRouter,
 } from 'expo-router'
 import { CashReceivedSheet } from '@/src/components/CashReceivedSheet'
@@ -218,24 +219,20 @@ export default function StopDetailScreen() {
         stop?.status === 'COMPLETED' &&
         stop.collection?.status === 'PENDING' &&
         stop.collection.amountDue != null
-    useEffect(() => {
-        if (!cashStillDue) return
-        return navigation.addListener('beforeRemove', (event) => {
-            event.preventDefault()
-            Alert.alert(
-                'Cash not recorded',
-                'This delivery is Cash on Delivery and the cash is not recorded yet.',
-                [
-                    { text: 'Stay', style: 'cancel' },
-                    {
-                        text: 'Leave anyway',
-                        style: 'destructive',
-                        onPress: () => navigation.dispatch(event.data.action),
-                    },
-                ],
-            )
-        })
-    }, [navigation, cashStillDue])
+    usePreventRemove(cashStillDue, ({ data }) => {
+        Alert.alert(
+            'Cash not recorded',
+            'This delivery is Cash on Delivery and the cash is not recorded yet.',
+            [
+                { text: 'Stay', style: 'cancel' },
+                {
+                    text: 'Leave anyway',
+                    style: 'destructive',
+                    onPress: () => navigation.dispatch(data.action),
+                },
+            ],
+        )
+    })
 
     const openPhone = (scheme: 'tel' | 'sms', phone: string) => {
         Linking.openURL(`${scheme}:${phone.replace(/[^\d+]/g, '')}`).catch(() =>

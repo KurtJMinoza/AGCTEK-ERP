@@ -23,11 +23,11 @@ export default function TabsLayout() {
         <Tabs
             screenOptions={{
                 tabBarActiveTintColor: colors.brand,
-                tabBarInactiveTintColor: colors.textFaint,
+                tabBarInactiveTintColor: colors.textMuted,
                 tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
                 tabBarStyle: {
                     borderTopColor: colors.border,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: colors.surface,
                     height: 58 + bottomInset,
                     paddingTop: 6,
                     paddingBottom: bottomInset,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+    Image,
     ImageBackground,
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -13,6 +14,7 @@ import {
 } from 'react-native'
 import { WEB_BASE } from '../../api/client'
 import { discountPercent, isLpgMain } from '../../catalog'
+import { useCatalog } from '../../context/CatalogContext'
 import { colors, radius } from '../../theme'
 import type { DivisionId, Product } from '../../types'
 import { formatMoney } from '../../utils/format'
@@ -22,8 +24,6 @@ type Promo = {
     eyebrow: string
     headline: string
     body: string
-    /** Shown as a dashed code chip after the body (AWIC10). */
-    code?: string
     cta: string
     photo: string
     shade: string
@@ -46,8 +46,7 @@ function buildPromos(products: Product[]): Promo[] {
             divisionId: 'DIV_RETAIL',
             eyebrow: 'AWIC Official Store',
             headline: '10% off',
-            body: 'Health & wellness picks. Use code',
-            code: 'AWIC10',
+            body: 'Wellness picks. Happier wallet.',
             cta: 'Shop AWIC',
             photo: photo('awic-family-cooking-1.jpg'),
             shade: 'rgba(2,44,34,0.72)',
@@ -88,6 +87,14 @@ export function StorePromoCarousel({ products, onShop }: Props) {
     const cardWidth = Math.max(280, containerWidth - 32)
     const stepWidth = cardWidth + 12
     const promos = buildPromos(products)
+    const { brands } = useCatalog()
+    const brandLogoUri = (divisionId: string) => {
+        const logoUrl = brands.find((brand) => brand.divisionId === divisionId)?.logoUrl
+        if (!logoUrl) return null
+        return /^https?:\/\//.test(logoUrl)
+            ? logoUrl
+            : `${WEB_BASE}${logoUrl.startsWith('/') ? '' : '/'}${logoUrl}`
+    }
 
     const [page, setPage] = useState(0)
     const [dragOffset, setDragOffset] = useState(0)
@@ -238,20 +245,22 @@ export function StorePromoCarousel({ products, onShop }: Props) {
                                     style={styles.card}
                                     imageStyle={styles.image}
                                 >
+                                    {brandLogoUri(promo.divisionId) ? (
+                                        <View style={styles.brandLogo}>
+                                            <Image
+                                                source={{ uri: brandLogoUri(promo.divisionId) as string }}
+                                                style={styles.brandLogoImage}
+                                                resizeMode="contain"
+                                                accessibilityLabel={`${promo.eyebrow} logo`}
+                                            />
+                                        </View>
+                                    ) : null}
                                     <View style={[styles.shade, { backgroundColor: promo.shade }]}>
                                         <Text style={[styles.eyebrow, { color: promo.eyebrowColor }]}>
                                             {promo.eyebrow}
                                         </Text>
                                         <Text style={styles.headline}>{promo.headline}</Text>
-                                        <Text style={styles.body}>
-                                            {promo.body}
-                                            {promo.code ? (
-                                                <>
-                                                    {' '}
-                                                    <Text style={styles.code}> {promo.code} </Text> at checkout.
-                                                </>
-                                            ) : null}
-                                        </Text>
+                                        <Text style={styles.body}>{promo.body}</Text>
                                         <Pressable
                                             accessibilityRole="button"
                                             onPress={() => {
@@ -323,6 +332,19 @@ const styles = StyleSheet.create({
     image: {
         borderRadius: radius.lg,
     },
+    brandLogo: {
+        position: 'absolute',
+        top: 14,
+        right: 14,
+        width: 58,
+        height: 58,
+        borderRadius: radius.sm,
+        backgroundColor: 'rgba(255,255,255,0.92)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 2,
+    },
+    brandLogoImage: { width: 50, height: 50 },
     shade: {
         flex: 1,
         padding: 20,
@@ -345,17 +367,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 19,
         color: 'rgba(255,255,255,0.92)',
-    },
-    code: {
-        fontFamily: 'monospace',
-        fontWeight: '700',
-        color: '#fff',
-        backgroundColor: 'rgba(255,255,255,0.18)',
-        borderWidth: 1,
-        borderStyle: 'dashed',
-        borderColor: 'rgba(255,255,255,0.6)',
-        paddingHorizontal: 4,
-        borderRadius: 4,
     },
     cta: {
         alignSelf: 'flex-start',

@@ -1763,6 +1763,37 @@ export class ProductService {
         return next
     }
 
+    /**
+     * Public storefront projection of MM company logos. Only brand identity is
+     * exposed; no address, TIN or internal ids leave the ERP.
+     */
+    async listStorefrontBrands() {
+        const companies = await this.prisma.company.findMany({
+            where: { logoUrl: { not: null } },
+            select: { code: true, name: true, logoUrl: true },
+            orderBy: { code: 'asc' },
+        })
+        const brands = [
+            { divisionId: 'DIV_RETAIL', match: /AWIC/i },
+            { divisionId: 'DIV_LPG', match: /LPG/i },
+            { divisionId: 'DIV_APPLIANCES', match: /MCONPINCO/i },
+        ]
+        return brands.flatMap(({ divisionId, match }) => {
+            const company = companies.find(
+                (row) => match.test(row.code) || match.test(row.name),
+            )
+            return company?.logoUrl
+                ? [
+                      {
+                          divisionId,
+                          companyName: company.name,
+                          logoUrl: company.logoUrl,
+                      },
+                  ]
+                : []
+        })
+    }
+
     private toJson(value: Record<string, unknown> | null | undefined) {
         if (value === undefined) return undefined
         return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue)

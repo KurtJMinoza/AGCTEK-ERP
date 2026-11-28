@@ -4,10 +4,12 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    GeocodedAddress,
     Notification,
     Order,
     OrderStatus,
     OrderTracking,
+    PlaceSuggestion,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -19,7 +21,7 @@ import type {
     Spec,
     TrackingLink,
 } from '../types'
-import { CommerceApiError, type CommerceApi } from './commerceApi'
+import { CommerceApiError, type CommerceApi, type StorefrontBrand } from './commerceApi'
 
 /** Nest global prefix — must match backend `app.setGlobalPrefix('api/v1')`. */
 const API_PREFIX = '/api/v1'
@@ -156,6 +158,10 @@ export class HttpCommerceApi implements CommerceApi {
         return rows.map((row) => this.toProduct(row))
     }
 
+    async getStorefrontBrands(): Promise<StorefrontBrand[]> {
+        return this.request<StorefrontBrand[]>('/sd/products/storefront/brands')
+    }
+
     async getAvailability(divisionId: string, sku: string): Promise<Availability> {
         const query = new URLSearchParams({ divisionId, sku }).toString()
         const result = await this.request<{
@@ -225,6 +231,29 @@ export class HttpCommerceApi implements CommerceApi {
             },
         )
         return client
+    }
+
+    async getCurrentCustomer(): Promise<Customer> {
+        return this.request<ApiClient>('/retail/clients/me')
+    }
+
+    async searchAddress(query: string): Promise<PlaceSuggestion[]> {
+        const q = query.trim()
+        if (q.length < 3) return []
+        const params = new URLSearchParams({ q, limit: '5' })
+        return this.request<PlaceSuggestion[]>(
+            `/retail/clients/me/addresses/geocode/search?${params.toString()}`,
+        )
+    }
+
+    async reverseAddress(latitude: number, longitude: number): Promise<GeocodedAddress> {
+        const params = new URLSearchParams({
+            lat: String(latitude),
+            lng: String(longitude),
+        })
+        return this.request<GeocodedAddress>(
+            `/retail/clients/me/addresses/geocode/reverse?${params.toString()}`,
+        )
     }
 
     async checkout({ checkoutId, customerId, shipping, pricing, paymentMethod }: CheckoutInput): Promise<CheckoutResult> {

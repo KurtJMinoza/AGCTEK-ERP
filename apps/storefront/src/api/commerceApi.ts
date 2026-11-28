@@ -3,9 +3,11 @@ import type {
     CheckoutInput,
     CheckoutResult,
     Customer,
+    GeocodedAddress,
     Notification,
     Order,
     OrderTracking,
+    PlaceSuggestion,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -18,6 +20,13 @@ import type {
 
 export type * from '../types'
 
+/** Public brand identity from MM company logos (`GET /sd/products/storefront/brands`). */
+export type StorefrontBrand = {
+    divisionId: string
+    companyName: string
+    logoUrl: string
+}
+
 /**
  * The only boundary screens/hooks may use to reach commerce data.
  *
@@ -29,6 +38,8 @@ export type * from '../types'
 export interface CommerceApi {
     /** Active products from every official store. */
     getProducts(): Promise<Product[]>
+    /** Brand logos from the MM company master, keyed by sales division. */
+    getStorefrontBrands(): Promise<StorefrontBrand[]>
     getAvailability(divisionId: string, sku: string): Promise<Availability>
     /** Signs in and keeps the session token for later account / checkout calls. */
     signIn(input: SignInInput): Promise<Customer>
@@ -38,6 +49,13 @@ export interface CommerceApi {
     /** Restores a persisted token, or clears it on sign-out. */
     setSessionToken(token: string | null): void
     updateProfile(customerId: string, update: ProfileUpdate): Promise<Customer>
+    /** Fresh profile after address pin sync (includes default saved address). */
+    getCurrentCustomer(): Promise<Customer>
+    searchAddress(query: string): Promise<PlaceSuggestion[]>
+    reverseAddress(
+        latitude: number,
+        longitude: number,
+    ): Promise<GeocodedAddress>
     /** Places one order per store in a single checkout. */
     checkout(input: CheckoutInput): Promise<CheckoutResult>
     getOrders(customerId: string): Promise<Order[]>
@@ -58,7 +76,10 @@ export interface CommerceApi {
     // ─── Saved Addresses ───────────────────────────────────────────────────────
     getAddresses(): Promise<SavedAddress[]>
     createAddress(input: SavedAddressInput): Promise<SavedAddress>
-    updateAddress(id: string, input: Partial<SavedAddressInput>): Promise<SavedAddress>
+    updateAddress(
+        id: string,
+        input: Partial<SavedAddressInput>,
+    ): Promise<SavedAddress>
     deleteAddress(id: string): Promise<void>
     setDefaultAddress(id: string): Promise<void>
 }
@@ -72,6 +93,7 @@ export class CommerceApiError extends Error {
             | 'CONFLICT'
             | 'NETWORK'
             | 'UNAUTHORIZED',
+        readonly mismatchedDigits?: number[],
     ) {
         super(message)
         this.name = 'CommerceApiError'

@@ -21,7 +21,12 @@ import {
     OTP_TTL_MS,
 } from './shop-auth.constants'
 import { assertGmailAddress, GmailOnlyError } from './gmail.util'
-import { generateOtpCode, hashOtpCode, verifyOtpHash } from './shop-otp.util'
+import {
+    generateOtpCode,
+    hashOtpCode,
+    mismatchedOtpDigits,
+    verifyOtpHash,
+} from './shop-otp.util'
 import { ShopMailService } from './shop-mail.service'
 import { ShopGoogleAuthService } from './shop-google-auth.service'
 
@@ -140,11 +145,7 @@ export class ShopAuthService {
         return { message: GENERIC_OTP_SENT_MESSAGE }
     }
 
-    async verifyEmailCode(
-        emailRaw: string,
-        code: string,
-        firstName?: string,
-    ) {
+    async verifyEmailCode(emailRaw: string, code: string, firstName?: string) {
         const email = this.requireGmail(emailRaw)
         const otp = await this.prisma.retailEmailOtp.findFirst({
             where: {
@@ -158,9 +159,7 @@ export class ShopAuthService {
             throw new BadRequestException('The verification code is incorrect.')
         }
         if (otp.expiresAt.getTime() <= Date.now()) {
-            throw new BadRequestException(
-                'This verification code has expired.',
-            )
+            throw new BadRequestException('This verification code has expired.')
         }
         if (otp.attemptCount >= OTP_MAX_ATTEMPTS) {
             throw new HttpException(
@@ -169,13 +168,23 @@ export class ShopAuthService {
             )
         }
 
-        const valid = verifyOtpHash(otp.codeHash, otp.id, email, code.trim())
+        const submitted = code.trim()
+        const valid = verifyOtpHash(otp.codeHash, otp.id, email, submitted)
         if (!valid) {
+            const mismatchedDigits = mismatchedOtpDigits(
+                otp.codeHash,
+                otp.id,
+                email,
+                submitted,
+            )
             await this.prisma.retailEmailOtp.update({
                 where: { id: otp.id },
                 data: { attemptCount: { increment: 1 } },
             })
-            throw new BadRequestException('The verification code is incorrect.')
+            throw new BadRequestException({
+                message: 'The verification code is incorrect.',
+                mismatchedDigits,
+            })
         }
 
         const consumed = await this.prisma.retailEmailOtp.updateMany({

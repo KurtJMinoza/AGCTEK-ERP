@@ -201,11 +201,21 @@ export type CourierTrackingDto = {
     events: Array<{ status: string; label: string; at: string }>
 }
 
+export type OrderFulfillmentDto = {
+    /** Same stage names as the SD delivery monitor (MM pick → pack → ship). */
+    stage: 'PENDING_PICK' | 'PICKING' | 'PACKED' | 'SHIPPED'
+    label: string
+    pickedQty: number
+    requiredQty: number
+}
+
 export type OrderTrackingDto = {
     orderId: string
     orderNumber: string
     customerStatus: CustomerOrderStatus
     customerStatusLabel: string
+    /** Shopper-safe view of MM picking / packing progress; absent on legacy rows. */
+    fulfillment?: OrderFulfillmentDto | null
     checkpoints: TrackingCheckpoint[]
     /** Set when the order ships with a third-party courier (no live map for these). */
     courier: CourierTrackingDto | null

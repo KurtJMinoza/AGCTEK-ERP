@@ -56,7 +56,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
     )
 
     return (
-        <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <header className="sticky top-0 z-30 border-b border-shop-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
             <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
                 <Link
                     href={MARKETPLACE_PATH}
@@ -75,7 +75,7 @@ const MarketplaceHeader = ({ onSearchSubmit }: MarketplaceHeaderProps) => {
                         priority
                         className="h-10 w-10 rounded-full object-contain transition-transform duration-200 group-hover:scale-105"
                     />
-                    <span className="hidden text-base font-semibold tracking-tight text-gray-900 transition-colors group-hover:text-shop-700 md:inline">
+                    <span className="hidden text-base font-semibold tracking-tight text-shop-900 transition-colors group-hover:text-shop-600 md:inline">
                         {MARKETPLACE_NAME}
                     </span>
                 </Link>

@@ -55,7 +55,7 @@ export default function HomeScreen() {
             <ScrollView
                 contentContainerStyle={styles.content}
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />
+                    <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.brand} />
                 }
             >
                 <View style={styles.hero}>

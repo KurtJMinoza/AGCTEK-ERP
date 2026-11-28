@@ -31,11 +31,16 @@ EXPO_PUBLIC_USE_MOCK_API=false              # true = offline demo data
 | Flow | Endpoint |
 | --- | --- |
 | Catalogue (all three stores) | `GET /sd/products?activeOnly=true` |
+| Official-store brand logos (MM company master) | `GET /sd/products/storefront/brands` |
 | Stock on the product page | `GET /sd/products/storefront/availability` |
-| Sign in / create account / profile | `POST /retail/clients/login`, `POST /retail/clients/register`, `PATCH /retail/clients/me` |
+| Pick → pack progress on my order | `GET /sd/sales-orders/retail/:id/tracking` (`fulfillment`) |
+| Gmail OTP sign in / create account | `POST /shop/auth/email/request-code`, `POST /shop/auth/email/verify-code` |
+| Google sign in | `GET /shop/auth/public-config`, `POST /shop/auth/google` |
+| Password sign in / profile (fallback) | `POST /retail/clients/login`, `POST /retail/clients/register`, `PATCH /retail/clients/me` |
 | Checkout (one master order, lines tagged by store; idempotent `checkoutId`) | `POST /sd/sales-orders/retail/checkout` |
 | My orders | `GET /sd/sales-orders?customerId=` |
 
+- **Auth:** primary flow is Gmail OTP, matching live `/shop`; Google sign-in uses `GOOGLE_CLIENT_ID` from `/shop/auth/public-config`. In Expo Go, allow the `exp://<lan-ip>:8082/--/google-callback` redirect URI in Google Cloud Console. Email/password remains as fallback.
 - **Pricing** (`src/pricing.ts`) mirrors `calculateCartPricing` on the web: ₱150 delivery per store, `AWIC10` takes 10% off AWIC items only. Keep both in sync.
 - **Add to cart** requires sign-in, then a confirmation. "Buy now" opens the cart.
 - LPG add-ons cannot be checked out on their own.
@@ -45,7 +50,7 @@ EXPO_PUBLIC_USE_MOCK_API=false              # true = offline demo data
 
 ```text
 app/              Expo Router: (tabs) shop · cart · orders · account, products, product/[id],
-                  checkout, order/[id], favorites, sign-in (modal)
+                  checkout, order/[id], favorites, sign-in (modal), otp (Gmail code)
 src/
   api/            CommerceApi interface, HttpCommerceApi (ERP), MockCommerceApi (offline demo)
   context/        Catalog, Auth, Cart (+ promo/pricing), Favorites, Shop (add-to-cart flow), Toast
@@ -54,4 +59,4 @@ src/
   pricing.ts      Split-cart pricing
 ```
 
-Storage keys are namespaced `agctek.storefront.*` (`cart`, `session`, `favorites`) and never share `agctek.driver.*`.
+Storage keys are namespaced `agctek.storefront.*` (`cart`, `session`, `favorites`, `otp-email`) and never share `agctek.driver.*`.

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShoppingBag } from 'lucide-react'
 import Button from '@/components/ui/Button'
@@ -9,6 +9,7 @@ import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import type { SdProductRecord } from '@/modules/sd/services/productCatalogService'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
 import StorefrontCatalogStatus from '@/modules/storefront/shared/components/StorefrontCatalogStatus'
+import { fetchStorefrontBrands } from '@/services/storefront/storefrontBrandService'
 import MarketplaceCategoryGrid, {
     marketplaceCategories,
     type MarketplaceCategory,
@@ -64,15 +65,7 @@ const buildStorePromos = (records: SdProductRecord[]): StorePromo[] => {
             storeName: 'AWIC',
             eyebrow: 'AWIC Official Store',
             headline: '10% off',
-            body: (
-                <>
-                    Health &amp; wellness picks. Use code{' '}
-                    <span className="rounded-md border border-dashed border-white/60 bg-white/15 px-1.5 py-0.5 font-mono font-semibold text-white">
-                        AWIC10
-                    </span>{' '}
-                    at checkout.
-                </>
-            ),
+            body: 'Wellness picks. Happier wallet.',
             cta: 'Shop AWIC',
             photos: [1, 2, 3].map(
                 (n) => `${PROMO_PHOTOS}/awic-family-cooking-${n}.jpg`,
@@ -137,6 +130,21 @@ const MarketplacePage = () => {
         openProduct,
     } = useMarketplace()
     const setSearch = useMarketplaceBrowseStore((s) => s.setSearch)
+    const [brandLogos, setBrandLogos] = useState<Map<string, string>>(new Map())
+
+    useEffect(() => {
+        let live = true
+        fetchStorefrontBrands()
+            .then((rows) => {
+                if (live) setBrandLogos(new Map(rows.map((r) => [r.divisionId, r.logoUrl])))
+            })
+            .catch(() => {
+                // Brand logos are optional; cards keep their division icon.
+            })
+        return () => {
+            live = false
+        }
+    }, [])
 
     useEffect(() => {
         setSearch('')
@@ -189,10 +197,16 @@ const MarketplacePage = () => {
 
     const storeCards = useMemo(
         () =>
-            storeCardsFromCatalog(catalog.records).filter(
-                (card) => (storeCounts.get(card.id) ?? 0) > 0,
-            ),
-        [catalog.records, storeCounts],
+            storeCardsFromCatalog(catalog.records)
+                .map((card) => ({
+                    ...card,
+                    logoUrl:
+                        card.logoUrl ||
+                        brandLogos.get(card.themeDivisionId ?? card.id) ||
+                        null,
+                }))
+                .filter((card) => (storeCounts.get(card.id) ?? 0) > 0),
+        [catalog.records, storeCounts, brandLogos],
     )
 
     const browse = (query: Parameters<typeof productsHref>[0] = {}) =>
@@ -228,7 +242,7 @@ const MarketplacePage = () => {
         })
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-shop-50">
             <MarketplaceHeader />
 
             <main className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
@@ -289,7 +303,7 @@ const MarketplacePage = () => {
                                 </h2>
                                 <p className={SECTION_SUBTITLE}>
                                     Shop directly from AGC&apos;s verified
-                                    companies.
+                                    divisions.
                                 </p>
                             </div>
                             <MarketplaceOfficialStores

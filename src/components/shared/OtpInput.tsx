@@ -13,6 +13,8 @@ interface OTPInputProps {
     autoFocus?: boolean
     placeholder?: string
     invalid?: boolean
+    invalidDigits?: number[]
+    invalidClass?: string
 }
 
 const OTPInput = ({
@@ -25,6 +27,8 @@ const OTPInput = ({
     autoFocus = false,
     placeholder,
     invalid = false,
+    invalidDigits,
+    invalidClass,
 }: OTPInputProps) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setActiveInput] = useState<number>(0)
@@ -94,40 +98,50 @@ const OTPInput = ({
         <div className={`flex gap-2 ${className}`}>
             {Array(length)
                 .fill(null)
-                .map((_, index) => (
-                    <Input
-                        key={index}
-                        ref={setRef(index)}
-                        className={classNames(
-                            'text-center text-lg h-[58px] w-[58px]',
-                            inputClass,
-                        )}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={1}
-                        value={value[index] || ''}
-                        disabled={disabled}
-                        autoFocus={autoFocus && index === 0}
-                        placeholder={placeholder}
-                        aria-label={`Digit ${index + 1} of ${length}`}
-                        invalid={invalid}
-                        onChange={(e) =>
-                            handleChange(
-                                e as ChangeEvent<HTMLInputElement>,
-                                index,
-                            )
-                        }
-                        onKeyDown={(e) =>
-                            handleKeyDown(
-                                e as KeyboardEvent<HTMLInputElement>,
-                                index,
-                            )
-                        }
-                        onPaste={handlePaste}
-                        onFocus={() => setActiveInput(index)}
-                    />
-                ))}
+                .map((_, index) => {
+                    const digitInvalid = invalidDigits?.includes(index) ?? false
+                    return (
+                        <Input
+                            key={index}
+                            ref={setRef(index)}
+                            className={classNames(
+                                'text-center text-lg h-[58px] w-[58px] transition-transform duration-150 focus:scale-105',
+                                value[index] && !digitInvalid
+                                    ? 'scale-105 ring-1 ring-leaf-400/60'
+                                    : '',
+                                digitInvalid &&
+                                    'scale-105 ring-1 ring-rose-400/60',
+                                digitInvalid
+                                    ? (invalidClass ?? inputClass)
+                                    : inputClass,
+                            )}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={1}
+                            value={value[index] || ''}
+                            disabled={disabled}
+                            autoFocus={autoFocus && index === 0}
+                            placeholder={placeholder}
+                            aria-label={`Digit ${index + 1} of ${length}`}
+                            invalid={invalid}
+                            onChange={(e) =>
+                                handleChange(
+                                    e as ChangeEvent<HTMLInputElement>,
+                                    index,
+                                )
+                            }
+                            onKeyDown={(e) =>
+                                handleKeyDown(
+                                    e as KeyboardEvent<HTMLInputElement>,
+                                    index,
+                                )
+                            }
+                            onPaste={handlePaste}
+                            onFocus={() => setActiveInput(index)}
+                        />
+                    )
+                })}
         </div>
     )
 }

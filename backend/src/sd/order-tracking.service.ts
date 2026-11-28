@@ -14,6 +14,7 @@ import {
     toPublicMap,
 } from '../scm/tracking/public-position.rules'
 import { trackingUrl } from '../scm/couriers/couriers.rules'
+import { deriveDeliveryStage } from './delivery-monitor.service'
 import {
     computeOrderTracking,
     stopsBefore,
@@ -69,6 +70,13 @@ const packageSelect = {
 type PackageRow = Prisma.WmPackageGetPayload<{ select: typeof packageSelect }>
 
 const MAX_BATCH = 100
+
+const FULFILLMENT_LABEL = {
+    PENDING_PICK: 'Awaiting picking',
+    PICKING: 'Picking your items',
+    PACKED: 'Packed, awaiting dispatch',
+    SHIPPED: 'Shipped',
+} as const
 
 /**
  * Builds the customer tracking timeline for storefront orders. Reads SD order,
@@ -238,6 +246,7 @@ export class OrderTrackingService {
                 id: true,
                 orderNumber: true,
                 status: true,
+                shippedAt: true,
                 createdAt: true,
                 updatedAt: true,
                 approvedAt: true,
@@ -245,6 +254,7 @@ export class OrderTrackingService {
                 pickingTasks: {
                     select: {
                         status: true,
+                        requiredQty: true,
                         pickedQty: true,
                         createdAt: true,
                         updatedAt: true,
@@ -275,10 +285,40 @@ export class OrderTrackingService {
             byOrder.set(soId, list)
         }
 
-        const byId = new Map(
-            orders.map((o) => [
-                o.id,
-                computeOrderTracking({
+        const [packingSessions, goodsIssues] = await Promise.all([
+            this.prisma.wmPackingSession.findMany({
+                where: {
+                    salesOrderId: { in: ids },
+                    status: { not: 'CANCELLED' },
+                },
+                select: { salesOrderId: true, status: true },
+            }),
+            this.prisma.mmGoodsIssue.findMany({
+                where: {
+                    sourceDocumentType: 'SALES_ORDER',
+                    sourceDocumentId: { in: ids },
+                    status: { not: 'CANCELLED' },
+                },
+                select: { sourceDocumentId: true, status: true },
+            }),
+        ])
+
+        const byId = new Map<string, OrderTrackingDto>(
+            orders.map((o) => {
+                const packages = byOrder.get(o.id) ?? []
+                const derived = deriveDeliveryStage({
+                    orderStatus: o.status,
+                    shippedAt: o.shippedAt,
+                    pickingTasks: o.pickingTasks,
+                    packingSessions: packingSessions.filter(
+                        (s) => s.salesOrderId === o.id,
+                    ),
+                    packages,
+                    goodsIssues: goodsIssues.filter(
+                        (gi) => gi.sourceDocumentId === o.id,
+                    ),
+                })
+                const tracking = computeOrderTracking({
                     orderId: o.id,
                     orderNumber: o.orderNumber,
                     status: o.status,
@@ -294,9 +334,21 @@ export class OrderTrackingService {
                         ...t,
                         pickedQty: Number(t.pickedQty),
                     })),
-                    packages: byOrder.get(o.id) ?? [],
-                }),
-            ]),
+                    packages,
+                })
+                return [
+                    o.id,
+                    {
+                        ...tracking,
+                        fulfillment: {
+                            stage: derived.stage,
+                            label: FULFILLMENT_LABEL[derived.stage],
+                            pickedQty: derived.pickedQty,
+                            requiredQty: derived.requiredQty,
+                        },
+                    },
+                ] as [string, OrderTrackingDto]
+            }),
         )
         return orderIds.map((id) => byId.get(id)).filter((d): d is OrderTrackingDto => !!d)
     }

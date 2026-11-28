@@ -1,6 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { WEB_BASE } from '../../api/client'
 import { OFFICIAL_STORES } from '../../catalog'
+import { useCatalog } from '../../context/CatalogContext'
 import { colors, divisionTheme, radius, shadow } from '../../theme'
 import type { DivisionId } from '../../types'
 
@@ -12,6 +14,14 @@ type Props = {
 
 /** Brand-store cards; selecting one shows that store's products. */
 export function OfficialStores({ counts, activeDivisionId, onSelect }: Props) {
+    const { brands } = useCatalog()
+    const logoFor = (divisionId: string) =>
+        brands.find((brand) => brand.divisionId === divisionId)?.logoUrl
+    const logoUri = (logoUrl: string) =>
+        /^https?:\/\//.test(logoUrl)
+            ? logoUrl
+            : `${WEB_BASE}${logoUrl.startsWith('/') ? '' : '/'}${logoUrl}`
+
     return (
         <View style={styles.list}>
             {OFFICIAL_STORES.map((store) => {
@@ -32,11 +42,20 @@ export function OfficialStores({ counts, activeDivisionId, onSelect }: Props) {
                         ]}
                     >
                         <View style={[styles.icon, { backgroundColor: active ? theme.solid : theme.soft }]}>
-                            <Ionicons
-                                name={store.icon}
-                                size={20}
-                                color={active ? theme.onSolid : theme.text}
-                            />
+                            {logoFor(store.divisionId) ? (
+                                <Image
+                                    source={{ uri: logoUri(logoFor(store.divisionId) as string) }}
+                                    style={styles.logo}
+                                    resizeMode="contain"
+                                    accessibilityLabel={`${store.name} logo`}
+                                />
+                            ) : (
+                                <Ionicons
+                                    name={store.icon}
+                                    size={20}
+                                    color={active ? theme.onSolid : theme.text}
+                                />
+                            )}
                         </View>
                         <View style={styles.text}>
                             <View style={styles.nameRow}>
@@ -73,6 +92,7 @@ const styles = StyleSheet.create({
     },
     pressed: { borderColor: colors.brandBorder },
     icon: { width: 46, height: 46, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+    logo: { width: 40, height: 40 },
     text: { flex: 1, minWidth: 0 },
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     name: { fontSize: 16, fontWeight: '700', color: colors.text },

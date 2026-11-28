@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -27,6 +27,7 @@ import {
 } from '../components/MarketplaceGmailAuthForm'
 import {
     requestShopEmailCode,
+    ShopOtpMismatchError,
     verifyShopEmailCode,
 } from '@/services/storefront/shopAuthService'
 import { toApiError } from '@/modules/sd/services/apiError'
@@ -34,11 +35,21 @@ import { useMarketplaceClientStore } from '../store/useMarketplaceClientStore'
 import { useMarketplaceCartStore } from '../store/useMarketplaceCartStore'
 import { syncShopperCartAfterAuth } from '@/modules/storefront/shared/syncShopperCartAfterAuth'
 import { updateRetailClientProfile } from '@/services/storefront/retailClientService'
+import {
+    markOtpCodeSent,
+    OTP_RESEND_SECONDS,
+    readOtpSentAt,
+    useOtpExpiryCountdown,
+} from '@/modules/storefront/shared/otpCountdown'
+import OtpVerifyVisual from '../components/OtpVerifyVisual'
 
 const OTP_LENGTH = 6
-const RESEND_SECONDS = 60
 const OTP_BOX_CLASS =
-    '!h-12 !w-12 sm:!h-14 sm:!w-14 !rounded-xl !border-slate-700 !bg-slate-900 !text-xl !font-semibold !text-white caret-leaf-400 focus:!border-leaf-400 focus:!ring-2 focus:!ring-leaf-400'
+    '!h-12 !w-12 sm:!h-14 sm:!w-14 !rounded-xl !text-xl !font-semibold caret-leaf-400 focus:!ring-2'
+const OTP_INPUT_CLASS =
+    '!border-slate-700 !bg-slate-900 !text-white focus:!border-leaf-400 focus:!ring-leaf-400'
+const OTP_INPUT_ERROR_CLASS =
+    '!border-rose-500 !bg-rose-950/40 !text-rose-200 focus:!border-rose-400 focus:!ring-rose-400'
 
 type MarketplaceOtpPageProps = {
     next?: string | null
@@ -58,10 +69,13 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
     const [pendingToken, setPendingToken] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [info, setInfo] = useState<string | null>(null)
+    const [wrongDigits, setWrongDigits] = useState<number[]>([])
     const [verifying, setVerifying] = useState(false)
-    const [resendIn, setResendIn] = useState(RESEND_SECONDS)
-    const [expiryLabel] = useState('10 minutes')
+    const [resendIn, setResendIn] = useState(OTP_RESEND_SECONDS)
+    const [otpSentAt, setOtpSentAt] = useState<number | null>(null)
     const verifyLock = useRef(false)
+    const { label: expiryLabel, expired: otpExpired } =
+        useOtpExpiryCountdown(otpSentAt)
 
     useEffect(() => {
         const stored = readOtpEmail()
@@ -70,11 +84,15 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
             return
         }
         setEmail(stored)
+        setOtpSentAt(readOtpSentAt())
     }, [next, router])
 
     useEffect(() => {
         if (resendIn <= 0) return
-        const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000)
+        const t = setInterval(
+            () => setResendIn((s) => Math.max(0, s - 1)),
+            1000,
+        )
         return () => clearInterval(t)
     }, [resendIn])
 
@@ -113,9 +131,16 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
             }
             await finishAuth(session)
         } catch (err) {
-            setError(
-                toApiError(err, 'The verification code is incorrect.').message,
-            )
+            if (err instanceof ShopOtpMismatchError) {
+                setWrongDigits(err.mismatchedDigits)
+                setError(err.message)
+            } else {
+                setWrongDigits([])
+                setError(
+                    toApiError(err, 'The verification code is incorrect.')
+                        .message,
+                )
+            }
         } finally {
             setVerifying(false)
             verifyLock.current = false
@@ -134,13 +159,18 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
         setError(null)
         try {
             await requestShopEmailCode(email)
+            markOtpCodeSent()
+            setOtpSentAt(Date.now())
             setInfo('Verification code sent.')
-            setResendIn(RESEND_SECONDS)
+            setResendIn(OTP_RESEND_SECONDS)
             setCode('')
+            setWrongDigits([])
         } catch (err) {
             setError(
-                toApiError(err, 'We could not send the email. Please try again.')
-                    .message,
+                toApiError(
+                    err,
+                    'We could not send the email. Please try again.',
+                ).message,
             )
         }
     }
@@ -244,26 +274,46 @@ const MarketplaceOtpPage = ({ next }: MarketplaceOtpPageProps) => {
                     </Form>
                 ) : (
                     <>
+                        <OtpVerifyVisual sentAtMs={otpSentAt} email={email} />
                         <OtpInput
                             autoFocus
                             length={OTP_LENGTH}
                             value={code}
-                            disabled={verifying}
+                            disabled={verifying || otpExpired}
                             onChange={(value) => {
-                                if (/^\d*$/.test(value)) setCode(value)
+                                if (/^\d*$/.test(value)) {
+                                    setCode(value)
+                                    setError(null)
+                                    setWrongDigits([])
+                                }
                             }}
-                            className="mt-10 justify-center"
-                            inputClass={OTP_BOX_CLASS}
+                            className="mt-8 justify-center"
+                            inputClass={`${OTP_BOX_CLASS} ${OTP_INPUT_CLASS}`}
+                            invalidDigits={wrongDigits}
+                            invalidClass={`${OTP_BOX_CLASS} ${OTP_INPUT_ERROR_CLASS}`}
                         />
                         <p className="mt-4 text-xs text-slate-500">
-                            Code expires in {expiryLabel}.
+                            {otpExpired
+                                ? 'This code has expired.'
+                                : `Code expires in ${expiryLabel}.`}
                         </p>
+                        {wrongDigits.length > 0 ? (
+                            <p className="mt-2 text-xs text-rose-300">
+                                Check the highlighted digit
+                                {wrongDigits.length > 1 ? 's' : ''} and try
+                                again.
+                            </p>
+                        ) : null}
                         <Button
                             block
                             type="button"
                             className="mt-6"
                             loading={verifying}
-                            disabled={code.length !== OTP_LENGTH || verifying}
+                            disabled={
+                                code.length !== OTP_LENGTH ||
+                                verifying ||
+                                otpExpired
+                            }
                             customColorClass={PRIMARY_BUTTON}
                             onClick={() => runVerify(code)}
                         >

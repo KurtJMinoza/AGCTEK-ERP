@@ -151,7 +151,7 @@ export default function NotificationsScreen() {
                     <NotificationItem item={item} onPress={(n) => void handlePress(n)} />
                 )}
                 ListEmptyComponent={
-                    loading ? null : (
+                    loading ? undefined : (
                         <View style={styles.empty}>
                             {error ? (
                                 <>

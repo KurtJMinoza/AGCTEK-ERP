@@ -14,6 +14,34 @@ type ShopAuthSessionResponse = {
 
 export type ShopEmailRequestResult = { message: string }
 
+/** Rejected OTP carries the exact wrong digit positions from the backend. */
+export class ShopOtpMismatchError extends Error {
+    readonly mismatchedDigits: number[]
+
+    constructor(message: string, mismatchedDigits: number[]) {
+        super(message)
+        this.name = 'ShopOtpMismatchError'
+        this.mismatchedDigits = mismatchedDigits
+    }
+}
+
+function readMismatchedDigits(error: unknown): number[] | null {
+    const data = (
+        error as {
+            response?: { data?: { mismatchedDigits?: unknown } }
+        }
+    )?.response?.data
+    const value = data?.mismatchedDigits
+    if (!Array.isArray(value)) return null
+    return value.filter(
+        (digit): digit is number =>
+            typeof digit === 'number' &&
+            Number.isInteger(digit) &&
+            digit >= 0 &&
+            digit < 6,
+    )
+}
+
 export const normalizeGmailInput = (raw: string) => raw.trim().toLowerCase()
 
 export const isGmailInput = (normalized: string) =>
@@ -49,16 +77,32 @@ export async function verifyShopEmailCode(payload: {
     code: string
     firstName?: string
 }): Promise<RetailClientSession & { needsProfile?: boolean }> {
-    const { data } = await ErpAxiosBase.post<ShopAuthSessionResponse>(
-        '/shop/auth/email/verify-code',
-        {
-            email: normalizeGmailInput(payload.email),
-            code: payload.code.trim(),
-            ...(payload.firstName?.trim()
-                ? { firstName: payload.firstName.trim() }
-                : {}),
-        },
-    )
+    let data: ShopAuthSessionResponse
+    try {
+        const response = await ErpAxiosBase.post<ShopAuthSessionResponse>(
+            '/shop/auth/email/verify-code',
+            {
+                email: normalizeGmailInput(payload.email),
+                code: payload.code.trim(),
+                ...(payload.firstName?.trim()
+                    ? { firstName: payload.firstName.trim() }
+                    : {}),
+            },
+        )
+        data = response.data
+    } catch (error) {
+        const digits = readMismatchedDigits(error)
+        if (digits !== null) {
+            const message = (
+                error as { response?: { data?: { message?: string } } }
+            )?.response?.data?.message
+            throw new ShopOtpMismatchError(
+                message || 'The verification code is incorrect.',
+                digits,
+            )
+        }
+        throw error
+    }
     return {
         client: data.client,
         token: data.token,

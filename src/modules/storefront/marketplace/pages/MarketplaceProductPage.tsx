@@ -982,7 +982,7 @@ const MarketplaceProductPage = ({
     )
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-shop-50">
             <MarketplaceHeader />
             <main className="mx-auto max-w-7xl px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-16">
                 {product ? (

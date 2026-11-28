@@ -75,6 +75,29 @@ export type RegisterInput = ShippingDetails & { password: string }
 
 export type ProfileUpdate = Omit<ShippingDetails, 'email'>
 
+/** Reverse-geocode payload from `GET /retail/clients/me/addresses/geocode/reverse`. */
+export type GeocodedAddress = {
+    formattedAddress: string | null
+    addressLine: string | null
+    barangayOrNeighborhood: string | null
+    cityOrMunicipality: string | null
+    provinceOrState: string | null
+    postalCode: string | null
+    country: string | null
+}
+
+/** Place search hit from `GET /retail/clients/me/addresses/geocode/search`. */
+export type PlaceSuggestion = {
+    id: string
+    label: string
+    address: string
+    lat: number
+    lng: number
+    city: string | null
+    postalCode: string | null
+    country: string | null
+}
+
 /** Customer-facing order status, same wording as the web "My orders". */
 export type OrderStatus =
     | 'PENDING_APPROVAL'
@@ -225,11 +248,20 @@ export type TrackingMap = {
     eta: DeliveryEta | null
 }
 
+/** MM warehouse execution, projected by SD tracking (pick → pack → ship). */
+export type OrderFulfillment = {
+    stage: 'PENDING_PICK' | 'PICKING' | 'PACKED' | 'SHIPPED'
+    label: string
+    pickedQty: number
+    requiredQty: number
+}
+
 export type OrderTracking = {
     orderId: string
     orderNumber: string
     customerStatus: CustomerOrderStatus
     customerStatusLabel: string
+    fulfillment?: OrderFulfillment | null
     checkpoints: TrackingCheckpoint[]
     map: TrackingMap | null
 }

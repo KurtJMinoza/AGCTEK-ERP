@@ -4,9 +4,11 @@ import type {
     CheckoutResult,
     Customer,
     CustomerOrderStatus,
+    GeocodedAddress,
     Notification,
     Order,
     OrderTracking,
+    PlaceSuggestion,
     Product,
     ProfileUpdate,
     RegisterInput,
@@ -16,7 +18,12 @@ import type {
     SignInInput,
     TrackingLink,
 } from '../types'
-import { CommerceApiError, type CommerceApi } from './commerceApi'
+import { DAVAO_PIN, initialPinForText } from '../utils/mapPin'
+import {
+    CommerceApiError,
+    type CommerceApi,
+    type StorefrontBrand,
+} from './commerceApi'
 
 const MOCK_TRACKING_STATUS: Record<Order['status'], CustomerOrderStatus> = {
     PENDING_APPROVAL: 'PLACED',
@@ -134,6 +141,7 @@ export class MockCommerceApi implements CommerceApi {
     private orders: (Order & { customerId: string })[] = []
     private nextNumber = 1001
     private profiles = new Map<string, Customer>()
+    private activeCustomer: Customer | null = null
     private notifications: (Notification & { userId: string })[] = []
     private addresses: (SavedAddress & { userId: string })[] = []
 
@@ -141,6 +149,8 @@ export class MockCommerceApi implements CommerceApi {
     setSessionToken(_token: string | null): void {}
 
     getProducts(): Promise<Product[]> { return delay(PRODUCTS) }
+
+    getStorefrontBrands(): Promise<StorefrontBrand[]> { return delay([]) }
 
     getAvailability(_divisionId: string, sku: string): Promise<Availability> {
         const available = sku.includes('WM') ? 4 : 45
@@ -153,7 +163,10 @@ export class MockCommerceApi implements CommerceApi {
         }
         const key = email.trim().toLowerCase()
         const existing = this.profiles.get(key)
-        if (existing) return delay(existing)
+        if (existing) {
+            this.activeCustomer = existing
+            return delay(existing)
+        }
         const local = key.split('@')[0] ?? 'Shopper'
         const customer: Customer = {
             customerId: `c-${local}`,
@@ -167,6 +180,7 @@ export class MockCommerceApi implements CommerceApi {
             country: 'PH',
         }
         this.profiles.set(key, customer)
+        this.activeCustomer = customer
         return delay(customer)
     }
 
@@ -177,6 +191,7 @@ export class MockCommerceApi implements CommerceApi {
         }
         const customer = { ...details, email: key, customerId: `c-${key.split('@')[0]}` }
         this.profiles.set(key, customer)
+        this.activeCustomer = customer
         return delay(customer)
     }
 
@@ -346,5 +361,47 @@ export class MockCommerceApi implements CommerceApi {
     setDefaultAddress(id: string): Promise<void> {
         this.addresses.forEach((a) => { a.isDefault = a.id === id })
         return delay(undefined)
+    }
+
+    getCurrentCustomer(): Promise<Customer> {
+        if (!this.activeCustomer) {
+            return Promise.reject(new CommerceApiError('Not signed in', 'UNAUTHORIZED'))
+        }
+        return delay(this.activeCustomer)
+    }
+
+    searchAddress(query: string): Promise<PlaceSuggestion[]> {
+        const q = query.trim()
+        if (q.length < 3) return delay([])
+        const pin = initialPinForText(q, q)
+        return delay([
+            {
+                id: 'demo-1',
+                label: q,
+                address: `${q}, Philippines`,
+                lat: pin.latitude,
+                lng: pin.longitude,
+                city: q.includes('Davao') ? 'Davao City' : 'Quezon City',
+                postalCode: q.includes('Davao') ? '8000' : '1100',
+                country: 'PH',
+            },
+        ])
+    }
+
+    reverseAddress(latitude: number, longitude: number): Promise<GeocodedAddress> {
+        const nearDavao =
+            Math.abs(latitude - DAVAO_PIN.latitude) < 0.5 &&
+            Math.abs(longitude - DAVAO_PIN.longitude) < 0.5
+        return delay({
+            formattedAddress: nearDavao
+                ? 'R. Castillo Street, Davao City, Davao Region 8000'
+                : 'Pinned location',
+            addressLine: nearDavao ? 'R. Castillo Street' : 'Pinned location',
+            barangayOrNeighborhood: null,
+            cityOrMunicipality: nearDavao ? 'Davao City' : 'Metro Manila',
+            provinceOrState: nearDavao ? 'Davao Region' : 'NCR',
+            postalCode: nearDavao ? '8000' : '1100',
+            country: 'PH',
+        })
     }
 }

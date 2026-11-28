@@ -406,7 +406,7 @@ const MarketplaceProductsPage = () => {
         : `${visibleProducts.length} product${visibleProducts.length === 1 ? '' : 's'}`
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-shop-50">
             <MarketplaceHeader
                 onSearchSubmit={() =>
                     window.scrollTo({ top: 0, behavior: 'smooth' })

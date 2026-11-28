@@ -5,6 +5,8 @@ export const STORAGE_KEYS = {
     cart: 'agctek.storefront.cart',
     session: 'agctek.storefront.session',
     favorites: 'agctek.storefront.favorites',
+    otpEmail: 'agctek.storefront.otp-email',
+    otpSentAt: 'agctek.storefront.otp-sent-at',
 } as const
 
 type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

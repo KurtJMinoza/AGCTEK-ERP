@@ -102,7 +102,7 @@ const MarketplaceCartPageContent = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50/50 pb-16">
+        <div className="min-h-screen bg-shop-50 pb-16">
             <MarketplaceHeader />
 
             {/* Breadcrumb navigation */}

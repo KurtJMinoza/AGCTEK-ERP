@@ -187,6 +187,12 @@ export class ProductController {
         )
     }
 
+    /** Public brand identity for storefront cards, sourced from MM company logos. */
+    @Get('storefront/brands')
+    storefrontBrands() {
+        return this.products.listStorefrontBrands()
+    }
+
     @Get('storefront/availability')
     storefrontAvailability(
         @Query('divisionId') divisionId: string,

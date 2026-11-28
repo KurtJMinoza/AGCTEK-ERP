@@ -17,6 +17,7 @@ import {
     signInWithGoogleCredential,
 } from '@/services/storefront/shopAuthService'
 import { toApiError } from '@/modules/sd/services/apiError'
+import { clearOtpSentAt, markOtpCodeSent } from '@/modules/storefront/shared/otpCountdown'
 import { PRIMARY_BUTTON } from '../marketplaceUi'
 import { MARKETPLACE_OTP_PATH, marketplaceAuthHref } from '../host'
 
@@ -52,6 +53,7 @@ export function readOtpEmail(): string {
 
 export function clearOtpEmail() {
     sessionStorage.removeItem(OTP_EMAIL_STORAGE_KEY)
+    clearOtpSentAt()
 }
 
 type Props = {
@@ -195,6 +197,7 @@ const MarketplaceGmailAuthForm = ({
         try {
             const result = await requestShopEmailCode(email)
             persistOtpEmail(email)
+            markOtpCodeSent()
             setInfo(result.message)
             const otpHref = marketplaceAuthHref(MARKETPLACE_OTP_PATH, returnPath)
             window.location.href = otpHref

@@ -177,7 +177,7 @@ export default function ProductsScreen() {
                     contentContainerStyle={styles.list}
                     ListHeaderComponent={header}
                     refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />
+                        <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.brand} />
                     }
                     onEndReachedThreshold={0.6}
                     onEndReached={() => {
@@ -202,7 +202,7 @@ export default function ProductsScreen() {
                             <Text style={styles.footer}>
                                 Showing {limit} of {results.length}
                             </Text>
-                        ) : null
+                        ) : undefined
                     }
                     renderItem={({ item }) => (
                         <View style={styles.cell}>

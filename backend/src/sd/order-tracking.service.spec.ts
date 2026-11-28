@@ -73,6 +73,8 @@ function setup(opts: {
             findFirst: jest.fn().mockResolvedValue(orders[0] ?? null),
         },
         wmPackage: { findMany: jest.fn().mockResolvedValue(opts.packages ?? []) },
+        wmPackingSession: { findMany: jest.fn().mockResolvedValue([]) },
+        mmGoodsIssue: { findMany: jest.fn().mockResolvedValue([]) },
         tripStopShipment: { findFirst: jest.fn().mockResolvedValue(opts.link ?? null) },
     }
     const tracking = {
@@ -260,5 +262,24 @@ describe('OrderTrackingService.buildForCustomer', () => {
         const dto = await service.buildForCustomer('so1', 'c1', NOW)
         expect(dto.destination).toBeNull()
         expect(dto.map).toMatchObject({ available: false, reason: 'NOT_IN_TRANSIT' })
+    })
+
+    it('projects MM picking progress into the shopper timeline', async () => {
+        const pickingOrder = {
+            ...order,
+            status: 'CONFIRMED',
+            shippedAt: null,
+            pickingTasks: [
+                { status: 'IN_PROGRESS', requiredQty: 4, pickedQty: 2 },
+            ],
+        }
+        const { service } = setup({ orders: [pickingOrder], link: null })
+        const dto = await service.buildForCustomer('so1', 'c1', NOW)
+        expect(dto.fulfillment).toMatchObject({
+            stage: 'PICKING',
+            label: 'Picking your items',
+            pickedQty: 2,
+            requiredQty: 4,
+        })
     })
 })

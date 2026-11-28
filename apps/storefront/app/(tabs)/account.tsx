@@ -1,10 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { useRouter } from 'expo-router'
-import { useState, type ComponentProps } from 'react'
+import { useNavigation, useRouter } from 'expo-router'
+import { useEffect, useLayoutEffect, useState, type ComponentProps } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { API_BASE, USE_MOCK_API } from '@/src/api/client'
-import { MARKETPLACE_NAME } from '@/src/catalog'
 import { AccountForm } from '@/src/components/AccountForm'
+import { ShopAuthLayout } from '@/src/components/auth/ShopAuthLayout'
 import { ConfirmDialog } from '@/src/components/ConfirmDialog'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
 import { ScreenState } from '@/src/components/ScreenState'
@@ -15,18 +15,34 @@ import { colors, radius, shadow } from '@/src/theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 
-/** Account: sign in / register, profile and delivery details, sign out. */
+/** Account: Gmail/Google auth (matches /shop/sign-in), then profile + delivery. */
 export default function AccountScreen() {
     const router = useRouter()
+    const navigation = useNavigation()
     const { customer, loading, signOut } = useAuth()
     const { favorites } = useFavorites()
     const { notify } = useToast()
     const [editing, setEditing] = useState(false)
     const [confirmSignOut, setConfirmSignOut] = useState(false)
 
+    useLayoutEffect(() => {
+        navigation.setOptions({
+            headerShown: true,
+            title: 'Account',
+        })
+    }, [navigation])
+
+    useEffect(() => {
+        if (!customer) setEditing(false)
+    }, [customer])
+
     if (loading) return <ScreenState kind="loading" />
 
-    const initials = customer?.fullName
+    if (!customer) {
+        return <ShopAuthLayout next="account" />
+    }
+
+    const initials = customer.fullName
         .split(/\s+/)
         .filter(Boolean)
         .slice(0, 2)
@@ -36,79 +52,64 @@ export default function AccountScreen() {
     return (
         <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-                {customer ? (
-                    <>
-                        <View style={styles.profile}>
-                            <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>{initials || '?'}</Text>
-                            </View>
-                            <View style={styles.flex}>
-                                <Text style={styles.name}>{customer.fullName}</Text>
-                                <Text style={styles.email}>{customer.email}</Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.links}>
-                            <LinkRow icon="receipt-outline" label="My orders" onPress={() => router.navigate('/orders')} />
-                            <LinkRow
-                                icon="heart-outline"
-                                label="Favourites"
-                                meta={favorites.size > 0 ? String(favorites.size) : undefined}
-                                onPress={() => router.push('/favorites')}
-                            />
-                            <LinkRow icon="cart-outline" label="Cart" onPress={() => router.navigate('/cart')} last />
-                        </View>
-
-                        <View style={styles.card}>
-                            <View style={styles.cardHead}>
-                                <Text style={styles.cardTitle}>Delivery details</Text>
-                                {!editing ? (
-                                    <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setEditing(true)}>
-                                        <Text style={styles.link}>Edit</Text>
-                                    </Pressable>
-                                ) : null}
-                            </View>
-                            {editing ? (
-                                <>
-                                    <AccountForm onDone={() => setEditing(false)} />
-                                    <PrimaryButton title="Cancel" variant="ghost" onPress={() => setEditing(false)} />
-                                </>
-                            ) : (
-                                <View style={styles.details}>
-                                    <Detail icon="person-outline" text={customer.fullName} />
-                                    <Detail icon="call-outline" text={customer.phone || '—'} />
-                                    <Detail
-                                        icon="location-outline"
-                                        text={
-                                            [customer.addressLine1, customer.city, customer.region, customer.postalCode]
-                                                .filter(Boolean)
-                                                .join(', ') || '—'
-                                        }
-                                    />
-                                    <Text style={styles.hint}>Used to fill in checkout automatically.</Text>
-                                </View>
-                            )}
-                        </View>
-
-                        <PrimaryButton
-                            title="Sign out"
-                            icon="log-out-outline"
-                            variant="secondary"
-                            onPress={() => setConfirmSignOut(true)}
-                        />
-                    </>
-                ) : (
-                    <View style={styles.card}>
-                        <View style={styles.welcome}>
-                            <View style={styles.logo}>
-                                <Ionicons name="bag-handle" size={22} color="#fff" />
-                            </View>
-                            <Text style={styles.cardTitle}>Welcome to {MARKETPLACE_NAME}</Text>
-                            <Text style={styles.hint}>Sign in to add to cart, check out and track your orders.</Text>
-                        </View>
-                        <AccountForm />
+                <View style={styles.profile}>
+                    <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>{initials || '?'}</Text>
                     </View>
-                )}
+                    <View style={styles.flex}>
+                        <Text style={styles.name}>{customer.fullName || 'Your account'}</Text>
+                        <Text style={styles.email}>{customer.email}</Text>
+                    </View>
+                </View>
+
+                <View style={styles.links}>
+                    <LinkRow icon="receipt-outline" label="My orders" onPress={() => router.navigate('/orders')} />
+                    <LinkRow
+                        icon="heart-outline"
+                        label="Favourites"
+                        meta={favorites.size > 0 ? String(favorites.size) : undefined}
+                        onPress={() => router.push('/favorites')}
+                    />
+                    <LinkRow icon="cart-outline" label="Cart" onPress={() => router.navigate('/cart')} last />
+                </View>
+
+                <View style={styles.card}>
+                    <View style={styles.cardHead}>
+                        <Text style={styles.cardTitle}>Delivery details</Text>
+                        {!editing ? (
+                            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setEditing(true)}>
+                                <Text style={styles.link}>Edit</Text>
+                            </Pressable>
+                        ) : null}
+                    </View>
+                    {editing ? (
+                        <>
+                            <AccountForm onDone={() => setEditing(false)} />
+                            <PrimaryButton title="Cancel" variant="ghost" onPress={() => setEditing(false)} />
+                        </>
+                    ) : (
+                        <View style={styles.details}>
+                            <Detail icon="person-outline" text={customer.fullName || '—'} />
+                            <Detail icon="call-outline" text={customer.phone || '—'} />
+                            <Detail
+                                icon="location-outline"
+                                text={
+                                    [customer.addressLine1, customer.city, customer.region, customer.postalCode]
+                                        .filter(Boolean)
+                                        .join(', ') || '—'
+                                }
+                            />
+                            <Text style={styles.hint}>Used to fill in checkout automatically.</Text>
+                        </View>
+                    )}
+                </View>
+
+                <PrimaryButton
+                    title="Sign out"
+                    icon="log-out-outline"
+                    variant="secondary"
+                    onPress={() => setConfirmSignOut(true)}
+                />
 
                 <Text style={styles.source}>
                     {USE_MOCK_API ? 'Demo mode · sample data' : `Connected to AGCTEK ERP · ${API_BASE}`}
@@ -232,16 +233,6 @@ const styles = StyleSheet.create({
     detailIcon: { marginTop: 2 },
     detailText: { flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
     hint: { fontSize: 13, color: colors.textMuted },
-    welcome: { gap: 6 },
-    logo: {
-        width: 44,
-        height: 44,
-        borderRadius: radius.md,
-        backgroundColor: colors.brand,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 4,
-    },
     source: { textAlign: 'center', fontSize: 12, color: colors.textFaint, marginTop: 4 },
     dialogText: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
 })

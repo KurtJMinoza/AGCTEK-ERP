@@ -58,6 +58,8 @@ export const DELIVERY_FIELDS: {
 ]
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Matches backend `RetailRegisterDto`: 8+ chars, at least one letter and one number. */
+const PASSWORD = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/
 
 export function validateAccount(mode: AccountMode, form: AccountForm): FieldErrors {
     const errors: FieldErrors = {}
@@ -65,7 +67,7 @@ export function validateAccount(mode: AccountMode, form: AccountForm): FieldErro
         if (!EMAIL.test(form.email.trim())) errors.email = 'Enter a valid email'
     }
     if (mode === 'login' && !form.password) errors.password = 'Password is required'
-    if (mode === 'register' && form.password.length < 6) errors.password = 'At least 6 characters'
+    if (mode === 'register' && !PASSWORD.test(form.password)) errors.password = 'Use 8+ characters with a letter and a number'
     if (mode !== 'login') {
         for (const field of DELIVERY_FIELDS) {
             if (!form[field.key].trim()) errors[field.key] = field.required

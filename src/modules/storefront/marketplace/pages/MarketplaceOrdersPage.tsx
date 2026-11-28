@@ -635,7 +635,7 @@ const MarketplaceOrdersPage = () => {
 
     if (!signedInClient) {
         return (
-            <div className="min-h-screen bg-gray-50 flex flex-col">
+            <div className="min-h-screen bg-shop-50 flex flex-col">
                 <MarketplaceHeader />
                 <div className="mx-auto flex flex-1 w-full max-w-md flex-col items-center justify-center gap-5 px-4 py-16 text-center">
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-shop-50 text-shop-600 shadow-inner">

@@ -1,6 +1,10 @@
 import { ShopAuthService } from './shop-auth.service'
 import { assertGmailAddress, GmailOnlyError } from './gmail.util'
-import { hashOtpCode, verifyOtpHash } from './shop-otp.util'
+import {
+    hashOtpCode,
+    mismatchedOtpDigits,
+    verifyOtpHash,
+} from './shop-otp.util'
 
 describe('Gmail shop auth utilities', () => {
     beforeAll(() => {
@@ -26,6 +30,20 @@ describe('Gmail shop auth utilities', () => {
         expect(verifyOtpHash(hash, 'otp-1', 'user@gmail.com', '000000')).toBe(
             false,
         )
+    })
+
+    it('reports only the mismatched digit positions', () => {
+        const hash = hashOtpCode('otp-1', 'user@gmail.com', '123456')
+        expect(
+            mismatchedOtpDigits(hash, 'otp-1', 'user@gmail.com', '123456'),
+        ).toEqual([])
+        expect(
+            mismatchedOtpDigits(hash, 'otp-1', 'user@gmail.com', '123400'),
+        ).toEqual([4, 5])
+        expect(
+            mismatchedOtpDigits(hash, 'otp-1', 'user@gmail.com', '923456'),
+        ).toEqual([0])
+        expect(hash).not.toContain('123456')
     })
 })
 
@@ -75,5 +93,37 @@ describe('ShopAuthService requestEmailCode', () => {
         const result = await service.requestEmailCode('shopper@gmail.com')
         expect(result.message).toMatch(/verification code has been sent/i)
         expect(mail.sendOtpEmail).toHaveBeenCalled()
+    })
+})
+
+describe('ShopAuthService verifyEmailCode', () => {
+    it('returns mismatched digit indexes on a wrong code', async () => {
+        const codeHash = hashOtpCode('otp-1', 'shopper@gmail.com', '123456')
+        const prisma = {
+            retailEmailOtp: {
+                findFirst: jest.fn().mockResolvedValue({
+                    id: 'otp-1',
+                    codeHash,
+                    expiresAt: new Date(Date.now() + 60_000),
+                    attemptCount: 0,
+                }),
+                update: jest.fn().mockResolvedValue({}),
+            },
+        }
+        const service = new ShopAuthService(
+            prisma as never,
+            {} as never,
+            {} as never,
+            {} as never,
+        )
+        await expect(
+            service.verifyEmailCode('shopper@gmail.com', '123400'),
+        ).rejects.toMatchObject({
+            response: {
+                message: 'The verification code is incorrect.',
+                mismatchedDigits: [4, 5],
+            },
+        })
+        expect(prisma.retailEmailOtp.update).toHaveBeenCalled()
     })
 })

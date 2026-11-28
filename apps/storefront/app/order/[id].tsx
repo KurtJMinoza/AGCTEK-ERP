@@ -6,6 +6,7 @@ import { storeName } from '@/src/catalog'
 import { commerceApi } from '@/src/api/client'
 import { ConfirmDialog } from '@/src/components/ConfirmDialog'
 import { DeliveryStatusCard } from '@/src/components/DeliveryStatusCard'
+import { FulfillmentCard } from '@/src/components/FulfillmentCard'
 import { OrderCard } from '@/src/components/OrderCard'
 import { OrderTimeline } from '@/src/components/OrderTimeline'
 import { PrimaryButton } from '@/src/components/PrimaryButton'
@@ -70,6 +71,9 @@ export default function OrderDetailScreen() {
                     />
                 }
             >
+                {tracking.data?.fulfillment ? (
+                    <FulfillmentCard fulfillment={tracking.data.fulfillment} />
+                ) : null}
                 {tracking.data ? <DeliveryStatusCard tracking={tracking.data} /> : null}
 
                 <View style={styles.card}>

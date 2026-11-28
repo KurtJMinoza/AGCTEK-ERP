@@ -19,8 +19,10 @@ import type {
 import { LPG_DIVISION_ID } from '@/modules/sd/catalogs/lpgCatalog'
 import { APPLIANCES_DIVISION_ID } from '@/modules/sd/catalogs/mconpincoCatalog'
 import { RETAIL_DIVISION_ID } from '@/types/storefront/retail'
-
 export const MARKETPLACE_NAME = 'Amalgated Shop'
+
+/** Page canvas for all `/shop` routes. */
+export const MARKETPLACE_PAGE_BG = 'bg-shop-50 text-shop-500 antialiased'
 export const MARKETPLACE_LOGO_SRC = '/storefront/aci.png'
 
 /** Deep navy with a faint architectural grid (sign-in branding panel, OTP screen). */
@@ -29,7 +31,7 @@ export const BRAND_GRID_SURFACE =
 
 /** Brand primary button colours, for ECME `customColorClass` props. */
 export const PRIMARY_BUTTON = () =>
-    'bg-shop-600 hover:bg-shop-700 text-white transition-colors'
+    `bg-shop-600 hover:bg-shop-700 text-white transition-colors`
 
 export type DivisionTheme = {
     /** Soft tinted icon tile. */
@@ -83,13 +85,13 @@ const DEFAULT_THEME: DivisionTheme = {
 export const divisionTheme = (divisionId: string | null) =>
     (divisionId && DIVISION_THEMES[divisionId]) || DEFAULT_THEME
 
-/** Marketplace design tokens: white surfaces on gray-50, hairline borders, soft shadows. */
-export const SURFACE = 'bg-white border border-gray-100 shadow-sm'
+/** Marketplace design tokens (UI Pro Max / brand palette). */
+export const SURFACE = 'bg-white border border-shop-200 shadow-sm'
 export const SURFACE_HOVER =
-    'transition-all duration-200 hover:shadow-md hover:border-gray-200'
+    'transition-all duration-200 hover:shadow-md hover:border-shop-300'
 export const SECTION_TITLE =
-    'text-2xl font-semibold tracking-tight text-gray-900'
-export const SECTION_SUBTITLE = 'mt-1 text-sm text-gray-500'
+    'text-2xl font-semibold tracking-tight text-shop-900'
+export const SECTION_SUBTITLE = 'mt-1 text-sm text-shop-500'
 /** Primary call-to-action, for ECME `Button` `className` + `customColorClass={PRIMARY_BUTTON}`. */
 export const PRIMARY_BUTTON_CLASS =
     '!h-auto !rounded-lg border-0 px-4 py-2 text-sm font-medium'

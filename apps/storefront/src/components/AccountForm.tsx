@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useEffect, useState } from 'react'
+import { commerceApi } from '../api/client'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import {
     BLANK_ACCOUNT,
@@ -14,6 +15,9 @@ import { useToast } from '../context/ToastContext'
 import { colors, radius } from '../theme'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DeliveryFields } from './DeliveryFields'
+import { DeliveryLocationPicker, type DeliveryPin } from './DeliveryLocationPicker'
+import { initialPinForText } from '../utils/mapPin'
+import { syncDefaultAddress } from '../utils/syncDefaultAddress'
 import { Field } from './Field'
 import { PrimaryButton } from './PrimaryButton'
 
@@ -33,7 +37,7 @@ const FAIL: Record<Mode, string> = {
 
 /** Sign in / create account / edit profile — the same marketplace accounts as the web shop. */
 export function AccountForm({ onDone }: { onDone?: () => void }) {
-    const { customer, signIn, register, updateProfile } = useAuth()
+    const { customer, signIn, register, updateProfile, refreshCustomer } = useAuth()
     const { notify } = useToast()
     const [mode, setMode] = useState<Mode>(customer ? 'profile' : 'login')
     const [form, setForm] = useState<FormState>(BLANK_ACCOUNT)
@@ -41,6 +45,7 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
     const [submitError, setSubmitError] = useState<string | null>(null)
     const [confirming, setConfirming] = useState(false)
     const [busy, setBusy] = useState(false)
+    const [deliveryPin, setDeliveryPin] = useState<DeliveryPin | null>(null)
 
     useEffect(() => {
         setErrors({})
@@ -53,6 +58,28 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
             setForm(BLANK_ACCOUNT)
         }
     }, [customer])
+
+    useEffect(() => {
+        if (mode !== 'profile' || !customer) return
+        let cancelled = false
+        void commerceApi
+            .getAddresses()
+            .then((rows) => {
+                if (cancelled) return
+                const row = rows.find((a) => a.isDefault) ?? rows[0]
+                if (row?.latitude != null && row.longitude != null) {
+                    setDeliveryPin({ latitude: row.latitude, longitude: row.longitude })
+                } else {
+                    setDeliveryPin(initialPinForText(customer.city, customer.region))
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setDeliveryPin(initialPinForText(customer.city, customer.region))
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [mode, customer?.customerId, customer?.city, customer?.region])
 
     const update = (key: keyof FormState, value: string) => {
         setForm((prev) => ({ ...prev, [key]: value }))
@@ -86,6 +113,8 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
             } else {
                 const { email: _e, password: _p, ...profile } = t
                 await updateProfile(profile)
+                if (deliveryPin) await syncDefaultAddress(t, deliveryPin)
+                await refreshCustomer()
                 notify('success', 'Profile saved', 'Your delivery details were updated.')
             }
             setConfirming(false)
@@ -134,7 +163,7 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
                     />
                     <Field
                         label="Password"
-                        placeholder={mode === 'register' ? 'At least 6 characters' : 'Your password'}
+                        placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'}
                         value={form.password}
                         error={errors.password}
                         password
@@ -142,6 +171,9 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
                         onChangeText={(v) => update('password', v)}
                         onSubmitEditing={mode === 'login' ? submit : undefined}
                     />
+                    {mode === 'register' ? (
+                        <Text style={styles.hint}>Use 8+ characters with at least one letter and one number.</Text>
+                    ) : null}
                 </>
             )}
 
@@ -149,6 +181,22 @@ export function AccountForm({ onDone }: { onDone?: () => void }) {
                 <>
                     {mode === 'register' ? (
                         <Text style={styles.hint}>Delivery details are saved to fill in checkout.</Text>
+                    ) : null}
+                    {mode === 'profile' ? (
+                        <DeliveryLocationPicker
+                            form={form}
+                            enabled
+                            initialPin={deliveryPin}
+                            onPinChange={setDeliveryPin}
+                            onApplyDetected={(patch) => {
+                                setForm((prev) => ({
+                                    ...prev,
+                                    ...Object.fromEntries(
+                                        Object.entries(patch).filter(([, v]) => v != null && v !== ''),
+                                    ),
+                                }))
+                            }}
+                        />
                     ) : null}
                     <DeliveryFields form={form} errors={errors} onChange={update} />
                 </>

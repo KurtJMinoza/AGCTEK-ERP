@@ -1,6 +1,6 @@
 import type { DivisionId, Product } from './types'
 
-export const MARKETPLACE_NAME = 'AGC Marketplace'
+export const MARKETPLACE_NAME = 'Amalgated Shop'
 
 /** Checkout order of stores (matches the web split cart). */
 export const DIVISION_ORDER: readonly DivisionId[] = [

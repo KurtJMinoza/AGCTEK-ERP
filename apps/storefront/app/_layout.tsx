@@ -38,6 +38,10 @@ export default function RootLayout() {
                                             name="sign-in"
                                             options={{ presentation: 'modal', headerShown: false }}
                                         />
+                                        <Stack.Screen
+                                            name="otp"
+                                            options={{ presentation: 'modal', headerShown: false }}
+                                        />
                                     </Stack>
                                 </ShopProvider>
                             </FavoritesProvider>
